@@ -1,0 +1,16 @@
+{
+  "name": "@kopirka/desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Десктопная упаковка «Копирки» на Tauri 2",
+  "type": "module",
+  "scripts": {
+    "prepare:payload": "cd .. && npm run build --workspace=web && npm run build --workspace=server && node desktop/scripts/bundle-server.mjs",
+    "icons": "node scripts/make-icons.mjs && tauri icon src-tauri/icons/source-1024.png",
+    "dev": "tauri dev",
+    "build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.9.2"
+  }
+}

@@ -1,0 +1,9 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+.env
+.env.local
+
+# Рабочие скриншоты агентов — пересоздаются, в истории только шум
+.screenshots/

@@ -1,0 +1,36 @@
+import type { FolderRecord } from '@shared/api';
+
+export interface FlatFolder {
+  folder: FolderRecord;
+  depth: number;
+}
+
+/** Дерево → плоский список с глубиной. Нужен и сайдбару, и селекту папки. */
+export function flattenFolders(folders: readonly FolderRecord[], depth = 0): FlatFolder[] {
+  const result: FlatFolder[] = [];
+  for (const folder of folders) {
+    result.push({ folder, depth });
+    if (folder.children.length > 0) result.push(...flattenFolders(folder.children, depth + 1));
+  }
+  return result;
+}
+
+/** Рекурсивная правка одной папки в дереве. Возвращает новое дерево. */
+export function mapFolderTree(
+  folders: readonly FolderRecord[],
+  id: number,
+  update: (folder: FolderRecord) => FolderRecord,
+): FolderRecord[] {
+  return folders.map((folder) =>
+    folder.id === id
+      ? update(folder)
+      : { ...folder, children: mapFolderTree(folder.children, id, update) },
+  );
+}
+
+/** Рекурсивное удаление папки из дерева. */
+export function removeFolder(folders: readonly FolderRecord[], id: number): FolderRecord[] {
+  return folders
+    .filter((folder) => folder.id !== id)
+    .map((folder) => ({ ...folder, children: removeFolder(folder.children, id) }));
+}

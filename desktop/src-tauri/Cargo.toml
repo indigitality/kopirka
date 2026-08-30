@@ -1,0 +1,27 @@
+[package]
+name = "kopirka-desktop"
+version = "0.1.0"
+description = "Десктопная оболочка «Копирки»"
+edition = "2021"
+rust-version = "1.82"
+publish = false
+
+[[bin]]
+name = "kopirka-desktop"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-notification = "2"
+serde_json = "1"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

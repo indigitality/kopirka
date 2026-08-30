@@ -1,0 +1,179 @@
+/**
+ * Общие примитивы страниц расширения: типографика, кнопки, поля.
+ * Кнопки — по разделу 4 визуальной спеки (app/web/DESIGN-SPEC.md).
+ */
+
+* {
+  box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-strong) transparent;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent-ring);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--color-accent);
+  color: var(--color-accent-ink);
+}
+
+.label-section {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--color-ink-faint);
+}
+
+.text-technical {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-ink-muted);
+}
+
+/* ── Логотип: мятный квадрат с градиентом акцента ───────────────────────── */
+.logo {
+  display: block;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(135deg, var(--color-accent), var(--color-accent-deep));
+}
+
+/* ── Кнопки ─────────────────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: var(--size-row);
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-size: var(--text-base);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.btn--primary {
+  background: linear-gradient(135deg, var(--color-accent), var(--color-accent-deep));
+  color: var(--color-accent-ink);
+  font-weight: 500;
+}
+
+.btn--primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, var(--color-accent-hover), var(--color-accent));
+}
+
+.btn--secondary {
+  background: var(--color-surface-raised);
+  border-color: var(--color-line-strong);
+  color: var(--color-ink);
+}
+
+.btn--secondary:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+}
+
+.btn--ghost {
+  background: transparent;
+  color: var(--color-ink-muted);
+}
+
+.btn--ghost:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+  color: var(--color-ink);
+}
+
+.btn--block {
+  width: 100%;
+}
+
+.btn__icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+}
+
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-ink-faint);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+
+.btn-icon:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-ink);
+}
+
+/* ── Поля ───────────────────────────────────────────────────────────────── */
+.field {
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.field::placeholder {
+  color: var(--color-ink-faint);
+}
+
+.field:focus {
+  outline: 2px solid var(--color-accent-ring);
+  outline-offset: -1px;
+  border-color: transparent;
+}
+
+/* ── Индикатор загрузки ─────────────────────────────────────────────────── */
+.spinner {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  border: 2px solid var(--color-line-strong);
+  border-top-color: var(--color-accent);
+  border-radius: var(--radius-pill);
+  animation: spin 700ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+[hidden] {
+  display: none !important;
+}

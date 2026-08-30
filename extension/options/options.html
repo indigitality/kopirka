@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <title>Настройки Копирки</title>
+    <link rel="stylesheet" href="../tokens.css" />
+    <link rel="stylesheet" href="../base.css" />
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body class="options">
+    <header class="options__head">
+      <span class="logo" aria-hidden="true"></span>
+      <h1 class="options__title">Копирка</h1>
+    </header>
+
+    <label class="label-section" for="server-url">Адрес сервера</label>
+    <div class="options__row">
+      <input
+        id="server-url"
+        class="field"
+        type="text"
+        spellcheck="false"
+        autocomplete="off"
+        placeholder="http://127.0.0.1:43117"
+      />
+      <button id="check" class="btn btn--secondary" type="button">Проверить</button>
+    </div>
+
+    <p id="status" class="options__status text-technical"></p>
+
+    <p class="options__hint">
+      Адрес сохраняется сам. Порт по умолчанию — 43117; менять его нужно, только
+      если он изменён в самом приложении «Копирка».
+    </p>
+
+    <script type="module" src="options.js"></script>
+  </body>
+</html>

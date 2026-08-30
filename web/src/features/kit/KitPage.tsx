@@ -1,0 +1,391 @@
+import { useState, type ReactNode } from 'react';
+import { Copy, Folder, ImageDown, Plus, Trash2 } from 'lucide-react';
+import { flattenFolders } from '@/lib/folders';
+import { mockFolders } from '@/features/shell/mock';
+import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
+import { Checkbox } from '@/components/ui/Checkbox';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@/components/ui/ContextMenu';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { IconButton } from '@/components/ui/IconButton';
+import { Input } from '@/components/ui/Input';
+import { Modal, ModalContent } from '@/components/ui/Modal';
+import { Popover, PopoverContent, PopoverItem, PopoverSeparator, PopoverTrigger } from '@/components/ui/Popover';
+import { SearchField } from '@/components/ui/SearchField';
+import { Select } from '@/components/ui/Select';
+import { SelectionBar } from '@/components/ui/SelectionBar';
+import { Tag } from '@/components/ui/Tag';
+import { Tooltip } from '@/components/ui/Tooltip';
+import { importSummaryToast, useToast } from '@/components/ui/Toast';
+
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="mt-11 first:mt-0">
+      <div className="mb-4 flex items-center gap-3">
+        <span className="label-section shrink-0">{title}</span>
+        <span className="h-px flex-1 bg-line" aria-hidden />
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function Row({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex items-start gap-6 py-2">
+      <span className="w-[148px] shrink-0 pt-1.5 text-sm text-ink-faint">{label}</span>
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2.5">{children}</div>
+    </div>
+  );
+}
+
+const folderOptions = flattenFolders(mockFolders).map(({ folder, depth }) => ({
+  value: folder.id,
+  label: folder.name,
+  depth,
+  icon: <Folder className="size-3.5" strokeWidth={2} />,
+}));
+
+export function KitPage() {
+  const { toast } = useToast();
+  const [tags, setTags] = useState(['интерфейс', 'дашборд', 'тёмная тема']);
+  const [checked, setChecked] = useState(false);
+  const [folderId, setFolderId] = useState<number | null>(folderOptions[0]?.value ?? null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [selectionCount, setSelectionCount] = useState(3);
+
+  return (
+    <div className="h-full overflow-y-auto bg-bg">
+      <div className="mx-auto max-w-[960px] px-10 pt-12 pb-24">
+        <header className="mb-10">
+          <h1 className="text-2xl font-medium tracking-tight text-ink">Копирка · дизайн-система</h1>
+          <p className="text-technical mt-1.5">
+            тёмная тема · Geist + Geist Mono · все значения из tokens.css
+          </p>
+        </header>
+
+        <Section title="Кнопки">
+          <Row label="Первичная">
+            <Button variant="primary">Скопировать</Button>
+            <Button variant="primary" size="sm">
+              Скопировать
+            </Button>
+            <Button variant="primary" icon={<Copy className="size-3.5" strokeWidth={2} />}>
+              С иконкой
+            </Button>
+            <Button variant="primary" hotkey="⌘C">
+              С хоткеем
+            </Button>
+            <Button variant="primary" disabled>
+              Выключена
+            </Button>
+          </Row>
+          <Row label="Вторичная">
+            <Button variant="secondary">В Finder</Button>
+            <Button variant="secondary" size="sm">
+              В Finder
+            </Button>
+            <Button variant="secondary" icon={<Folder className="size-3.5" strokeWidth={2} />}>
+              С иконкой
+            </Button>
+            <Button variant="secondary" hotkey="⌘R">
+              С хоткеем
+            </Button>
+            <Button variant="secondary" disabled>
+              Выключена
+            </Button>
+          </Row>
+          <Row label="Призрачная">
+            <Button variant="ghost">Отменить</Button>
+            <Button variant="ghost" size="sm">
+              Отменить
+            </Button>
+            <Button variant="ghost" icon={<Plus className="size-3.5" strokeWidth={2} />}>
+              С иконкой
+            </Button>
+            <Button variant="ghost" hotkey="Esc">
+              С хоткеем
+            </Button>
+            <Button variant="ghost" disabled>
+              Выключена
+            </Button>
+          </Row>
+          <Row label="Опасная">
+            <Button variant="danger">Удалить</Button>
+            <Button variant="danger" size="sm">
+              Удалить
+            </Button>
+            <Button variant="danger" icon={<Trash2 className="size-3.5" strokeWidth={2} />}>
+              С иконкой
+            </Button>
+            <Button variant="danger" hotkey="⌫">
+              С хоткеем
+            </Button>
+            <Button variant="danger" disabled>
+              Выключена
+            </Button>
+          </Row>
+        </Section>
+
+        <Section title="Кнопки-иконки">
+          <Row label="32 × 32">
+            <IconButton label="Скопировать">
+              <Copy className="size-4" strokeWidth={2} />
+            </IconButton>
+            <IconButton label="Папка" variant="secondary">
+              <Folder className="size-4" strokeWidth={2} />
+            </IconButton>
+            <IconButton label="Удалить" variant="danger">
+              <Trash2 className="size-4" strokeWidth={2} />
+            </IconButton>
+          </Row>
+          <Row label="28 × 28">
+            <IconButton label="Скопировать" size="sm">
+              <Copy className="size-3.5" strokeWidth={2} />
+            </IconButton>
+            <IconButton label="Папка" size="sm" variant="secondary">
+              <Folder className="size-3.5" strokeWidth={2} />
+            </IconButton>
+            <IconButton label="Удалить" size="sm" variant="danger">
+              <Trash2 className="size-3.5" strokeWidth={2} />
+            </IconButton>
+          </Row>
+        </Section>
+
+        <Section title="Поля">
+          <Row label="Input">
+            <Input placeholder="Имя папки" className="w-[200px]" />
+            <Input defaultValue="Дашборды" className="w-[200px]" />
+            <Input placeholder="Выключено" disabled className="w-[200px]" />
+          </Row>
+        </Section>
+
+        <Section title="Поиск с бим-эффектом">
+          <div className="flex flex-wrap gap-10">
+            <div>
+              <p className="text-technical mb-2">beamMode=&quot;hover&quot; · 3 оборота</p>
+              <SearchField beamMode="hover" />
+            </div>
+            <div>
+              <p className="text-technical mb-2">beamMode=&quot;cycle&quot; · пауза 2000 мс</p>
+              <SearchField beamMode="cycle" globalHotkey={false} />
+            </div>
+          </div>
+        </Section>
+
+        <Section title="Теги">
+          <Row label="Обычный">
+            <Tag>интерфейс</Tag>
+            <Tag>дашборд</Tag>
+          </Row>
+          <Row label="С удалением">
+            {tags.map((tag) => (
+              <Tag key={tag} onRemove={() => setTags((prev) => prev.filter((item) => item !== tag))}>
+                {tag}
+              </Tag>
+            ))}
+            {tags.length === 0 ? (
+              <button
+                type="button"
+                className="text-sm text-ink-faint underline underline-offset-2 hover:text-ink"
+                onClick={() => setTags(['интерфейс', 'дашборд', 'тёмная тема'])}
+              >
+                вернуть теги
+              </button>
+            ) : null}
+            <Tag dashed>+ тег</Tag>
+          </Row>
+        </Section>
+
+        <Section title="Бейджи">
+          <Row label="Варианты">
+            <Badge>похоже, дубль</Badge>
+            <Badge>gif</Badge>
+            <Badge>Интерфейсы</Badge>
+            <Badge variant="danger">битый файл</Badge>
+          </Row>
+          <Row label="Поверх превью">
+            <div className="relative h-[112px] w-[168px] overflow-hidden rounded-md bg-linear-to-br from-surface-active to-surface-raised">
+              <Badge className="absolute top-1.5 right-1.5">похоже, дубль</Badge>
+              <Badge className="absolute bottom-1.5 left-1.5">gif</Badge>
+              <Checkbox
+                checked={checked}
+                onCheckedChange={setChecked}
+                className="absolute top-1.5 left-1.5"
+              />
+            </div>
+          </Row>
+        </Section>
+
+        <Section title="Чекбокс">
+          <Row label="20px, круглый">
+            <Checkbox checked={checked} onCheckedChange={setChecked} />
+            <Checkbox checked onCheckedChange={() => undefined} />
+            <span className="text-sm text-ink-faint">
+              {checked ? 'выделено' : 'не выделено'}
+            </span>
+          </Row>
+        </Section>
+
+        <Section title="Селект">
+          <Row label="Выбор папки">
+            <div className="w-[240px]">
+              <Select
+                value={folderId}
+                onValueChange={setFolderId}
+                options={folderOptions}
+                icon={<Folder className="size-3.5" strokeWidth={2} />}
+                placeholder="Без папки"
+              />
+            </div>
+          </Row>
+        </Section>
+
+        <Section title="Оверлеи">
+          <Row label="Поповер">
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="secondary">Открыть поповер</Button>
+              </PopoverTrigger>
+              <PopoverContent>
+                <PopoverItem>Переименовать</PopoverItem>
+                <PopoverItem>Новая подпапка</PopoverItem>
+                <PopoverSeparator />
+                <PopoverItem className="text-danger hover:bg-danger-soft hover:text-danger">
+                  Удалить папку
+                </PopoverItem>
+              </PopoverContent>
+            </Popover>
+          </Row>
+          <Row label="Модалка">
+            <Button variant="secondary" onClick={() => setModalOpen(true)}>
+              Открыть модалку
+            </Button>
+          </Row>
+          <Row label="Тултип">
+            <Tooltip content="Скопировать в буфер" hotkey="⌘C">
+              <IconButton label="Скопировать" variant="secondary">
+                <Copy className="size-4" strokeWidth={2} />
+              </IconButton>
+            </Tooltip>
+          </Row>
+          <Row label="Контекстное меню">
+            <ContextMenu>
+              <ContextMenuTrigger asChild>
+                <div className="flex h-[72px] w-[240px] items-center justify-center rounded-md border border-dashed border-line-strong text-sm text-ink-faint select-none">
+                  Правый клик здесь
+                </div>
+              </ContextMenuTrigger>
+              <ContextMenuContent>
+                <ContextMenuItem hotkey="⏎">Открыть</ContextMenuItem>
+                <ContextMenuItem hotkey="⌘C">Скопировать</ContextMenuItem>
+                <ContextMenuItem>Показать в Finder</ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem danger hotkey="⌫">
+                  Удалить
+                </ContextMenuItem>
+              </ContextMenuContent>
+            </ContextMenu>
+          </Row>
+        </Section>
+
+        <Section title="Тосты">
+          <Row label="Варианты">
+            <Button
+              variant="secondary"
+              onClick={() =>
+                toast({
+                  title: 'Файл удалён',
+                  action: { label: 'Отменить', onClick: () => toast({ title: 'Удаление отменено' }) },
+                })
+              }
+            >
+              Удаление с отменой
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() =>
+                toast(importSummaryToast({ added: 48, duplicates: 2, similar: 0, errors: 1 }))
+              }
+            >
+              Сводка импорта
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => toast({ title: 'Не удалось прочитать файл', tone: 'danger' })}
+            >
+              Ошибка
+            </Button>
+          </Row>
+        </Section>
+
+        <Section title="Панель массового выделения">
+          <div className="flex h-[92px] items-center justify-center rounded-md bg-surface">
+            {selectionCount > 0 ? (
+              <SelectionBar
+                count={selectionCount}
+                onMoveToFolder={() => toast({ title: 'Выбор папки для 3 файлов' })}
+                onTag={() => toast({ title: 'Добавление тега к 3 файлам' })}
+                onDelete={() =>
+                  toast({
+                    title: 'Файлы удалены',
+                    action: { label: 'Отменить', onClick: () => setSelectionCount(3) },
+                  })
+                }
+                onCancel={() => setSelectionCount(0)}
+              />
+            ) : (
+              <Button variant="ghost" onClick={() => setSelectionCount(3)}>
+                Выделить 3 файла
+              </Button>
+            )}
+          </div>
+        </Section>
+
+        <Section title="Пустое состояние">
+          <div className="rounded-md bg-surface">
+            <EmptyState
+              icon={<ImageDown className="size-5" strokeWidth={1.75} />}
+              title="Перетащите изображения сюда"
+              description="Или сохраните картинку из браузера через контекстное меню «Сохранить в Копирку»."
+              action={
+                <Button variant="primary" onClick={() => setModalOpen(true)}>
+                  Как это работает
+                </Button>
+              }
+            />
+          </div>
+        </Section>
+      </div>
+
+      <Modal open={modalOpen} onOpenChange={setModalOpen}>
+        <ModalContent
+          title="Как файлы попадают в Копирку"
+          description="Четыре пути импорта из MVP: контекстное меню браузера, скриншот вкладки, перетаскивание и вставка из буфера."
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setModalOpen(false)}>
+                Закрыть
+              </Button>
+              <Button variant="primary" hotkey="⏎" onClick={() => setModalOpen(false)}>
+                Понятно
+              </Button>
+            </>
+          }
+        >
+          <div className="rounded-md bg-surface-raised p-3">
+            <p className="text-technical">
+              CAP-01 · CAP-02 · CAP-03 · CAP-04
+            </p>
+          </div>
+        </ModalContent>
+      </Modal>
+    </div>
+  );
+}

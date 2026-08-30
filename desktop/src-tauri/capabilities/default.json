@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Интерфейс работает без IPC — нужен только базовый набор прав.",
+  "windows": ["main", "error"],
+  "permissions": ["core:default"]
+}

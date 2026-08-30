@@ -1,0 +1,153 @@
+/** Popup: ширина 320px по требованию, высота не выше 480px. */
+
+.popup {
+  width: 320px;
+  max-height: 480px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Шапка ──────────────────────────────────────────────────────────────── */
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 10px 0 12px;
+  flex-shrink: 0;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-line);
+}
+
+.head__name {
+  flex: 1;
+  font-size: var(--text-md);
+  font-weight: 500;
+  letter-spacing: var(--tracking-tight);
+}
+
+/* ── Состояния ──────────────────────────────────────────────────────────── */
+.views {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.view {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+}
+
+.view--center {
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 132px;
+  text-align: center;
+}
+
+.view__text {
+  margin: 0;
+  color: var(--color-ink);
+}
+
+.view__hint {
+  margin: 2px 0 0;
+  color: var(--color-ink-faint);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+}
+
+.row__grow {
+  flex: 1;
+}
+
+/* ── Предпросмотр ───────────────────────────────────────────────────────── */
+.preview {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 96px;
+  max-height: 240px;
+  padding: 6px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  overflow: hidden;
+}
+
+.preview__image {
+  max-width: 100%;
+  max-height: 228px;
+  border-radius: var(--radius-xs);
+  object-fit: contain;
+}
+
+.preview__busy {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-scrim);
+}
+
+.preview__caption {
+  margin: 0;
+}
+
+/* ── Сообщения ──────────────────────────────────────────────────────────── */
+.notice {
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-line-strong);
+}
+
+.notice--danger {
+  background: var(--color-danger-soft);
+  border-color: transparent;
+}
+
+.notice__title {
+  margin: 0 0 4px;
+  font-size: var(--text-md);
+  font-weight: 500;
+}
+
+.notice--danger .notice__title {
+  color: var(--color-danger);
+}
+
+.notice__text {
+  margin: 0;
+  color: var(--color-ink-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  overflow-wrap: anywhere;
+}
+
+.notice__address {
+  margin: 8px 0 0;
+  color: var(--color-ink-faint);
+}
+
+/* ── Галочка успеха ─────────────────────────────────────────────────────── */
+.check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}

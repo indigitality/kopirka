@@ -1,0 +1,5 @@
+node_modules/
+src-tauri/target/
+src-tauri/gen/
+# Payload сервера — 130 МБ бинарников, пересобирается bundle-server.mjs
+src-tauri/resources/

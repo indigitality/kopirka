@@ -1,0 +1,60 @@
+/** Страница настроек: одно поле, кнопка проверки, автосохранение. */
+
+.options {
+  width: 100%;
+  max-width: 420px;
+  min-width: 320px;
+  padding: 18px 20px 20px;
+}
+
+.options__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.options__title {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 500;
+  letter-spacing: var(--tracking-tight);
+}
+
+.options__row {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.options__row .field {
+  flex: 1;
+  min-width: 0;
+}
+
+.options__row .btn {
+  height: 34px;
+  flex-shrink: 0;
+}
+
+.options__status {
+  min-height: 18px;
+  margin: 8px 0 0;
+}
+
+.options__status--ok {
+  color: var(--color-accent);
+}
+
+.options__status--error {
+  color: var(--color-danger);
+}
+
+.options__hint {
+  margin: 18px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--color-line);
+  color: var(--color-ink-faint);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
