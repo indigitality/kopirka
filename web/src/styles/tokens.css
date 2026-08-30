@@ -26,7 +26,7 @@
   */
   --color-bg: #000000; /* фон приложения */
   --color-surface: #000000; /* сайдбар, верхняя панель — тот же чёрный */
-  --color-surface-row: rgb(242 242 242 / 0.06); /* строка сайдбара: ховер и активная */
+  --color-surface-row: rgb(242 242 242 / 0.14); /* строка сайдбара: ховер и активная — #222222 на чёрном */
   --color-surface-raised: #0e0e10; /* поле поиска, чипы, подложка карточки */
   --color-surface-overlay: #141417; /* поповеры, модалки, панель выделения */
   --color-surface-hover: #0d0d0f;
@@ -101,10 +101,12 @@
   --sidebar-row-gap: 8px; /* иконка → имя */
   --sidebar-indent: 12px; /* отступ одного уровня вложенности */
   --sidebar-icon: 16px; /* слот иконки папки и шеврона */
+  --sidebar-logo-gap: 12px; /* знак → слово «Копирка» */
   --sidebar-action: 12px; /* иконки «+» и «⋮» в строке */
   --sidebar-fade-width: 40px; /* ширина затухания у правого края строки */
   --sidebar-marquee-speed: 80; /* px в секунду при прокрутке длинного имени */
   --sidebar-marquee-delay: 200ms; /* пауза перед стартом прокрутки */
+  --sidebar-marquee-back: 260ms; /* возврат имени и иконки на место */
   --size-detail-panel: 348px; /* правая колонка детального просмотра */
 
   /* ── Сетка карточек ───────────────────────────────────────────────────── */
@@ -210,26 +212,26 @@
   }
 }
 
-/*
-  Затухание длинного имени папки у правого края строки — прямоугольник-градиент
-  на артборде 2-0. Сделано маской, а не заливкой: строка бывает и на фоне сайдбара,
-  и на подсветке, а маска не зависит от того, что под ней.
-
-  Длина затухания — своя типизированная переменная: обычные CSS-переменные не
-  анимируются, а нам нужно убрать затухание ровно за то же время, что едет текст.
-*/
-@property --sidebar-fade {
-  syntax: '<length>';
-  inherits: true;
-  initial-value: 0px;
-}
 
 /*
   Строка сайдбара: слот иконки, бегущее имя и затухание у правого края.
-  Живёт здесь, а не в компоненте, потому что завязано на @property выше и на
-  переходы, которые в утилитах Tailwind не выражаются.
+  Живёт здесь, а не в компоненте: переходы с разной длительностью «туда» и
+  «обратно» в утилитах Tailwind не выражаются.
 */
 @layer components {
+  /*
+    Оболочка сайдбара. Сверху к полю добавляется инсет: в окне macOS кнопки
+    светофора лежат поверх интерфейса (titleBarStyle Overlay) и иначе наезжают
+    на логотип. Переменную ставит десктопная обёртка; в браузере её нет и
+    отступ остаётся макетным.
+  */
+  .sidebar-shell {
+    padding-top: calc(var(--sidebar-pad-y) + var(--kopirka-titlebar-inset, 0px));
+    padding-bottom: var(--sidebar-pad-y);
+    padding-left: var(--sidebar-pad-x);
+    padding-right: var(--sidebar-pad-x);
+  }
+
   /* Слот иконки. Уезжает, когда имя не помещается и начинает прокручиваться. */
   .sidebar-icon {
     position: relative;
@@ -241,8 +243,8 @@
     height: var(--sidebar-icon);
     opacity: 1;
     transition:
-      width var(--dur-base) var(--ease-out),
-      margin-right var(--dur-base) var(--ease-out),
+      width var(--sidebar-marquee-back) var(--ease-out),
+      margin-right var(--sidebar-marquee-back) var(--ease-out),
       opacity var(--dur-fast) var(--ease-out);
   }
 
@@ -267,20 +269,37 @@
     overflow: hidden;
   }
 
+  /*
+    Затухание уводится не изменением градиента, а растягиванием маски: прозрачный
+    хвост уезжает за правый край окна. Так анимация опирается на обычный mask-size,
+    который умеют все движки, включая WebKit в окне приложения.
+  */
   .sidebar-name[data-fade] {
-    --sidebar-fade: var(--sidebar-fade-width);
     -webkit-mask-image: linear-gradient(
       to right,
-      #000 calc(100% - var(--sidebar-fade)),
+      #000 calc(100% - var(--sidebar-fade-width)),
       transparent 100%
     );
-    mask-image: linear-gradient(to right, #000 calc(100% - var(--sidebar-fade)), transparent 100%);
-    transition: --sidebar-fade var(--marquee-dur, 0ms) linear;
+    mask-image: linear-gradient(
+      to right,
+      #000 calc(100% - var(--sidebar-fade-width)),
+      transparent 100%
+    );
+    -webkit-mask-size: 100% 100%;
+    mask-size: 100% 100%;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    transition:
+      -webkit-mask-size var(--sidebar-marquee-back) var(--ease-out),
+      mask-size var(--sidebar-marquee-back) var(--ease-out);
   }
 
   .sidebar-row:hover .sidebar-name[data-fade] {
-    --sidebar-fade: 0px;
-    transition-delay: var(--sidebar-marquee-delay);
+    -webkit-mask-size: calc(100% + var(--sidebar-fade-width)) 100%;
+    mask-size: calc(100% + var(--sidebar-fade-width)) 100%;
+    transition:
+      -webkit-mask-size var(--marquee-dur, 0ms) linear var(--sidebar-marquee-delay),
+      mask-size var(--marquee-dur, 0ms) linear var(--sidebar-marquee-delay);
   }
 
   .sidebar-name__text {
@@ -289,12 +308,14 @@
     max-width: none;
     white-space: nowrap;
     transform: translateX(0);
-    transition: transform var(--marquee-dur, 0ms) linear;
+    /* Назад имя возвращается быстро и одинаково: ждать полтора вдоха, пока
+       уползёт обратно, — раздражает сильнее, чем сама прокрутка. */
+    transition: transform var(--sidebar-marquee-back) var(--ease-out);
   }
 
   .sidebar-row:hover .sidebar-name[data-fade] .sidebar-name__text {
     transform: translateX(var(--marquee-shift, 0));
-    transition-delay: var(--sidebar-marquee-delay);
+    transition: transform var(--marquee-dur, 0ms) linear var(--sidebar-marquee-delay);
   }
 
   /*
@@ -335,7 +356,8 @@
   }
 
   .sidebar-row:hover .sidebar-name[data-fade] {
-    --sidebar-fade: var(--sidebar-fade-width);
+    -webkit-mask-size: 100% 100%;
+    mask-size: 100% 100%;
   }
 
   .sidebar-row:has(.sidebar-name[data-fade]):hover .sidebar-icon {

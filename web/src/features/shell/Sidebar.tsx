@@ -35,9 +35,10 @@ const ACTION_GAP = 2; // зазор между ними — по макету
 /** Глубина дерева: корень и один вложенный уровень. Глубже подпапку не создать. */
 const MAX_DEPTH = 1;
 
-/** Прокрутка длинного имени: скорость и нижняя граница длительности. */
-const MARQUEE_SPEED = 80; // px в секунду
-const MARQUEE_MIN_MS = 160;
+/** Прокрутка длинного имени: скорость и границы длительности. */
+const MARQUEE_SPEED = 90; // px в секунду
+const MARQUEE_MIN_MS = 240;
+const MARQUEE_MAX_MS = 2200; // очень длинное имя не должно ехать бесконечно
 
 export interface SidebarProps {
   folders: readonly FolderRecord[];
@@ -150,7 +151,10 @@ function FolderRow({
     ICON + ROW_GAP - trailingWidth,
   );
 
-  const duration = Math.max(MARQUEE_MIN_MS, Math.round((shift / MARQUEE_SPEED) * 1000));
+  const duration = Math.min(
+    MARQUEE_MAX_MS,
+    Math.max(MARQUEE_MIN_MS, Math.round((shift / MARQUEE_SPEED) * 1000)),
+  );
 
   useEffect(() => {
     if (renaming) {
@@ -354,9 +358,9 @@ export function Sidebar({
       aria-label="Разделы и папки"
       data-collapsed={collapsed}
     >
-      <div className="flex h-full w-[var(--size-sidebar)] flex-col gap-7 px-[var(--sidebar-pad-x)] py-[var(--sidebar-pad-y)]">
-        {/* Логотип */}
-        <div className="flex shrink-0 items-center gap-5">
+      <div className="sidebar-shell flex h-full w-[var(--size-sidebar)] flex-col gap-7">
+        {/* Логотип: своё левое поле, как у строк ниже — артборд 3IV-0 */}
+        <div className="flex shrink-0 items-center gap-[var(--sidebar-logo-gap)] pl-[var(--sidebar-row-pad-x)]">
           <span
             className="size-[22px] shrink-0 rounded-[7px] bg-linear-to-br from-accent to-accent-deep"
             aria-hidden
