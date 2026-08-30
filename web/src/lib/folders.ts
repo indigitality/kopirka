@@ -15,6 +15,25 @@ export function flattenFolders(folders: readonly FolderRecord[], depth = 0): Fla
   return result;
 }
 
+/**
+ * То же, но свёрнутые папки не отдают детей — список для сайдбара.
+ * Свёрнутость приходит снаружи (стор вида), дерево о ней не знает.
+ */
+export function flattenVisibleFolders(
+  folders: readonly FolderRecord[],
+  collapsed: ReadonlySet<number>,
+  depth = 0,
+): FlatFolder[] {
+  const result: FlatFolder[] = [];
+  for (const folder of folders) {
+    result.push({ folder, depth });
+    if (folder.children.length > 0 && !collapsed.has(folder.id)) {
+      result.push(...flattenVisibleFolders(folder.children, collapsed, depth + 1));
+    }
+  }
+  return result;
+}
+
 /** Рекурсивная правка одной папки в дереве. Возвращает новое дерево. */
 export function mapFolderTree(
   folders: readonly FolderRecord[],

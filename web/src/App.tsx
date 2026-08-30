@@ -88,10 +88,14 @@ function Shell({ settings, onSettingsChange }: ShellProps) {
     toast({ title: message, tone: 'danger' });
   };
 
-  const handleCreateFolder = () => {
+  const handleCreateFolder = (parentFolderId: number | null) => {
     void library
-      .createFolder('Новая папка', null)
-      .then((created) => setRenamingFolderId(created.id))
+      .createFolder('Новая папка', parentFolderId)
+      .then((created) => {
+        // Подпапка бесполезна в свёрнутом родителе — раскрываем его вместе с созданием.
+        if (parentFolderId !== null) viewActions.expandFolder(parentFolderId);
+        setRenamingFolderId(created.id);
+      })
       .catch((cause: unknown) => fail(cause, 'Не удалось создать папку'));
   };
 

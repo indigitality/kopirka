@@ -21,10 +21,12 @@
   /*
     Оболочка — единый чёрный: фон, сайдбар и верхняя панель совпадают.
     Разделения на тона тут быть не должно — интерфейс отступает, работают картинки.
-    Приподняты только то, что и правда лежит выше: поля, поповеры, модалки.
+    (Артборд 2-0 нарисован на #151515, но решение Сергея 30.08.2026 — оставить единый чёрный.)
+    Приподнято только то, что и правда лежит выше: поля, поповеры, модалки.
   */
   --color-bg: #000000; /* фон приложения */
   --color-surface: #000000; /* сайдбар, верхняя панель — тот же чёрный */
+  --color-surface-row: rgb(242 242 242 / 0.06); /* строка сайдбара: ховер и активная */
   --color-surface-raised: #0e0e10; /* поле поиска, чипы, подложка карточки */
   --color-surface-overlay: #141417; /* поповеры, модалки, панель выделения */
   --color-surface-hover: #0d0d0f;
@@ -35,8 +37,8 @@
   --color-line-strong: #26262b; /* граница интерактивного элемента */
 
   /* ── Текст ────────────────────────────────────────────────────────────── */
-  --color-ink: #ededf0; /* основной */
-  --color-ink-muted: #8b8b93; /* вторичный: имена папок, подписи */
+  --color-ink: #f2f2f2; /* основной */
+  --color-ink-muted: #868686; /* вторичный: имена папок, разделы, счётчики */
   --color-ink-faint: #5f5f68; /* третичный: счётчики, секции, плейсхолдеры */
 
   /* ── Акцент: мятно-бирюзовый ──────────────────────────────────────────── */
@@ -75,7 +77,7 @@
   --text-xl: 20px;
   --text-2xl: 28px;
 
-  --tracking-label: 0.08em; /* ЗАГОЛОВКИ СЕКЦИЙ КАПСОМ */
+  --tracking-label: 0.055em; /* ЗАГОЛОВКИ СЕКЦИЙ И СЧЁТЧИКИ, 0.55px при 10px */
   --tracking-tight: -0.01em;
 
   --leading-tight: 1.25;
@@ -90,6 +92,19 @@
   --size-sidebar: 240px;
   --size-topbar: 60px;
   --size-row: 32px; /* строка сайдбара, кнопка верхней панели */
+
+  /* Сайдбар — артборд 2-0 (все значения сняты с фрейма) */
+  --sidebar-pad-x: 16px; /* поля сайдбара */
+  --sidebar-pad-y: 24px;
+  --sidebar-row-pad-x: 12px; /* поля строки внутри сайдбара */
+  --sidebar-row-pad-y: 6px;
+  --sidebar-row-gap: 8px; /* иконка → имя */
+  --sidebar-indent: 12px; /* отступ одного уровня вложенности */
+  --sidebar-icon: 16px; /* слот иконки папки и шеврона */
+  --sidebar-action: 12px; /* иконки «+» и «⋮» в строке */
+  --sidebar-fade-width: 40px; /* ширина затухания у правого края строки */
+  --sidebar-marquee-speed: 80; /* px в секунду при прокрутке длинного имени */
+  --sidebar-marquee-delay: 200ms; /* пауза перед стартом прокрутки */
   --size-detail-panel: 348px; /* правая колонка детального просмотра */
 
   /* ── Сетка карточек ───────────────────────────────────────────────────── */
@@ -138,6 +153,28 @@
     color: var(--color-ink-faint);
   }
 
+  /*
+    Сайдбар, артборд 2-0. Заголовок секции «ПАПКИ» и счётчики разделов набраны
+    не моноширинным, а Geist Medium 10/0.55px — отсюда отдельная пара классов.
+  */
+  .label-sidebar {
+    font-size: var(--text-2xs);
+    font-weight: 500;
+    line-height: 1.2;
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+    color: var(--color-ink-muted);
+  }
+
+  .label-count {
+    font-size: var(--text-2xs);
+    font-weight: 500;
+    line-height: 1.5;
+    letter-spacing: var(--tracking-label);
+    color: var(--color-ink-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
   /* Технические значения: размеры, путь на диске, счётчики, бейджи */
   .text-technical {
     font-family: var(--font-mono);
@@ -170,5 +207,140 @@
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/*
+  Затухание длинного имени папки у правого края строки — прямоугольник-градиент
+  на артборде 2-0. Сделано маской, а не заливкой: строка бывает и на фоне сайдбара,
+  и на подсветке, а маска не зависит от того, что под ней.
+
+  Длина затухания — своя типизированная переменная: обычные CSS-переменные не
+  анимируются, а нам нужно убрать затухание ровно за то же время, что едет текст.
+*/
+@property --sidebar-fade {
+  syntax: '<length>';
+  inherits: true;
+  initial-value: 0px;
+}
+
+/*
+  Строка сайдбара: слот иконки, бегущее имя и затухание у правого края.
+  Живёт здесь, а не в компоненте, потому что завязано на @property выше и на
+  переходы, которые в утилитах Tailwind не выражаются.
+*/
+@layer components {
+  /* Слот иконки. Уезжает, когда имя не помещается и начинает прокручиваться. */
+  .sidebar-icon {
+    position: relative;
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: var(--sidebar-icon);
+    height: var(--sidebar-icon);
+    opacity: 1;
+    transition:
+      width var(--dur-base) var(--ease-out),
+      margin-right var(--dur-base) var(--ease-out),
+      opacity var(--dur-fast) var(--ease-out);
+  }
+
+  /*
+    Иконка уезжает, только если имя правда не помещается: у строки есть
+    окно с включённым затуханием. Ховер держим на CSS, а не на состоянии React, —
+    иначе пропущенный mouseleave оставлял бы имя прокрученным.
+  */
+  .sidebar-row:has(.sidebar-name[data-fade]):hover .sidebar-icon {
+    width: 0;
+    margin-right: calc(-1 * var(--sidebar-row-gap));
+    opacity: 0;
+    transition-delay: var(--sidebar-marquee-delay);
+  }
+
+  /* Окно, в котором едет имя. Маска включается только при переполнении. */
+  .sidebar-name {
+    position: relative;
+    display: block;
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+  }
+
+  .sidebar-name[data-fade] {
+    --sidebar-fade: var(--sidebar-fade-width);
+    -webkit-mask-image: linear-gradient(
+      to right,
+      #000 calc(100% - var(--sidebar-fade)),
+      transparent 100%
+    );
+    mask-image: linear-gradient(to right, #000 calc(100% - var(--sidebar-fade)), transparent 100%);
+    transition: --sidebar-fade var(--marquee-dur, 0ms) linear;
+  }
+
+  .sidebar-row:hover .sidebar-name[data-fade] {
+    --sidebar-fade: 0px;
+    transition-delay: var(--sidebar-marquee-delay);
+  }
+
+  .sidebar-name__text {
+    display: block;
+    width: max-content;
+    max-width: none;
+    white-space: nowrap;
+    transform: translateX(0);
+    transition: transform var(--marquee-dur, 0ms) linear;
+  }
+
+  .sidebar-row:hover .sidebar-name[data-fade] .sidebar-name__text {
+    transform: translateX(var(--marquee-shift, 0));
+    transition-delay: var(--sidebar-marquee-delay);
+  }
+
+  /*
+    Кнопки «+» и «⋮» по макету 12×12 и стоят в 2px друг от друга — попасть по ним
+    мышью было бы тяжело, поэтому зона нажатия расширена невидимым слоем.
+  */
+  .sidebar-action {
+    position: relative;
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: var(--sidebar-action);
+    height: var(--sidebar-action);
+    color: var(--color-ink-muted);
+    transition: color var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out);
+  }
+
+  .sidebar-action::after {
+    content: '';
+    position: absolute;
+    inset: -10px -1px;
+  }
+
+  .sidebar-action:hover {
+    color: var(--color-ink);
+  }
+}
+
+/*
+  При «уменьшить движение» имя не прокручивается вовсе: затухание остаётся,
+  иконка не уезжает. Общий блок выше гасит только длительности, а здесь нужно
+  отменить сами конечные состояния.
+*/
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-row:hover .sidebar-name[data-fade] .sidebar-name__text {
+    transform: translateX(0);
+  }
+
+  .sidebar-row:hover .sidebar-name[data-fade] {
+    --sidebar-fade: var(--sidebar-fade-width);
+  }
+
+  .sidebar-row:has(.sidebar-name[data-fade]):hover .sidebar-icon {
+    width: var(--sidebar-icon);
+    margin-right: 0;
+    opacity: 1;
   }
 }

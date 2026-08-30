@@ -35,6 +35,11 @@ export interface ViewState {
   selectionAnchorId: number | null;
   /** LIB-02 — открытый в детальном просмотре файл. */
   openFileId: number | null;
+  /**
+   * Свёрнутые папки сайдбара. Храним именно свёрнутые, а не раскрытые:
+   * дерево по умолчанию раскрыто, и новая папка появляется сразу видимой.
+   */
+  collapsedFolderIds: readonly number[];
 }
 
 const initialState: ViewState = {
@@ -47,6 +52,7 @@ const initialState: ViewState = {
   selectedIds: [],
   selectionAnchorId: null,
   openFileId: null,
+  collapsedFolderIds: [],
 };
 
 let state: ViewState = initialState;
@@ -134,6 +140,19 @@ export const viewActions = {
   },
   openFile(openFileId: number | null): void {
     setState({ openFileId });
+  },
+  toggleFolderCollapsed(id: number): void {
+    const collapsed = state.collapsedFolderIds.includes(id);
+    setState({
+      collapsedFolderIds: collapsed
+        ? state.collapsedFolderIds.filter((x) => x !== id)
+        : [...state.collapsedFolderIds, id],
+    });
+  },
+  /** Раскрыть папку принудительно — например, когда внутрь добавили подпапку. */
+  expandFolder(id: number): void {
+    if (!state.collapsedFolderIds.includes(id)) return;
+    setState({ collapsedFolderIds: state.collapsedFolderIds.filter((x) => x !== id) });
   },
 };
 
