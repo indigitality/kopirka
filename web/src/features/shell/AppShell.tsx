@@ -50,8 +50,12 @@ export function AppShell({
           Якорь и скролл разведены нарочно: скроллится внутренний <main>, а
           позиционируется overlay относительно внешнего блока. Иначе панель
           фильтров уезжала бы вверх вместе с сеткой.
+
+          `id` — договор с «полкой» (дизайн-аудит 4.14): плавающие панели
+          рисуются порталом сюда, а не в `<body>`, поэтому центрируются по
+          контенту и уезжают вместе со свёрнутым сайдбаром.
         */}
-        <div className="relative min-h-0 flex-1">
+        <div id="kopirka-content" className="relative min-h-0 flex-1">
           <main className="h-full overflow-y-auto">{children}</main>
           {overlay}
         </div>

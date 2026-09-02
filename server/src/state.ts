@@ -5,6 +5,7 @@
 import type { AppConfig } from '../../shared/api.js';
 import { saveConfig } from './config.js';
 import { openDatabase, schemaVersion, type Db } from './db.js';
+import { EventLog } from './events.js';
 import { dbPath, ensureLibraryLayout } from './paths.js';
 import { PendingStore } from './pending.js';
 
@@ -13,6 +14,9 @@ export class AppState {
   libraryPath: string;
   db: Db;
   readonly pending = new PendingStore();
+  /** Лента успешных импортов для оболочки и окна. Смену библиотеки переживает: это
+      журнал сессии приложения, а не содержимое конкретной библиотеки. */
+  readonly events = new EventLog();
   /** Порт, на котором сервер реально слушает: он важнее конфига при проверке origin. */
   boundPort: number | null = null;
 

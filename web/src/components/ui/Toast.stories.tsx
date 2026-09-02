@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { Button } from './Button';
+import { SelectionBar } from './SelectionBar';
 import { ToastProvider, useToast, type ToastOptions } from './Toast';
 
 /**
@@ -63,6 +64,36 @@ export const СОтменой: Story = {
       action: { label: 'Отменить', onClick: () => {} },
     },
   },
+};
+
+/**
+ * «Полка» (дизайн-аудит 4.14–4.15). Раньше тост, панель выделения и прогресс
+ * импорта делили точку `bottom-6` и налезали друг на друга. Теперь у них общий
+ * контейнер `#kopirka-shelf`: тост уходит в него порталом, порядок задан `order`
+ * в tokens.css, а центр считается по контенту, а не по окну.
+ */
+export const НаПолке: Story = {
+  name: 'На полке · вместе с панелью выделения',
+  args: { label: 'Показать тост', options: { title: 'Скопировано в буфер', tone: 'success' } },
+  decorators: [
+    (Story) => (
+      <div className="relative h-[300px] overflow-hidden rounded-xl bg-bg">
+        <div className="p-6">
+          <Story />
+        </div>
+        <div id="kopirka-shelf" className="absolute inset-x-0 bottom-6">
+          <SelectionBar
+            count={3}
+            className="shelf-selection"
+            onMoveToFolder={() => {}}
+            onTag={() => {}}
+            onDelete={() => {}}
+            onCancel={() => {}}
+          />
+        </div>
+      </div>
+    ),
+  ],
 };
 
 export const СоСводкой: Story = {

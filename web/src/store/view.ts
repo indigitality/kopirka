@@ -6,6 +6,13 @@
 import { useSyncExternalStore } from 'react';
 import type { FileExt, LibraryScope, SortKey } from '@shared/api';
 
+/** D5 — три размера карточки: крупный, средний, мелкий. */
+export type GridSize = 'l' | 'm' | 's';
+
+export const GRID_SIZES: readonly GridSize[] = ['l', 'm', 's'];
+
+const SORT_KEYS: readonly SortKey[] = ['added_desc', 'added_asc', 'name_asc', 'name_desc'];
+
 /** SEARCH-01/03/04 — набор фильтров панели «Фильтр». Пустой = фильтр не задан. */
 export interface ViewFilters {
   tags: readonly string[];
@@ -28,6 +35,8 @@ export interface ViewState {
   filters: ViewFilters;
   /** LIB-04 — порядок сортировки. */
   sort: SortKey;
+  /** D5 — размер карточек сетки. Сохраняется между запусками. */
+  gridSize: GridSize;
   sidebarCollapsed: boolean;
   /** ORG-04 — id выделенных карточек. */
   selectedIds: readonly number[];
@@ -48,6 +57,7 @@ const initialState: ViewState = {
   query: '',
   filters: emptyFilters,
   sort: 'added_desc',
+  gridSize: 'm',
   sidebarCollapsed: false,
   selectedIds: [],
   selectionAnchorId: null,
@@ -55,14 +65,75 @@ const initialState: ViewState = {
   collapsedFolderIds: [],
 };
 
-let state: ViewState = initialState;
+/*
+  ── Сохранение вида (дизайн-аудит §3.6) ──────────────────────────────────────
+  Сохраняем ровно четыре поля. Фильтры и поиск — нарочно нет: открыть приложение
+  и увидеть отфильтрованную библиотеку страшнее, чем заново нажать три чипа.
+  В `AppConfig` это не тащим: вид — не настройка приложения, а состояние окна.
+  Любое обращение к хранилищу может бросить (приватный режим, запрет на данные
+  сайта), поэтому и чтение, и запись — в try/catch.
+*/
+const STORAGE_KEY = 'kopirka.view';
+
+type PersistedKey = 'gridSize' | 'sort' | 'sidebarCollapsed' | 'collapsedFolderIds';
+
+const PERSISTED_KEYS: readonly PersistedKey[] = [
+  'gridSize',
+  'sort',
+  'sidebarCollapsed',
+  'collapsedFolderIds',
+];
+
+/** Разбор без доверия: в хранилище мог остаться вид от прошлой версии. */
+function readPersisted(): Partial<Pick<ViewState, PersistedKey>> {
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (raw === null) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null) return {};
+    const source = parsed as Record<string, unknown>;
+    const result: Partial<Pick<ViewState, PersistedKey>> = {};
+
+    if (GRID_SIZES.includes(source.gridSize as GridSize)) result.gridSize = source.gridSize as GridSize;
+    if (SORT_KEYS.includes(source.sort as SortKey)) result.sort = source.sort as SortKey;
+    if (typeof source.sidebarCollapsed === 'boolean') result.sidebarCollapsed = source.sidebarCollapsed;
+    if (Array.isArray(source.collapsedFolderIds)) {
+      result.collapsedFolderIds = source.collapsedFolderIds.filter(
+        (id): id is number => typeof id === 'number' && Number.isInteger(id),
+      );
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
+function writePersisted(next: ViewState): void {
+  try {
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        gridSize: next.gridSize,
+        sort: next.sort,
+        sidebarCollapsed: next.sidebarCollapsed,
+        collapsedFolderIds: next.collapsedFolderIds,
+      }),
+    );
+  } catch {
+    /* Хранилище недоступно — вид просто не переживёт перезапуск. */
+  }
+}
+
+let state: ViewState = { ...initialState, ...readPersisted() };
 const listeners = new Set<() => void>();
 
 function setState(patch: Partial<ViewState>): void {
   const next = { ...state, ...patch };
   const changed = (Object.keys(patch) as (keyof ViewState)[]).some((key) => next[key] !== state[key]);
   if (!changed) return;
+  const persistedChanged = PERSISTED_KEYS.some((key) => next[key] !== state[key]);
   state = next;
+  if (persistedChanged) writePersisted(state);
   for (const listener of listeners) listener();
 }
 
@@ -131,6 +202,9 @@ export const viewActions = {
   },
   setSort(sort: SortKey): void {
     setState({ sort });
+  },
+  setGridSize(gridSize: GridSize): void {
+    setState({ gridSize });
   },
   toggleSidebar(): void {
     setState({ sidebarCollapsed: !state.sidebarCollapsed });

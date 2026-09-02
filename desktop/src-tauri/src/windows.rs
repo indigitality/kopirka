@@ -94,6 +94,12 @@ pub fn open_main(app: &AppHandle, port: u16) -> tauri::Result<WebviewWindow<Wry>
             // Тёмный фон окна: иначе при запуске мигает белым до первого кадра.
             .background_color(tauri::window::Color(0, 0, 0, 255))
             .initialization_script(init_script())
+            // Нативный обработчик перетаскивания отдаём странице. Тот, что ставит Tauri
+            // (tauri-runtime-wry 2.11.4, lib.rs:4862–4896), всегда возвращает `true`, а
+            // wry (wkwebview/drag_drop.rs) зовёт оригинальный performDragOperation только
+            // при `false`. Из-за этого до страницы не доходили ни dragover/drop внутреннего
+            // переноса, ни внешний drop файлов из Finder — зона сброса в окне не работала.
+            .disable_drag_drop_handler()
             // Ссылка без target увела бы само окно на чужой сайт — вернуться оттуда
             // нечем: ни адресной строки, ни кнопки «назад» у нас нет.
             .on_navigation(|url| {

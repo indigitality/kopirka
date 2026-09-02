@@ -120,12 +120,17 @@
   --sidebar-marquee-back: 260ms; /* возврат имени и иконки на место */
   --size-detail-panel: 348px; /* правая колонка детального просмотра */
 
-  /* ── Сетка карточек ───────────────────────────────────────────────────── */
+  /*
+    ── Сетка карточек ──────────────────────────────────────────────────────
+    Три целевые ширины колонки — решение D5 от 02.09.2026. При 1440 они дают
+    2 / 4 / 6 колонок; расчёт и клемп минимума живут в `useMasonry.ts`.
+    L было 380 — на 1440 это давало три колонки, то есть почти «средний».
+  */
   --grid-gap: 14px;
   --grid-pad: 30px;
   --grid-col-s: 180px;
   --grid-col-m: 275px; /* по фрейму */
-  --grid-col-l: 380px;
+  --grid-col-l: 560px;
 
   /*
     ── Движение ────────────────────────────────────────────────────────────
@@ -237,6 +242,40 @@
   «обратно» в утилитах Tailwind не выражаются.
 */
 @layer components {
+  /*
+    Видимая полоса прокрутки для списков внутри слоёв: выпадающий список папок,
+    тело модалки. Глобальное `scrollbar-width: thin` на macOS даёт оверлейный
+    скроллбар — он не занимает места и в покое невидим, из-за чего длинный список
+    читается как обрезанный (замечание Сергея 02.09.2026). Возвращаем классический:
+    `scrollbar-width: auto` отдаёт элемент вебкитовым псевдоэлементам, а ширину
+    задают уже они. Новых токенов нет — цвета те же, что у глобального правила.
+  */
+  .scrollbar-visible {
+    scrollbar-width: auto;
+    scrollbar-color: auto;
+  }
+
+  .scrollbar-visible::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  .scrollbar-visible::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  /* Прозрачная рамка + `background-clip` — так виден ползунок 6px в дорожке 10px. */
+  .scrollbar-visible::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    background-clip: padding-box;
+    border-radius: var(--radius-pill);
+    background-color: var(--color-line-strong);
+  }
+
+  .scrollbar-visible::-webkit-scrollbar-thumb:hover {
+    background-color: var(--color-line-control);
+  }
+
   /*
     Оболочка сайдбара. Сверху к полю добавляется инсет: в окне macOS кнопки
     светофора лежат поверх интерфейса (titleBarStyle Overlay) и иначе наезжают
@@ -353,6 +392,41 @@
     to {
       transform: scaleX(0);
     }
+  }
+
+  /*
+    Одна «полка» внизу области контента (дизайн-аудит 4.14–4.15). Раньше панель
+    выделения, прогресс импорта и тосты делили одну точку `bottom-6` и налезали
+    друг на друга, а центрировались по окну, а не по контенту.
+
+    Порядок задан через `order`, а не порядком узлов: дети приезжают порталами
+    из разных мест, и порядок их монтирования случаен. Неразмеченный ребёнок
+    попадает в середину — туда, где по спеке идёт прогресс импорта.
+    Направление `column-reverse`: order 1 оказывается внизу.
+
+    У самого контейнера z-index не задан нарочно: он не должен создавать контекст
+    наложения, иначе тост уже не смог бы перекрыть детальный просмотр (z-50),
+    а панель выделения — наоборот, обязана уходить под него.
+  */
+  #kopirka-shelf {
+    display: flex;
+    flex-direction: column-reverse;
+    align-items: center;
+    gap: 8px;
+    pointer-events: none;
+  }
+
+  #kopirka-shelf > * {
+    order: 2;
+    pointer-events: auto;
+  }
+
+  #kopirka-shelf > .shelf-selection {
+    order: 1;
+  }
+
+  #kopirka-shelf > .shelf-toast {
+    order: 3;
   }
 
   /*

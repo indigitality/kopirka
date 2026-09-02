@@ -1,4 +1,4 @@
-export { SettingsScreen, type SettingsScreenProps, type SettingsSaveResult } from './SettingsScreen';
+export { SettingsModal, type SettingsModalProps, type SettingsSaveResult } from './SettingsModal';
 export {
   fetchSettings,
   patchSettings,

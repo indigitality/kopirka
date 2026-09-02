@@ -64,10 +64,13 @@ except Exception: print('unknown')
   esac
 done
 
-msg="Добавлено: $added"
-[ $dupes  -gt 0 ] && msg="$msg · дубли: $dupes"
-[ $failed -gt 0 ] && msg="$msg · ошибки: $failed"
-notify "$msg"
+# Об успехе не уведомляем: это делал osascript, и уведомление приходило с иконкой
+# Script Editor вместо «Копирки». Про добавленные файлы теперь говорит само
+# приложение — по журналу импорта (GET /api/events). Здесь остаются только
+# сообщения о том, что «Копирка» не установлена или не отвечает: о них,
+# кроме этого скрипта, сказать некому.
+[ $failed -gt 0 ] && notify "Не удалось добавить: $failed"
+exit 0
 HANDLER
 chmod +x "$SUPPORT/quick-add.sh"
 echo "  $SUPPORT/quick-add.sh"

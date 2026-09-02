@@ -4,10 +4,11 @@
  * объяснение в одну фразу, путь библиотеки и кнопка. Всё остальное — потом.
  */
 import { useState, type FormEvent, type ReactNode } from 'react';
-import { ClipboardPaste, ImageDown, Puzzle } from 'lucide-react';
+import { ClipboardPaste, FolderOpen, ImageDown, Puzzle } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { cn } from '@/lib/cn';
+import { isTauri, pickDirectory } from '@/lib/tauri';
 
 /** SET-01 — путь библиотеки по умолчанию. */
 export const DEFAULT_LIBRARY_PATH = '~/Pictures/Копирка';
@@ -49,16 +50,47 @@ export function OnboardingScreen({
   const [path, setPath] = useState(defaultPath);
   const [submitted, setSubmitted] = useState(false);
   const [pending, setPending] = useState(false);
+  const [picking, setPicking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Диалог выбора папки не открылся — пишем под полем, тостов на онбординге нет. */
+  const [pickError, setPickError] = useState<string | null>(null);
 
   const emptyError = path.trim() ? null : 'Укажите путь к папке библиотеки';
-  const shown = submitted ? (error ?? emptyError) : null;
+  const shown = pickError ?? (submitted ? (error ?? emptyError) : null);
   const disabled = pending || busy;
+
+  // Кнопки нет в браузере: абсолютный путь оттуда взять неоткуда, поле остаётся единственным входом.
+  const inTauri = isTauri();
+
+  /** Системный выбор папки. Дальше — обычная отправка формы кнопкой «Создать библиотеку». */
+  const chooseFolder = async () => {
+    setPickError(null);
+    setPicking(true);
+    try {
+      const selected = await pickDirectory({
+        defaultPath: path.trim() === '' ? undefined : path.trim(),
+        title: 'Папка библиотеки «Копирки»',
+      });
+      // Отмена — не ошибка: поле остаётся как было.
+      if (selected === null) return;
+      setPath(selected);
+      setError(null);
+    } catch (cause) {
+      setPickError(
+        cause instanceof Error
+          ? `Диалог выбора папки не открылся: ${cause.message}`
+          : 'Диалог выбора папки не открылся',
+      );
+    } finally {
+      setPicking(false);
+    }
+  };
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     setSubmitted(true);
     setError(null);
+    setPickError(null);
     if (emptyError) return;
 
     setPending(true);
@@ -72,7 +104,22 @@ export function OnboardingScreen({
   };
 
   return (
-    <div className={cn('h-full overflow-y-auto bg-bg', className)}>
+    <div className={cn('relative h-full overflow-y-auto bg-bg', className)}>
+      {/*
+        Полоса перетаскивания окна. Оболочки с шапкой на онбординге нет, и первое
+        окно приложения нечем было двигать (замечание Сергея 02.09.2026). Высота —
+        `--size-topbar`: десктопная обёртка уже прибавила к нему инсет 28px под
+        светофор macOS, так что полоса накрывает и его. Обёртка нулевой высоты и
+        `sticky` — полоса не занимает места в потоке, держится у верха видимой
+        области и никогда не вылезает за пределы экрана онбординга. Лежит поверх
+        содержимого нарочно: иначе нажатие досталось бы блоку с текстом, а
+        интерактивного в этих 60 px ничего нет — только логотип. В браузере это
+        обычный div без поведения.
+      */}
+      <div aria-hidden className="sticky top-0 z-10 h-0">
+        <div data-tauri-drag-region="deep" className="h-[var(--size-topbar)]" />
+      </div>
+
       <div className="flex min-h-full items-center justify-center px-6 py-12">
         <div className="w-full max-w-[420px]">
           <div className="flex items-center gap-2.5">
@@ -94,16 +141,28 @@ export function OnboardingScreen({
             <label htmlFor="onboarding-path" className="label-section block">
               Путь библиотеки
             </label>
-            <Input
-              id="onboarding-path"
-              value={path}
-              spellCheck={false}
-              autoComplete="off"
-              autoFocus
-              aria-invalid={Boolean(shown)}
-              onChange={(event) => setPath(event.target.value)}
-              className={cn('mt-2 font-mono text-xs', shown && 'border-danger')}
-            />
+            <div className="mt-2 flex gap-2">
+              <Input
+                id="onboarding-path"
+                value={path}
+                spellCheck={false}
+                autoComplete="off"
+                autoFocus
+                aria-invalid={Boolean(shown)}
+                onChange={(event) => setPath(event.target.value)}
+                className={cn('min-w-0 flex-1 font-mono text-xs', shown && 'border-danger')}
+              />
+              {inTauri ? (
+                <Button
+                  variant="secondary"
+                  disabled={disabled || picking}
+                  onClick={() => void chooseFolder()}
+                  icon={<FolderOpen className="size-4" strokeWidth={2} aria-hidden />}
+                >
+                  Выбрать папку…
+                </Button>
+              ) : null}
+            </div>
             {shown ? (
               <p role="alert" className="mt-1.5 text-sm text-danger">
                 {shown}

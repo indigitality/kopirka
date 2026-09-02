@@ -19,6 +19,7 @@ import type {
   FileListQuery,
   FileRecord,
   FolderRecord,
+  SourceType,
   StatsResponse,
   TagRecord,
 } from '@shared/api';
@@ -30,6 +31,20 @@ import { useViewSelector, useViewState } from '@/store/view';
 const PAGE_SIZE = 60;
 /** SEARCH-02 — пауза перед запросом, пока пользователь печатает. */
 const QUERY_DEBOUNCE_MS = 250;
+/** Как часто спрашиваем сервер о файлах, приехавших мимо окна. */
+const EVENTS_POLL_MS = 3000;
+
+/**
+ * Пути импорта, которые окно не инициировало: только они требуют перечитать срез.
+ * Перетаскивание и ⌘V обновляют список сами — ответом на собственный запрос,
+ * и повторная загрузка после них была бы лишней.
+ */
+const EXTERNAL_SOURCES: ReadonlySet<SourceType> = new Set<SourceType>([
+  'folder_watch',
+  'context_menu',
+  'tab_screenshot',
+  'area_screenshot',
+]);
 
 const EMPTY_STATS: StatsResponse = { library: 0, untagged: 0, trash: 0, similar: 0 };
 
@@ -215,6 +230,58 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const reload = useCallback(async () => {
     await Promise.all([fetchFirstPage(), refreshMeta()]);
   }, [fetchFirstPage, refreshMeta]);
+
+  /** Номер последнего увиденного события. null — ленту ещё не читали. */
+  const eventCursor = useRef<number | null>(null);
+  // Опрос живёт один на всю сессию окна, а перезагружать надо всегда актуальным
+  // срезом — поэтому свежий `reload` держим в ссылке, а не в зависимостях эффекта.
+  const reloadRef = useRef(reload);
+  useEffect(() => {
+    reloadRef.current = reload;
+  }, [reload]);
+
+  // Файл мог приехать снаружи: из расширения, быстрой команды или автоимпорта папки.
+  // Спрашиваем сервер, не появилось ли нового, и перечитываем срез — но только пока
+  // вкладка видима: смотреть на скрытую всё равно некому.
+  useEffect(() => {
+    let stopped = false;
+    let busy = false;
+
+    const tick = async () => {
+      if (stopped || busy || document.visibilityState !== 'visible') return;
+      busy = true;
+      try {
+        const response = await api.getEvents(eventCursor.current ?? undefined);
+        if (stopped) return;
+        const seen = eventCursor.current;
+        eventCursor.current = response.last;
+        // Первый опрос только запоминает точку отсчёта: всё, что было до открытия
+        // окна, уже показано обычной загрузкой списка.
+        if (seen === null) return;
+        if (response.events.some((event) => EXTERNAL_SOURCES.has(event.sourceType))) {
+          await reloadRef.current();
+        }
+      } catch {
+        // Сервер моргнул — молчим и пробуем на следующем тике.
+      } finally {
+        busy = false;
+      }
+    };
+
+    void tick();
+    const timer = window.setInterval(() => void tick(), EVENTS_POLL_MS);
+    // Вернулись на вкладку — не ждём целый интервал, спрашиваем сразу.
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void tick();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, []);
 
   const applyFiles = useCallback((updated: readonly FileRecord[]) => {
     if (updated.length === 0) return;

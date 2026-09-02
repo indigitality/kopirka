@@ -7,10 +7,12 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, Wry};
 
-use crate::{backend, capture, http, windows};
+use crate::{backend, capture, events, http, windows};
 
-/// Как часто перечитываем счётчик «Не разобрано».
-const STATS_INTERVAL: Duration = Duration::from_secs(30);
+/// Как часто ходим на сервер: за счётчиком «Не разобрано» и за лентой новых импортов.
+/// Две секунды — компромисс: уведомление о скриншоте приходит почти сразу, а запрос
+/// к своему же localhost стоит доли миллисекунды.
+const POLL_INTERVAL: Duration = Duration::from_secs(2);
 
 pub fn setup(app: &AppHandle) -> tauri::Result<()> {
     let show = MenuItem::with_id(app, "show", "Показать библиотеку", true, None::<&str>)?;
@@ -47,23 +49,31 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
         })
         .build(app)?;
 
-    spawn_stats_poller(app.clone(), untagged);
+    spawn_poller(app.clone(), untagged);
     Ok(())
 }
 
-fn spawn_stats_poller(app: AppHandle, item: MenuItem<Wry>) {
-    std::thread::spawn(move || loop {
-        let label = match untagged_count(backend::port()) {
-            Some(count) => format!("Не разобрано: {count}"),
-            // Сервер мог не ответить — не врём числом, показываем прочерк.
-            None => "Не разобрано: —".to_string(),
-        };
-        let _ = item.set_text(label);
-        // Приложение закрылось — поток должен уйти вместе с ним.
-        if app.webview_windows().is_empty() && app.tray_by_id("kopirka").is_none() {
-            return;
+/// Единственный фоновый поток оболочки. Второй заводить незачем: обе задачи —
+/// короткий GET к локальному серверу с одинаковым периодом.
+fn spawn_poller(app: AppHandle, item: MenuItem<Wry>) {
+    std::thread::spawn(move || {
+        // Номер последнего увиденного события. None — ещё не опрашивали.
+        let mut cursor: Option<i64> = None;
+        loop {
+            let port = backend::port();
+            let label = match untagged_count(port) {
+                Some(count) => format!("Не разобрано: {count}"),
+                // Сервер мог не ответить — не врём числом, показываем прочерк.
+                None => "Не разобрано: —".to_string(),
+            };
+            let _ = item.set_text(label);
+            events::poll(&app, port, &mut cursor);
+            // Приложение закрылось — поток должен уйти вместе с ним.
+            if app.webview_windows().is_empty() && app.tray_by_id("kopirka").is_none() {
+                return;
+            }
+            std::thread::sleep(POLL_INTERVAL);
         }
-        std::thread::sleep(STATS_INTERVAL);
     });
 }
 

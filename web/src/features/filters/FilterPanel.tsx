@@ -11,23 +11,19 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Search, X } from 'lucide-react';
-import type { FileExt, FileListQuery, SortKey, TagRecord } from '@shared/api';
+import type { FileExt, FileListQuery, TagRecord } from '@shared/api';
 import { Button } from '@/components/ui/Button';
 import { IconButton } from '@/components/ui/IconButton';
 import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
 import { cn } from '@/lib/cn';
 import { DUR_FAST, EASE_OUT } from '@/lib/motion';
 import { DUR_EXIT_FAST, EASE_IN } from '@/components/ui/motion-presets';
 import { CheckRow } from './CheckRow';
 import {
   DATE_PRESETS,
-  DEFAULT_SORT,
   FILTER_EXTS,
-  SORT_OPTIONS,
   clearFilters,
   countActiveFilters,
-  isDirty,
   matchPreset,
   presetRange,
   type DatePreset,
@@ -109,8 +105,16 @@ export function FilterPanel({
   const selectedTags = useMemo(() => value.tags ?? [], [value.tags]);
   const selectedExts = useMemo(() => value.exts ?? [], [value.exts]);
   const activeCount = countActiveFilters(value);
-  const dirty = isDirty(value);
   const activePreset = matchPreset(value);
+
+  /*
+    Нативные поля дат — чужая типографика и чужой календарь (дизайн-аудит §3.1),
+    а нужны они в единицах процентов случаев. Показываем их только по «Свой период…»
+    либо когда в запросе уже лежит диапазон, не совпавший ни с одним чипом.
+  */
+  const hasCustomRange = activePreset === null && (Boolean(value.dateFrom) || Boolean(value.dateTo));
+  const [customOpen, setCustomOpen] = useState(hasCustomRange);
+  const showCustomRange = customOpen || hasCustomRange;
 
   // Закрытие по Esc и по клику мимо. Клики внутри поповера сортировки
   // (Radix рендерит его в портал) и по кнопке-триггеру панель не закрывают.
@@ -158,6 +162,7 @@ export function FilterPanel({
   };
 
   const applyPreset = (preset: DatePreset) => {
+    setCustomOpen(false);
     if (activePreset === preset) {
       patch({ dateFrom: undefined, dateTo: undefined });
       return;
@@ -195,7 +200,8 @@ export function FilterPanel({
           animate={{ opacity: 1, scale: 1, y: 0, transition: { duration: DUR_FAST, ease: EASE_OUT } }}
           exit={{ opacity: 0, scale: 0.98, y: -6, transition: { duration: DUR_EXIT_FAST, ease: EASE_IN } }}
           className={cn(
-            'absolute top-2 right-[var(--grid-pad)] z-30 w-[340px] origin-top-right',
+            // 340 px при контенте 660 (окно 900) занимали больше половины — аудит §3.1.
+            'absolute top-2 right-[var(--grid-pad)] z-30 w-[min(340px,calc(100%-60px))] origin-top-right',
             'flex max-h-[calc(100%-16px)] flex-col overflow-hidden rounded-xl',
             'bg-surface-overlay text-ink shadow-float outline-none',
             className,
@@ -280,46 +286,47 @@ export function FilterPanel({
                     {preset.label}
                   </Chip>
                 ))}
+                <Chip
+                  active={showCustomRange}
+                  onClick={() => {
+                    if (showCustomRange) patch({ dateFrom: undefined, dateTo: undefined });
+                    setCustomOpen(!showCustomRange);
+                  }}
+                >
+                  Свой период…
+                </Chip>
               </div>
 
-              <div className="mt-2.5 grid grid-cols-2 gap-2">
-                {(
-                  [
-                    { key: 'dateFrom', label: 'от' },
-                    { key: 'dateTo', label: 'до' },
-                  ] as const
-                ).map(({ key, label }) => (
-                  <div key={key}>
-                    <label htmlFor={`filter-${key}`} className="mb-1 block text-sm text-ink-faint">
-                      {label}
-                    </label>
-                    <Input
-                      id={`filter-${key}`}
-                      type="date"
-                      value={value[key] ?? ''}
-                      max={key === 'dateFrom' ? value.dateTo : undefined}
-                      min={key === 'dateTo' ? value.dateFrom : undefined}
-                      onChange={(event) => patch({ [key]: event.target.value || undefined })}
-                      className={cn(
-                        'h-7 px-2 font-mono text-xs',
-                        '[&::-webkit-calendar-picker-indicator]:cursor-pointer',
-                        '[&::-webkit-calendar-picker-indicator]:opacity-40',
-                        'hover:[&::-webkit-calendar-picker-indicator]:opacity-80',
-                      )}
-                    />
-                  </div>
-                ))}
-              </div>
-            </Section>
-
-            {/* LIB-04 */}
-            <Section title="Сортировка">
-              <Select<SortKey>
-                value={value.sort ?? DEFAULT_SORT}
-                onValueChange={(sort) => patch({ sort })}
-                options={SORT_OPTIONS}
-                className="border border-line-strong"
-              />
+              {showCustomRange ? (
+                <div className="mt-2.5 grid grid-cols-2 gap-2">
+                  {(
+                    [
+                      { key: 'dateFrom', label: 'от' },
+                      { key: 'dateTo', label: 'до' },
+                    ] as const
+                  ).map(({ key, label }) => (
+                    <div key={key}>
+                      <label htmlFor={`filter-${key}`} className="mb-1 block text-sm text-ink-faint">
+                        {label}
+                      </label>
+                      <Input
+                        id={`filter-${key}`}
+                        type="date"
+                        value={value[key] ?? ''}
+                        max={key === 'dateFrom' ? value.dateTo : undefined}
+                        min={key === 'dateTo' ? value.dateFrom : undefined}
+                        onChange={(event) => patch({ [key]: event.target.value || undefined })}
+                        className={cn(
+                          'h-7 px-2 font-mono text-xs',
+                          '[&::-webkit-calendar-picker-indicator]:cursor-pointer',
+                          '[&::-webkit-calendar-picker-indicator]:opacity-40',
+                          'hover:[&::-webkit-calendar-picker-indicator]:opacity-80',
+                        )}
+                      />
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </Section>
           </div>
 
@@ -327,18 +334,21 @@ export function FilterPanel({
             <span className="min-w-0 flex-1 truncate text-sm text-ink-faint">
               {activeCount > 0 ? `Активных фильтров: ${activeCount}` : 'Фильтры не заданы'}
             </span>
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={!dirty}
-              onClick={() => {
-                setTagQuery('');
-                onChange(clearFilters(value));
-              }}
-              className="-mr-2"
-            >
-              Сбросить
-            </Button>
+            {/* Выключенная кнопка давала ~2.3:1 и читалась как артефакт (аудит §3.1). */}
+            {activeCount > 0 ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  setTagQuery('');
+                  setCustomOpen(false);
+                  onChange(clearFilters(value));
+                }}
+                className="-mr-2"
+              >
+                Сбросить
+              </Button>
+            ) : null}
           </footer>
         </motion.div>
       ) : null}

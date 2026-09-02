@@ -1,5 +1,6 @@
 export { FilterPanel, type FilterPanelProps } from './FilterPanel';
 export { FilterButton, type FilterButtonProps } from './FilterButton';
+export { SortButton, type SortButtonProps } from './SortButton';
 export { CheckRow, type CheckRowProps } from './CheckRow';
 export {
   countActiveFilters,

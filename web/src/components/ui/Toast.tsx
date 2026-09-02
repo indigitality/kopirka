@@ -3,12 +3,14 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type CSSProperties,
   type ReactNode,
 } from 'react';
+import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/cn';
@@ -258,22 +260,43 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<ToastContextValue>(() => ({ toast, dismiss }), [toast, dismiss]);
 
+  /*
+    «Полка» (дизайн-аудит 4.14–4.15) живёт в области контента и монтируется вместе
+    с сеткой, то есть позже провайдера. Ищем её не один раз, а на каждое изменение
+    списка тостов, и в layout-эффекте — чтобы первый кадр тоста уже был на месте
+    и портал не пересобирался, заново проигрывая появление.
+    Полки нет (витрина, онбординг, настройки) — работаем как раньше, по центру окна.
+  */
+  const [shelf, setShelf] = useState<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    setShelf(document.getElementById('kopirka-shelf'));
+  }, [items]);
+
+  const stack = (
+    <div
+      className={cn(
+        'shelf-toast pointer-events-none z-[60] flex flex-col items-center gap-2',
+        shelf === null && 'fixed inset-x-0 bottom-6',
+      )}
+    >
+      <AnimatePresence initial={false}>
+        {items.map((item) => (
+          <ToastRow
+            key={item.id}
+            record={item}
+            onDismiss={() => dismiss(item.id)}
+            onPause={() => pause(item.id)}
+            onResume={() => resume(item.id)}
+          />
+        ))}
+      </AnimatePresence>
+    </div>
+  );
+
   return (
     <ToastContext.Provider value={value}>
       {children}
-      <div className="pointer-events-none fixed inset-x-0 bottom-6 z-[60] flex flex-col items-center gap-2">
-        <AnimatePresence initial={false}>
-          {items.map((item) => (
-            <ToastRow
-              key={item.id}
-              record={item}
-              onDismiss={() => dismiss(item.id)}
-              onPause={() => pause(item.id)}
-              onResume={() => resume(item.id)}
-            />
-          ))}
-        </AnimatePresence>
-      </div>
+      {shelf === null ? stack : createPortal(stack, shelf)}
     </ToastContext.Provider>
   );
 }

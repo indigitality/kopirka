@@ -22,10 +22,12 @@ export interface MasonryBox {
 }
 
 export interface MasonryOptions {
-  /** Целевая ширина колонки — `--grid-col-m`. */
+  /** Целевая ширина колонки — токен выбранного размера (`--grid-col-l/m/s`). */
   columnWidth: number;
   gap: number;
   pad: number;
+  /** Клемп снизу: минимум колонок для выбранного размера. */
+  minColumns?: number;
 }
 
 export interface MasonryLayout {
@@ -38,12 +40,38 @@ export interface MasonryLayout {
   measured: boolean;
 }
 
+/** Верхний предел — защита от абсурда на очень широком мониторе. */
+const MAX_COLUMNS = 20;
+
+/**
+ * Ниже этой ширины колонка перестаёт быть карточкой и становится полосой:
+ * на совсем узком окне клемп минимума отступает.
+ */
+const MIN_COLUMN_PX = 120;
+
+/**
+ * Сколько колонок влезает при данной целевой ширине — дизайн-аудит §3.4.
+ *
+ * Три шага: округление (а не отбрасывание — при floor последняя колонка
+ * раздувалась бы на треть), правило «колонка шире цели в 1,2 раза → ещё одна»
+ * (оно срезает верх разброса: на «среднем» колонка гуляла 232 → 317) и клемп
+ * снизу, без которого на 900 px «большой» и «средний» дают одинаковые две колонки.
+ */
+export function columnCountFor(available: number, options: MasonryOptions): number {
+  const { columnWidth: target, gap, minColumns = 1 } = options;
+  const widthAt = (count: number) => (available - gap * (count - 1)) / count;
+
+  let count = Math.max(1, Math.round(available / (target + gap)));
+  while (count < MAX_COLUMNS && widthAt(count) > target * 1.2) count += 1;
+
+  const floor = Math.max(1, Math.min(minColumns, Math.floor((available + gap) / (MIN_COLUMN_PX + gap))));
+  return Math.min(MAX_COLUMNS, Math.max(floor, count));
+}
+
 function layout(items: readonly MasonryInput[], width: number, options: MasonryOptions): MasonryLayout {
-  const { columnWidth: target, gap, pad } = options;
+  const { gap, pad } = options;
   const available = Math.max(0, width - pad * 2);
-  // Округляем, а не отбрасываем: колонка может быть чуть уже целевой, зато её ширина
-  // остаётся близкой к --grid-col-m. При floor последняя колонка раздувалась бы на треть.
-  const columnCount = Math.max(1, Math.round(available / (target + gap)));
+  const columnCount = columnCountFor(available, options);
   const actualWidth = (available - gap * (columnCount - 1)) / columnCount;
 
   const heights = new Array<number>(columnCount).fill(0);

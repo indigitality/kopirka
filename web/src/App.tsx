@@ -1,14 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AppConfig, FileListQuery, FolderRecord, SettingsResponse } from '@shared/api';
 import { AppShell } from '@/features/shell/AppShell';
 import { KitPage } from '@/features/kit/KitPage';
 import { GridScreen } from '@/features/grid/GridScreen';
 import { ConfirmDialog } from '@/features/grid/ConfirmDialog';
-import { overlayOpen } from '@/features/grid/useGridHotkeys';
+import { DragGhost } from '@/features/grid/DragGhost';
+import { setDropHandler, type DropTarget } from '@/features/grid/dnd';
 import { DetailView } from '@/features/detail/DetailView';
-import { ImportProvider } from '@/features/import/ImportProvider';
+import { ImportProvider, useImport } from '@/features/import/ImportProvider';
 import { LibraryProvider, useLibrary } from '@/features/library/LibraryProvider';
-import { SettingsScreen, fetchSettings, patchSettings, completeOnboarding } from '@/features/settings';
+import { SettingsModal, fetchSettings, patchSettings, completeOnboarding } from '@/features/settings';
 import { OnboardingScreen } from '@/features/onboarding';
 import { FilterPanel, countActiveFilters } from '@/features/filters';
 import { plural } from '@/lib/format';
@@ -28,6 +29,7 @@ interface ShellProps {
 
 function Shell({ settings, onSettingsChange }: ShellProps) {
   const library = useLibrary();
+  const { startImport } = useImport();
   const { toast } = useToast();
   const [renamingFolderId, setRenamingFolderId] = useState<number | null>(null);
   const [folderToDelete, setFolderToDelete] = useState<FolderRecord | null>(null);
@@ -73,18 +75,12 @@ function Shell({ settings, onSettingsChange }: ShellProps) {
     [filters, sort],
   );
 
-  // Настройки — оверлей на весь экран, но не Radix-диалог: Esc вешаем руками (02 §4.26).
-  useEffect(() => {
-    if (!settingsOpen) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || overlayOpen()) return;
-      event.preventDefault();
-      setSettingsOpen(false);
-    };
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [settingsOpen]);
-
+  /*
+    Esc и клик по скриму закрывают настройки сами: это Radix-диалог (02 §4.26).
+    Отдельный обработчик, который стоял здесь у полноэкранного экрана настроек,
+    больше не нужен — а `overlayOpen()` видит модалку как открытый слой и не даёт
+    тому же Esc заодно снять выделение в сетке.
+  */
   const handleSaveSettings = useCallback(
     async (patch: Partial<AppConfig>) => {
       const response = await patchSettings(patch);
@@ -142,17 +138,68 @@ function Shell({ settings, onSettingsChange }: ShellProps) {
       .catch((cause: unknown) => fail(cause, 'Не удалось удалить папку'));
   };
 
-  const handleDropFiles = (folderId: number, fileIds: readonly number[]) => {
-    const name = library.folderNameById.get(folderId) ?? 'папку';
+  /**
+   * ORG-03 — карточки бросили на цель сайдбара. Куда именно, решил `dnd.ts`;
+   * здесь только действие и тост с отменой.
+   */
+  const handleDropOnTarget = (target: DropTarget, fileIds: readonly number[]) => {
+    if (fileIds.length === 0) return;
+    const count = fileIds.length;
+    const noun = plural(count, 'файл', 'файла', 'файлов');
+
+    if (target.kind === 'trash') {
+      void library
+        .trashFiles(fileIds)
+        .then(() => {
+          viewActions.clearSelection();
+          toast({
+            title: count === 1 ? 'Файл в корзине' : `${count} ${noun} в корзине`,
+            action: {
+              label: 'Отменить',
+              onClick: () => void library.restoreFiles(fileIds).catch(() => undefined),
+            },
+          });
+        })
+        .catch((cause: unknown) => fail(cause, 'Не удалось удалить файлы'));
+      return;
+    }
+
+    const folderId = target.kind === 'folder' ? target.folderId : null;
+    const name =
+      folderId === null ? 'Не разобрано' : (library.folderNameById.get(folderId) ?? 'папку');
+    // Откуда уехал каждый файл — «Отменить» возвращает всех по своим папкам.
+    const before = new Map(
+      fileIds.map((id) => [id, library.files.find((file) => file.id === id)?.folderId ?? null]),
+    );
+
     void library
       .moveToFolder(fileIds, folderId)
       .then(() =>
         toast({
-          title: `${fileIds.length} ${plural(fileIds.length, 'файл переехал', 'файла переехали', 'файлов переехали')} в «${name}»`,
+          title: `Перемещено ${count} ${noun} в «${name}»`,
+          action: {
+            label: 'Отменить',
+            onClick: () => {
+              const groups = new Map<number | null, number[]>();
+              for (const [id, from] of before) {
+                const group = groups.get(from);
+                if (group) group.push(id);
+                else groups.set(from, [id]);
+              }
+              for (const [from, group] of groups) {
+                void library.moveToFolder(group, from).catch(() => undefined);
+              }
+            },
+          },
         }),
       )
       .catch((cause: unknown) => fail(cause, 'Не удалось переместить файлы'));
   };
+
+  /* Обработчик сброса регистрируется один раз: свежую версию держит ref. */
+  const dropRef = useRef(handleDropOnTarget);
+  dropRef.current = handleDropOnTarget;
+  useEffect(() => setDropHandler((target, ids) => dropRef.current(target, ids)), []);
 
   return (
     <>
@@ -165,7 +212,7 @@ function Shell({ settings, onSettingsChange }: ShellProps) {
         onRenameCommit={handleRenameCommit}
         onRenameCancel={() => setRenamingFolderId(null)}
         onDeleteFolder={setFolderToDelete}
-        onDropFiles={handleDropFiles}
+        onImportFiles={(folderId, files) => void startImport(files, 'drag_drop', folderId)}
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenFilter={() => setFilterOpen((open) => !open)}
         filterCount={countActiveFilters(filterQuery)}
@@ -185,15 +232,19 @@ function Shell({ settings, onSettingsChange }: ShellProps) {
 
       <DetailView />
 
-      {settingsOpen ? (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-bg">
-          <SettingsScreen
-            settings={settings}
-            onSave={handleSaveSettings}
-            onClose={() => setSettingsOpen(false)}
-          />
-        </div>
-      ) : null}
+      {/* Груз под курсором. Портал в body: сетка скроллится, призрак — нет. */}
+      <DragGhost />
+
+      {/*
+        Модалка поверх оболочки, а не подмена экрана: сетка, сайдбар и шапка
+        остаются на месте — вместе с ними остаётся и зона перетаскивания окна.
+      */}
+      <SettingsModal
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        settings={settings}
+        onSave={handleSaveSettings}
+      />
 
       {/* 5.4 — файлы не удаляются вместе с папкой, поэтому говорим об этом прямо. */}
       <ConfirmDialog

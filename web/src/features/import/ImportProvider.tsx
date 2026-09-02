@@ -7,11 +7,13 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
   type ReactNode,
 } from 'react';
+import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import type { FileRecord, ImportResultItem, ImportResponse } from '@shared/api';
 import * as api from '@/lib/api';
@@ -48,7 +50,15 @@ interface PendingItem {
 
 export interface ImportValue {
   progress: ImportProgress | null;
-  startImport: (files: readonly File[], source?: ImportSource) => Promise<void>;
+  /**
+   * `folderId` задаётся явно, когда файлы бросили прямо на папку сайдбара (02 §4.4):
+   * такая папка важнее той, куда смотрит сетка. Без него берём срез.
+   */
+  startImport: (
+    files: readonly File[],
+    source?: ImportSource,
+    folderId?: number | null,
+  ) => Promise<void>;
   /** Файлы из события drop или paste. Пустой список игнорируется. */
   importFromTransfer: (data: DataTransfer | null, source: ImportSource) => void;
 }
@@ -190,12 +200,22 @@ export function ImportProvider({ children }: { children: ReactNode }) {
   );
 
   const startImport = useCallback(
-    async (files: readonly File[], source: ImportSource = 'drag_drop') => {
+    async (
+      files: readonly File[],
+      source: ImportSource = 'drag_drop',
+      explicitFolderId?: number | null,
+    ) => {
       if (files.length === 0 || busyRef.current) return;
       busyRef.current = true;
       // Файлы кладём туда, куда смотрит сетка: в «Не разобрано» и корзине папки нет.
+      // Папка, названная вызывающим (бросок на строку сайдбара), важнее среза.
       const state = getViewState();
-      const folderId = state.scope === 'library' ? state.folderId : null;
+      const folderId =
+        explicitFolderId !== undefined
+          ? explicitFolderId
+          : state.scope === 'library'
+            ? state.folderId
+            : null;
       folderIdRef.current = folderId;
       duplicatesRef.current = [];
       setProgress({ total: files.length, ratio: 0, phase: 'upload' });
@@ -261,51 +281,65 @@ export function ImportProvider({ children }: { children: ReactNode }) {
     [progress, startImport, importFromTransfer],
   );
 
+  /*
+    Прогресс живёт в «полке» внизу области контента, если оболочка её создала.
+    Элемент ищем в момент показа: полку рисует другой узел дерева, и на первом
+    рендере провайдера её ещё может не быть.
+  */
+  const [shelf, setShelf] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    if (progress === null) return;
+    setShelf(document.getElementById('kopirka-shelf'));
+  }, [progress]);
+
   const current = queue[0];
+
+  const panel = progress ? (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 12 }}
+      transition={{ duration: DUR_BASE, ease: EASE_OUT }}
+      role="status"
+      className={
+        shelf ? 'flex w-full justify-center' : 'fixed bottom-6 left-1/2 z-50 -translate-x-1/2'
+      }
+    >
+      <div className="flex h-11 w-[280px] flex-col justify-center gap-1.5 rounded-md bg-surface-overlay px-4 shadow-float">
+        <div className="flex items-center justify-between">
+          <span className="text-base text-ink">
+            {progress.phase === 'upload' ? 'Импорт' : 'Обрабатываем'}
+          </span>
+          <span className="font-mono text-xs text-ink-faint tabular-nums">
+            {progress.total} {plural(progress.total, 'файл', 'файла', 'файлов')}
+          </span>
+        </div>
+        <span className="h-0.5 w-full overflow-hidden rounded-pill bg-surface-active">
+          <motion.span
+            className="block h-full origin-left bg-accent"
+            initial={false}
+            animate={
+              progress.phase === 'upload'
+                ? { scaleX: Math.max(0.04, progress.ratio), opacity: 1 }
+                : { scaleX: 1, opacity: [1, 0.4, 1] }
+            }
+            transition={
+              progress.phase === 'upload'
+                ? { duration: 0.15, ease: 'linear' }
+                : { duration: 1.2, repeat: Infinity, ease: 'easeInOut' }
+            }
+          />
+        </span>
+      </div>
+    </motion.div>
+  ) : null;
 
   return (
     <ImportContext.Provider value={value}>
       {children}
 
-      <AnimatePresence>
-        {progress ? (
-          <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 12 }}
-            transition={{ duration: DUR_BASE, ease: EASE_OUT }}
-            role="status"
-            className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2"
-          >
-            <div className="flex h-11 w-[280px] flex-col justify-center gap-1.5 rounded-md bg-surface-overlay px-4 shadow-float">
-              <div className="flex items-center justify-between">
-                <span className="text-base text-ink">
-                  {progress.phase === 'upload' ? 'Импорт' : 'Обрабатываем'}
-                </span>
-                <span className="font-mono text-xs text-ink-faint tabular-nums">
-                  {progress.total} {plural(progress.total, 'файл', 'файла', 'файлов')}
-                </span>
-              </div>
-              <span className="h-0.5 w-full overflow-hidden rounded-pill bg-surface-active">
-                <motion.span
-                  className="block h-full origin-left bg-accent"
-                  initial={false}
-                  animate={
-                    progress.phase === 'upload'
-                      ? { scaleX: Math.max(0.04, progress.ratio), opacity: 1 }
-                      : { scaleX: 1, opacity: [1, 0.4, 1] }
-                  }
-                  transition={
-                    progress.phase === 'upload'
-                      ? { duration: 0.15, ease: 'linear' }
-                      : { duration: 1.2, repeat: Infinity, ease: 'easeInOut' }
-                  }
-                />
-              </span>
-            </div>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+      {/* Полка внизу области контента, если оболочка её завела; иначе панель висит сама. */}
+      <AnimatePresence>{shelf && panel ? createPortal(panel, shelf) : panel}</AnimatePresence>
 
       {current ? (
         <SimilarConfirmModal

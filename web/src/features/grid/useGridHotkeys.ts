@@ -4,6 +4,7 @@
  * хоткеи не срабатывают.
  */
 import { useEffect, useRef } from 'react';
+import type { GridSize } from '@/store/view';
 
 /** Фокус в поле ввода — сочетание принадлежит полю, а не сетке. */
 export function isEditableTarget(target: EventTarget | null): boolean {
@@ -36,7 +37,16 @@ export interface GridHotkeyHandlers {
   closeDetail: () => void;
   stepDetail: (delta: 1 | -1) => void;
   hasSelection: boolean;
+  /** D5 — ⌘1 / ⌘2 / ⌘3 переключают размер карточек. */
+  setGridSize: (size: GridSize) => void;
 }
+
+/** Раскладка не мешает: ловим `code`, а не `key`. */
+const SIZE_BY_CODE: Record<string, GridSize> = {
+  Digit1: 'l',
+  Digit2: 'm',
+  Digit3: 's',
+};
 
 export function useGridHotkeys(handlers: GridHotkeyHandlers): void {
   // Обработчики меняются на каждый рендер — держим их в ref, чтобы не переподписываться.
@@ -68,6 +78,13 @@ export function useGridHotkeys(handlers: GridHotkeyHandlers): void {
         return;
       }
 
+      const size = meta ? SIZE_BY_CODE[event.code] : undefined;
+      if (size !== undefined) {
+        event.preventDefault();
+        ref.current.setGridSize(size);
+        return;
+      }
+
       if (meta && (event.key === 'a' || event.key === 'A' || event.code === 'KeyA')) {
         if (ref.current.detailOpen) return;
         event.preventDefault();
@@ -85,6 +102,9 @@ export function useGridHotkeys(handlers: GridHotkeyHandlers): void {
 
       if (event.key === 'Delete' || event.key === 'Backspace') {
         if (meta) return;
+        // Открыт слой — Backspace принадлежит ему: иначе нажатие в модалке
+        // (например, в настройках) отправило бы выделенное в корзину.
+        if (overlayOpen()) return;
         event.preventDefault();
         ref.current.deleteSelection();
       }

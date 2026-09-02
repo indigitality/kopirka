@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { Copy, Folder, ImageDown, Plus, Trash2 } from 'lucide-react';
+import { Copy, Folder, Grid2x2, Grid3x3, ImageDown, Plus, Square, Trash2 } from 'lucide-react';
 import { flattenFolders } from '@/lib/folders';
 import { mockFolders } from '@/features/shell/mock';
 import { Badge } from '@/components/ui/Badge';
@@ -18,6 +18,7 @@ import { Input } from '@/components/ui/Input';
 import { Modal, ModalContent } from '@/components/ui/Modal';
 import { Popover, PopoverContent, PopoverItem, PopoverSeparator, PopoverTrigger } from '@/components/ui/Popover';
 import { SearchField } from '@/components/ui/SearchField';
+import { SegmentedControl, type SegmentedOption } from '@/components/ui/SegmentedControl';
 import { Select } from '@/components/ui/Select';
 import { SelectionBar } from '@/components/ui/SelectionBar';
 import { Tag } from '@/components/ui/Tag';
@@ -45,6 +46,19 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+/** Размер карточек сетки — решение D5, дизайн-аудит §3.3. */
+const GRID_SIZE_OPTIONS: readonly SegmentedOption<string>[] = [
+  { value: 'l', label: 'Большие', hotkey: '⌘1', icon: <Square className="size-3.5" strokeWidth={2} /> },
+  { value: 'm', label: 'Средние', hotkey: '⌘2', icon: <Grid2x2 className="size-3.5" strokeWidth={2} /> },
+  { value: 's', label: 'Маленькие', hotkey: '⌘3', icon: <Grid3x3 className="size-3.5" strokeWidth={2} /> },
+];
+
+const VIEW_OPTIONS: readonly SegmentedOption<string>[] = [
+  { value: 'any', label: 'Любые' },
+  { value: 'landscape', label: 'Горизонтальные' },
+  { value: 'portrait', label: 'Вертикальные' },
+];
+
 const folderOptions = flattenFolders(mockFolders).map(({ folder, depth }) => ({
   value: folder.id,
   label: folder.name,
@@ -59,6 +73,8 @@ export function KitPage() {
   const [folderId, setFolderId] = useState<number | null>(folderOptions[0]?.value ?? null);
   const [modalOpen, setModalOpen] = useState(false);
   const [selectionCount, setSelectionCount] = useState(3);
+  const [gridSize, setGridSize] = useState('m');
+  const [orientation, setOrientation] = useState('any');
 
   return (
     <div className="h-full overflow-y-auto bg-bg">
@@ -258,6 +274,30 @@ export function KitPage() {
                 placeholder="Без папки"
               />
             </div>
+          </Row>
+        </Section>
+
+        {/* Один тип переключателя на всё — дизайн-аудит §8.1. */}
+        <Section title="Сегментный контрол">
+          <Row label="Размер сетки">
+            <SegmentedControl
+              label="Размер карточек"
+              value={gridSize}
+              onValueChange={setGridSize}
+              options={GRID_SIZE_OPTIONS}
+              segmentWidth={32}
+            />
+            <span className="text-technical">
+              иконки, 32 × 28, тултипы с хоткеями
+            </span>
+          </Row>
+          <Row label="С текстом">
+            <SegmentedControl
+              label="Ориентация"
+              value={orientation}
+              onValueChange={setOrientation}
+              options={VIEW_OPTIONS}
+            />
           </Row>
         </Section>
 

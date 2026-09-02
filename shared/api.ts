@@ -276,6 +276,38 @@ export interface RevealResponse {
   ok: boolean;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Журнал событий импорта — GET /api/events
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Один успешно импортированный файл. Журнал живёт в памяти сервера (кольцо на 500),
+ * между перезапусками не сохраняется: это лента «что только что приехало», а не история.
+ *
+ * Читают двое: десктопная оболочка — чтобы показать системное уведомление от имени
+ * приложения, и окно — чтобы дорисовать карточку без перезагрузки. Обоим нужен только
+ * факт события, поэтому запись сама по себе, без содержимого файла.
+ */
+export interface ImportEvent {
+  /** Сквозной номер, растёт от 1. Клиент запоминает последний увиденный. */
+  seq: number;
+  /** ISO 8601. */
+  at: string;
+  fileId: number;
+  sourceType: SourceType;
+  folderId: number | null;
+  /** Имя папки на момент импорта — чтобы уведомление не ходило за ним отдельно. */
+  folderName: string | null;
+  outcome: Extract<ImportOutcome, 'added' | 'added_similar'>;
+}
+
+export interface EventsResponse {
+  /** События строго после `after`. Без `after` — пустой массив: историю не отдаём. */
+  events: ImportEvent[];
+  /** Номер последнего события в журнале. С него начинают следить за новыми. */
+  last: number;
+}
+
 export interface ApiError {
   error: string;
   /** Машинный код: например, `SettingsErrorCode` для `PATCH /api/settings`. */
@@ -290,6 +322,8 @@ export const API = {
   health: 'GET /api/health',
 
   stats: 'GET /api/stats',
+  /** Живые события импорта: `?after=<seq>`. Без параметра отдаётся только `last`. */
+  events: 'GET /api/events',
 
   listFiles: 'GET /api/files',
   getFile: 'GET /api/files/:id',

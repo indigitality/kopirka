@@ -11,6 +11,7 @@ import type {
   BulkFileIdsRequest,
   BulkMoveRequest,
   BulkTagRequest,
+  EventsResponse,
   FileListQuery,
   FileListResponse,
   FileRecord,
@@ -114,6 +115,13 @@ const patch = (body: unknown): RequestInit => ({ method: 'PATCH', body: JSON.str
 
 export const getHealth = () => request<{ ok: boolean; version?: string }>('/health');
 export const getStats = () => request<StatsResponse>('/stats');
+
+/**
+ * Лента успешных импортов. `after` — последний увиденный `seq`; без него сервер
+ * отдаёт только `last`, то есть точку отсчёта, а историю не присылает.
+ */
+export const getEvents = (after?: number) =>
+  request<EventsResponse>(`/events${after === undefined ? '' : `?after=${after}`}`);
 
 // ── Файлы ──────────────────────────────────────────────────────────────────
 

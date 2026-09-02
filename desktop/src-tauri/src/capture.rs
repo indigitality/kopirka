@@ -78,7 +78,13 @@ fn run(app: &AppHandle) {
     .to_string();
 
     match http::post_json(backend::port(), "/api/import/capture", &payload) {
-        Ok(response) if response.status == 200 => notify(app, &describe(&response.body)),
+        // Об успехе молчим: уведомление придёт из общего опроса /api/events (events.rs),
+        // одно на все пути импорта. Иначе о снимке сказали бы дважды.
+        Ok(response) if response.status == 200 => {
+            if let Some(problem) = problem(&response.body) {
+                notify(app, &problem);
+            }
+        }
         Ok(response) => notify(app, &format!("Сервер не принял снимок (HTTP {})", response.status)),
         Err(error) => notify(app, &format!("Сервер «Копирки» не ответил: {error}")),
     }
@@ -89,21 +95,21 @@ fn file_name() -> String {
     format!("Снимок области {stamp}.png")
 }
 
-/// Человеческий текст уведомления из ответа импорта.
-fn describe(body: &[u8]) -> String {
-    let Ok(parsed) = serde_json::from_slice::<serde_json::Value>(body) else {
-        return "Снимок отправлен в библиотеку".to_string();
-    };
-    let outcome = parsed["items"][0]["outcome"].as_str().unwrap_or("");
-    match outcome {
-        "added" => "Снимок добавлен в библиотеку".to_string(),
-        "added_similar" => "Снимок добавлен — похожий уже был".to_string(),
-        "duplicate" => "Такой снимок уже есть — не добавлен".to_string(),
-        "error" => parsed["items"][0]["errorMessage"]
-            .as_str()
-            .unwrap_or("Снимок не удалось сохранить")
-            .to_string(),
-        _ => "Снимок отправлен в библиотеку".to_string(),
+/// Что сказать про уже принятый ответ. `None` — снимок в библиотеке, говорить нечего:
+/// про успех уведомит общий опрос журнала событий.
+fn problem(body: &[u8]) -> Option<String> {
+    let parsed = serde_json::from_slice::<serde_json::Value>(body).ok()?;
+    match parsed["items"][0]["outcome"].as_str().unwrap_or("") {
+        "added" | "added_similar" => None,
+        "duplicate" => Some("Такой снимок уже есть — не добавлен".to_string()),
+        "error" => Some(
+            parsed["items"][0]["errorMessage"]
+                .as_str()
+                .unwrap_or("Снимок не удалось сохранить")
+                .to_string(),
+        ),
+        // Непонятный ответ: если файл всё-таки приехал, скажет опрос журнала.
+        _ => None,
     }
 }
 

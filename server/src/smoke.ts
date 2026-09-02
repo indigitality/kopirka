@@ -14,6 +14,7 @@ import Database from 'better-sqlite3';
 import sharp from 'sharp';
 import type {
   ApiError,
+  EventsResponse,
   FileListResponse,
   FileRecord,
   FolderRecord,
@@ -629,6 +630,54 @@ async function main(): Promise<void> {
     assert(result.items[0]?.outcome === 'added', `outcome=${result.items[0]?.outcome}`);
     assert(file?.sourceType === 'tab_screenshot', 'источник записан неверно');
     assert(file?.originalFilename === 'tab-shot.png', `имя файла ${file?.originalFilename}`);
+  });
+
+  // Дополнительно: журнал импорта — им живут уведомления оболочки и живое обновление окна.
+  await check('GET /api/events: без after — только last, с after — новые события с именем папки', async () => {
+    const start = await api<EventsResponse>('GET', '/api/events');
+    assert(start.events.length === 0, 'без after сервер отдал историю');
+    assert(start.last > 0, `last=${start.last}, хотя импорты уже были`);
+
+    const box = await api<FolderRecord>('POST', '/api/folders', { name: 'Сэбач' });
+    const inFolder = await upload(
+      '/api/import',
+      [{ name: 'events-shot.png', buffer: await plasma(6).png().toBuffer() }],
+      { sourceType: 'drag_drop', folderId: String(box.id) },
+    );
+    assert(inFolder.items[0]?.outcome === 'added', `outcome=${inFolder.items[0]?.outcome}`);
+    const fileId = inFolder.items[0]?.file?.id ?? 0;
+
+    const fresh = await api<EventsResponse>('GET', `/api/events?after=${start.last}`);
+    assert(fresh.events.length === 1, `новых событий ${fresh.events.length} вместо 1`);
+    const event = fresh.events[0];
+    assert(event?.seq === start.last + 1, `seq=${event?.seq} вместо ${start.last + 1}`);
+    assert(event?.fileId === fileId, 'в событии не тот файл');
+    assert(event?.outcome === 'added' && event.sourceType === 'drag_drop', 'событие описано неверно');
+    assert(event?.folderId === box.id && event.folderName === 'Сэбач', `папка в событии: ${event?.folderName}`);
+    assert(fresh.last === event?.seq, 'last не совпал с номером последнего события');
+    assert(typeof event?.at === 'string' && !Number.isNaN(Date.parse(event.at)), 'время события не разбирается');
+
+    // Опрос с того же номера — пусто: одно событие клиент получает ровно один раз.
+    const again = await api<EventsResponse>('GET', `/api/events?after=${fresh.last}`);
+    assert(again.events.length === 0, 'событие пришло второй раз');
+
+    // CAP-05 — именно на этот sourceType оболочка шлёт системное уведомление.
+    const watched = await upload('/api/import/watch', [
+      { name: 'events-watch.png', buffer: await plasma(7).png().toBuffer() },
+    ]);
+    assert(watched.items[0]?.outcome === 'added', `watch outcome=${watched.items[0]?.outcome}`);
+    const tail = await api<EventsResponse>('GET', `/api/events?after=${again.last}`);
+    assert(tail.events[0]?.sourceType === 'folder_watch', `sourceType=${tail.events[0]?.sourceType}`);
+    assert(
+      tail.events[0]?.folderId === null && tail.events[0].folderName === null,
+      'у файла без папки в событии оказалась папка',
+    );
+
+    // Проверка самодостаточна: следы убираем, чтобы не смещать счётчики соседних проверок.
+    const ids = [fileId, watched.items[0]?.file?.id ?? 0];
+    await api<{ deleted: number }>('POST', '/api/files/delete', { fileIds: ids });
+    await api<{ purged: number }>('POST', '/api/files/purge', { fileIds: ids });
+    await api<{ ok: boolean }>('DELETE', `/api/folders/${box.id}`);
   });
 
   // Дополнительно: SVC-06 — занятый порт нельзя записать в настройки, иначе после

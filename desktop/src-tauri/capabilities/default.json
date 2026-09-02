@@ -1,10 +1,10 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Интерфейс главного окна приходит с http://127.0.0.1:<порт> — для Tauri это удалённый origin, и без блока remote любой invoke оттуда отбрасывает ACL. Открываем его, чтобы работали зоны перетаскивания окна (решение Сергея D4 от 02.09.2026). Разрешение start-dragging в core:window:default не входит — добавлено отдельно.",
+  "description": "Интерфейс главного окна приходит с http://127.0.0.1:<порт> — для Tauri это удалённый origin, и без блока remote любой invoke оттуда отбрасывает ACL. Открываем его, чтобы работали зоны перетаскивания окна (решение Сергея D4 от 02.09.2026) и системный выбор папки библиотеки в настройках и онбординге. Разрешения start-dragging и dialog:allow-open в наборы по умолчанию не входят — добавлены отдельно. Блок remote действует на всю капабилити, поэтому диалог доступен интерфейсу так же, как перетаскивание.",
   "remote": {
     "urls": ["http://127.0.0.1:*", "http://localhost:*"]
   },
   "windows": ["main", "error"],
-  "permissions": ["core:default", "core:window:allow-start-dragging"]
+  "permissions": ["core:default", "core:window:allow-start-dragging", "dialog:allow-open"]
 }

@@ -2,12 +2,24 @@
  * LIB-01 — сетка карточек. Одна и та же сетка обслуживает три среза
  * (`library` / `untagged` / `trash`): различаются данные, действия и пустые состояния.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
-import { AnimatePresence } from 'motion/react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+} from 'react';
+import { createPortal } from 'react-dom';
+import { AnimatePresence, motion } from 'motion/react';
 import { Trash2 } from 'lucide-react';
 import type { FileRecord } from '@shared/api';
 import * as api from '@/lib/api';
 import { plural } from '@/lib/format';
+import { DUR_FAST, EASE_OUT } from '@/lib/motion';
+import { EASE_IN } from '@/components/ui/motion-presets';
 import { Button } from '@/components/ui/Button';
 import { SelectionBar } from '@/components/ui/SelectionBar';
 import { useToast } from '@/components/ui/Toast';
@@ -32,18 +44,29 @@ const SKELETON = [0.75, 1.3, 0.66, 1, 1.45, 0.8, 1.1, 0.62, 1.35, 0.9, 1.2, 0.7]
 
 type PendingConfirm = { kind: 'purge'; ids: readonly number[] } | { kind: 'empty-trash' } | null;
 
+/**
+ * Полка живёт в области контента (`#kopirka-content` из `AppShell`), но принадлежит
+ * сетке: контракт с импортом — контейнер существует, пока смонтирован `GridScreen`.
+ * Вне оболочки (витрина, тесты) якоря нет — рисуем на месте.
+ */
+function shelfPortal(target: HTMLElement | null, shelf: ReactNode): ReactNode {
+  return target === null ? shelf : createPortal(shelf, target);
+}
+
 export function GridScreen() {
   const library = useLibrary();
   const { startImport, importFromTransfer } = useImport();
   const { toast } = useToast();
-  const metrics = useGridMetrics();
 
   const scope = useViewSelector((s) => s.scope);
   const folderId = useViewSelector((s) => s.folderId);
+  const gridSize = useViewSelector((s) => s.gridSize);
   const query = useViewSelector((s) => s.query);
   const filters = useViewSelector((s) => s.filters);
   const selectedIds = useViewSelector((s) => s.selectedIds);
   const openFileId = useViewSelector((s) => s.openFileId);
+
+  const metrics = useGridMetrics(gridSize);
 
   const [bulkDialog, setBulkDialog] = useState<'folder' | 'tag' | null>(null);
   const [confirm, setConfirm] = useState<PendingConfirm>(null);
@@ -262,7 +285,18 @@ export function GridScreen() {
       else void trashIds(ids);
     },
     paste: (data) => importFromTransfer(data, 'clipboard'),
+    setGridSize: (size) => viewActions.setGridSize(size),
   });
+
+  /*
+    «Полка» (дизайн-аудит 4.14–4.15) рисуется не здесь, а в области контента:
+    внутри сетки она уехала бы вместе со скроллом, а `fixed` центрировал бы её
+    по окну — на 1440 центр панели оказывался на 724 вместо 840.
+  */
+  const [contentEl, setContentEl] = useState<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    setContentEl(document.getElementById('kopirka-content'));
+  }, []);
 
   // ── Отрисовка ────────────────────────────────────────────────────────────
   const filtered =
@@ -291,26 +325,71 @@ export function GridScreen() {
 
   const empty = !loading && files.length === 0;
 
+  /*
+    Заголовок контента — решение D8 (дизайн-аудит 4.7, 4.30). Раньше, стоя в папке
+    «Сэбач», нельзя было отличить её от всей библиотеки: ни имени, ни счётчика.
+    Сюда же переехала шапка корзины — она была единственным блоком такого рода.
+    Во «Всей библиотеке» без папки и поиска заголовка нет: там он ничего не добавит.
+  */
+  const folderName = folderId === null ? null : (library.folderNameById.get(folderId) ?? null);
+  const headerTitle: string | null =
+    needle !== ''
+      ? `Поиск: ${needle}`
+      : folderName !== null
+        ? folderName
+        : scope === 'untagged'
+          ? 'Не разобрано'
+          : scope === 'trash'
+            ? 'Корзина'
+            : null;
+
+  // Счётчик берём из ответа списка, а не из stats: он всегда совпадает с тем, что видно.
+  const fileCount = `${library.total} ${plural(library.total, 'файл', 'файла', 'файлов')}`;
+  const headerMeta = loading
+    ? null
+    : scope === 'trash'
+      ? `${fileCount} · ${plural(library.total, 'хранится', 'хранятся', 'хранятся')} 30 дней`
+      : fileCount;
+
+  const headerActions: ReactNode[] = [];
+  if (scope === 'trash' && library.total > 0 && !loading) {
+    headerActions.push(
+      <Button
+        key="empty-trash"
+        variant="danger"
+        icon={<Trash2 className="size-3.5" strokeWidth={2} />}
+        onClick={() => setConfirm({ kind: 'empty-trash' })}
+      >
+        Очистить корзину
+      </Button>,
+    );
+  }
+  if (needle !== '') {
+    headerActions.push(
+      <Button key="reset-search" variant="ghost" onClick={() => viewActions.setQuery('')}>
+        Сбросить
+      </Button>,
+    );
+  }
+
   return (
     <DropZone className="min-h-full">
-      {/* Счётчик берём из ответа списка, а не из stats: он всегда совпадает с тем, что видно. */}
-      {scope === 'trash' && !loading && files.length > 0 ? (
-        <div className="sticky top-0 z-20 flex h-12 items-center gap-3 bg-bg/85 px-[var(--grid-pad)] backdrop-blur-[6px]">
-          <span className="text-base text-ink-muted">
-            В корзине <span className="font-mono text-ink">{library.total}</span>{' '}
-            {plural(library.total, 'файл', 'файла', 'файлов')} ·{' '}
-            {plural(library.total, 'хранится', 'хранятся', 'хранятся')} 30 дней
-          </span>
-          <div className="flex-1" />
-          <Button
-            variant="danger"
-            icon={<Trash2 className="size-3.5" strokeWidth={2} />}
-            onClick={() => setConfirm({ kind: 'empty-trash' })}
+      <AnimatePresence initial={false}>
+        {headerTitle !== null ? (
+          <motion.div
+            key="content-header"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1, transition: { duration: DUR_FAST, ease: EASE_OUT } }}
+            exit={{ opacity: 0, transition: { duration: DUR_FAST, ease: EASE_IN } }}
+            className="sticky top-0 z-20 flex h-11 items-center gap-3 bg-bg/85 px-[var(--grid-pad)] backdrop-blur-[6px]"
           >
-            Очистить корзину
-          </Button>
-        </div>
-      ) : null}
+            <h2 className="min-w-0 truncate text-lg leading-tight font-medium text-ink">{headerTitle}</h2>
+            {headerMeta !== null ? <span className="text-technical shrink-0">{headerMeta}</span> : null}
+            <div className="flex-1" />
+            {headerActions}
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
 
       {error && files.length === 0 ? (
         <GridError message={error} onRetry={() => void library.reload()} />
@@ -383,31 +462,41 @@ export function GridScreen() {
         </>
       )}
 
-      {/* ORG-04 — панель массового выделения. */}
-      <AnimatePresence>
-        {selectedIds.length > 0 && openFileId === null ? (
-          scope === 'trash' ? (
-            <TrashSelectionBar
-              key="trash-bar"
-              count={selectedIds.length}
-              className="fixed bottom-6 left-1/2 z-40 -translate-x-1/2"
-              onRestore={() => void restoreIds(selectedIds)}
-              onPurge={() => setConfirm({ kind: 'purge', ids: selectedIds })}
-              onCancel={() => viewActions.clearSelection()}
-            />
-          ) : (
-            <SelectionBar
-              key="selection-bar"
-              count={selectedIds.length}
-              className="fixed bottom-6 left-1/2 z-40 -translate-x-1/2"
-              onMoveToFolder={() => setBulkDialog('folder')}
-              onTag={() => setBulkDialog('tag')}
-              onDelete={() => void trashIds(selectedIds)}
-              onCancel={() => viewActions.clearSelection()}
-            />
-          )
-        ) : null}
-      </AnimatePresence>
+      {/*
+        Общая «полка» внизу области контента. Здесь же появляются прогресс импорта
+        и тосты — они находят контейнер по `id`. Порядок снизу вверх задан в
+        tokens.css через `order`, чтобы не зависеть от порядка монтирования порталов.
+      */}
+      {shelfPortal(
+        contentEl,
+        <div id="kopirka-shelf" className="absolute inset-x-0 bottom-6">
+          {/* ORG-04 — панель массового выделения. */}
+          <AnimatePresence>
+            {selectedIds.length > 0 && openFileId === null ? (
+              scope === 'trash' ? (
+                <TrashSelectionBar
+                  key="trash-bar"
+                  count={selectedIds.length}
+                  className="shelf-selection z-40"
+                  onRestore={() => void restoreIds(selectedIds)}
+                  onPurge={() => setConfirm({ kind: 'purge', ids: selectedIds })}
+                  onCancel={() => viewActions.clearSelection()}
+                />
+              ) : (
+                <SelectionBar
+                  key="selection-bar"
+                  count={selectedIds.length}
+                  className="shelf-selection z-40"
+                  onMoveToFolder={() => setBulkDialog('folder')}
+                  onTag={() => setBulkDialog('tag')}
+                  onDelete={() => void trashIds(selectedIds)}
+                  onCancel={() => viewActions.clearSelection()}
+                />
+              )
+            ) : null}
+          </AnimatePresence>
+        </div>,
+      )}
 
       <MoveToFolderDialog
         open={bulkDialog === 'folder'}

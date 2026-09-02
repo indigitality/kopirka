@@ -9,7 +9,7 @@ import { StrictMode, useCallback, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { AppConfig, FileListQuery, SettingsResponse, TagRecord } from '@shared/api';
 import './styles/tokens.css';
-import { SettingsScreen, fetchSettings, patchSettings } from '@/features/settings';
+import { SettingsModal, fetchSettings, patchSettings } from '@/features/settings';
 import { completeOnboarding } from '@/features/settings/api';
 import { OnboardingScreen } from '@/features/onboarding';
 import { FilterButton, FilterPanel, countActiveFilters } from '@/features/filters';
@@ -33,6 +33,8 @@ const DEMO_TAGS: TagRecord[] = [
 
 function SettingsPreview() {
   const [settings, setSettings] = useState<SettingsResponse | null>(null);
+  /* Настройки теперь модалка: под ней нужна хоть какая-то оболочка. */
+  const [open, setOpen] = useState(true);
 
   useEffect(() => {
     fetchSettings().then(setSettings).catch(() => setSettings(null));
@@ -53,7 +55,23 @@ function SettingsPreview() {
     [],
   );
 
-  return <SettingsScreen settings={settings} onSave={onSave} onClose={() => undefined} />;
+  return (
+    <div className="relative h-full bg-bg">
+      <GridStub />
+      {!open ? (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            className="h-[var(--size-row)] rounded-md bg-surface-raised px-3 text-md text-ink hover:bg-surface-active"
+          >
+            Открыть настройки
+          </button>
+        </div>
+      ) : null}
+      <SettingsModal open={open} onOpenChange={setOpen} settings={settings} onSave={onSave} />
+    </div>
+  );
 }
 
 function OnboardingPreview() {

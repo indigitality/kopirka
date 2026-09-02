@@ -1,13 +1,32 @@
 /** Метрики сетки берём из токенов, а не из чисел в коде. */
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import type { GridSize } from '@/store/view';
 
 export interface GridMetrics {
+  /** Целевая ширина колонки для выбранного размера. */
   columnWidth: number;
   gap: number;
   pad: number;
+  /** Клемп снизу: сколько колонок держим, даже если целевая ширина не помещается. */
+  minColumns: number;
 }
 
-const FALLBACK: GridMetrics = { columnWidth: 275, gap: 14, pad: 30 };
+/** Токен целевой ширины по размеру карточки — решение D5. */
+const TOKEN: Record<GridSize, string> = {
+  l: '--grid-col-l',
+  m: '--grid-col-m',
+  s: '--grid-col-s',
+};
+
+const FALLBACK_COLUMN: Record<GridSize, number> = { l: 560, m: 275, s: 180 };
+
+/**
+ * Без клемпа на 900 px «большой» и «средний» дают одинаковые две колонки,
+ * и переключатель выглядит сломанным (дизайн-аудит §3.4).
+ */
+export const MIN_COLUMNS: Record<GridSize, number> = { l: 2, m: 3, s: 4 };
+
+const FALLBACK = { gap: 14, pad: 30 };
 
 function readPx(name: string, fallback: number): number {
   if (typeof window === 'undefined') return fallback;
@@ -16,15 +35,37 @@ function readPx(name: string, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+interface Tokens {
+  columns: Record<GridSize, number>;
+  gap: number;
+  pad: number;
+}
+
+const FALLBACK_TOKENS: Tokens = { columns: FALLBACK_COLUMN, gap: FALLBACK.gap, pad: FALLBACK.pad };
+
 /** Значения читаются один раз после монтирования: шрифты и токены к этому моменту применены. */
-export function useGridMetrics(): GridMetrics {
-  const [metrics, setMetrics] = useState<GridMetrics>(FALLBACK);
+export function useGridMetrics(size: GridSize): GridMetrics {
+  const [tokens, setTokens] = useState<Tokens>(FALLBACK_TOKENS);
+
   useEffect(() => {
-    setMetrics({
-      columnWidth: readPx('--grid-col-m', FALLBACK.columnWidth),
+    setTokens({
+      columns: {
+        l: readPx(TOKEN.l, FALLBACK_COLUMN.l),
+        m: readPx(TOKEN.m, FALLBACK_COLUMN.m),
+        s: readPx(TOKEN.s, FALLBACK_COLUMN.s),
+      },
       gap: readPx('--grid-gap', FALLBACK.gap),
       pad: readPx('--grid-pad', FALLBACK.pad),
     });
   }, []);
-  return metrics;
+
+  return useMemo(
+    () => ({
+      columnWidth: tokens.columns[size],
+      gap: tokens.gap,
+      pad: tokens.pad,
+      minColumns: MIN_COLUMNS[size],
+    }),
+    [tokens, size],
+  );
 }

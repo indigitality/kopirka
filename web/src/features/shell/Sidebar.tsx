@@ -15,6 +15,7 @@ import {
   Inbox,
   Library,
   MoreVertical,
+  PanelLeftClose,
   Plus,
   Settings,
   Trash2,
@@ -25,7 +26,17 @@ import { cn } from '@/lib/cn';
 import { EASE_OUT, DUR_BASE } from '@/lib/motion';
 import { flattenVisibleFolders } from '@/lib/folders';
 import { useViewSelector, viewActions } from '@/store/view';
-import { DRAG_MIME, fileDrag } from '@/features/grid/dnd';
+import {
+  DROP_SCROLL_ATTR,
+  DROP_TARGET_ATTR,
+  acceptsDrag,
+  dropTargetKey,
+  fileDrag,
+  hasExternalFiles,
+  useFileDragSnapshot,
+  type DropTarget,
+} from '@/features/grid/dnd';
+import { IconButton } from '@/components/ui/IconButton';
 import { Popover, PopoverContent, PopoverItem, PopoverSeparator, PopoverTrigger } from '@/components/ui/Popover';
 import { Tooltip } from '@/components/ui/Tooltip';
 
@@ -43,6 +54,46 @@ const MARQUEE_SPEED = 90; // px в секунду
 const MARQUEE_MIN_MS = 240;
 const MARQUEE_MAX_MS = 2200; // очень длинное имя не должно ехать бесконечно
 
+/** Свёрнутая папка раскрывается сама, если груз завис над ней. */
+const HOVER_EXPAND_MS = 600;
+
+/**
+ * Состояние строки как цели сброса. Считается по общему снимку переноса:
+ * кто под курсором, знает `dnd.ts` — строка только рисует.
+ */
+function useDropState(target: DropTarget | null) {
+  const drag = useFileDragSnapshot();
+  const key = target === null ? '' : dropTargetKey(target);
+  const accepts = target !== null && acceptsDrag(target, drag);
+  const aimed = target !== null && drag.overKey === key;
+  return {
+    key,
+    /** Цель в принципе принимает то, что тащат: мягкая подсказка «сюда можно». */
+    accepts,
+    /** Груз висит над строкой — неважно, примет она его или нет. */
+    aimed,
+    /** Цель под курсором и бросок сработает. */
+    over: aimed && accepts && !drag.rejected,
+    /** Цель под курсором, но бросок ничего не изменит. */
+    denied: aimed && drag.rejected,
+  };
+}
+
+/** Подсказка «сюда можно»: внутренняя пунктирная рамка, гаснет под курсором. */
+function DropHint({ show, dim }: { show: boolean; dim: boolean }) {
+  if (!show) return null;
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        'pointer-events-none absolute inset-0 rounded-md border border-dashed',
+        'transition-colors duration-[var(--dur-fast)] ease-out',
+        dim ? 'border-transparent' : 'border-line-control',
+      )}
+    />
+  );
+}
+
 export interface SidebarProps {
   folders: readonly FolderRecord[];
   stats: StatsResponse;
@@ -54,8 +105,8 @@ export interface SidebarProps {
   onRenameCommit?: (id: number, name: string) => void;
   onRenameCancel?: () => void;
   onDeleteFolder?: (folder: FolderRecord) => void;
-  /** ORG-03 — на папку бросили карточки из сетки. */
-  onDropFiles?: (folderId: number, fileIds: readonly number[]) => void;
+  /** 02 §4.4 — на папку бросили файлы из Finder: импорт сразу в неё. */
+  onImportFiles?: (folderId: number, files: readonly File[]) => void;
   /** Открыть настройки. Входа в них в каноническом фрейме нет — см. комментарий у подвала. */
   onOpenSettings?: () => void;
 }
@@ -65,15 +116,25 @@ export interface SidebarProps {
   а имена папок на x = 52, и сайдбар распадался на два столбца (аудит 4.1).
   Слот тот же `.sidebar-icon`, что у папок.
 */
-const SCOPES: {
+interface ScopeItem {
   scope: LibraryScope;
   label: string;
   icon: LucideIcon;
   counter: keyof StatsResponse | null;
-}[] = [
-  { scope: 'library', label: 'Вся библиотека', icon: Library, counter: null },
-  { scope: 'untagged', label: 'Не разобрано', icon: Inbox, counter: 'untagged' },
-  { scope: 'trash', label: 'Корзина', icon: Trash2, counter: 'trash' },
+  /** Чем становится бросок карточек на раздел. «Вся библиотека» ничего не меняет. */
+  target: DropTarget | null;
+}
+
+const SCOPES: ScopeItem[] = [
+  { scope: 'library', label: 'Вся библиотека', icon: Library, counter: null, target: null },
+  {
+    scope: 'untagged',
+    label: 'Не разобрано',
+    icon: Inbox,
+    counter: 'untagged',
+    target: { kind: 'unfiled' },
+  },
+  { scope: 'trash', label: 'Корзина', icon: Trash2, counter: 'trash', target: { kind: 'trash' } },
 ];
 
 /**
@@ -141,7 +202,7 @@ export function FolderRow({
   onRenameCommit,
   onRenameCancel,
   onDelete,
-  onDropFiles,
+  onImportFiles,
 }: {
   folder: FolderRecord;
   depth: number;
@@ -155,11 +216,11 @@ export function FolderRow({
   onRenameCommit?: (id: number, name: string) => void;
   onRenameCancel?: () => void;
   onDelete?: (folder: FolderRecord) => void;
-  onDropFiles?: (folderId: number, fileIds: readonly number[]) => void;
+  onImportFiles?: (folderId: number, files: readonly File[]) => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [dropTarget, setDropTarget] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const { key, accepts, aimed, over, denied } = useDropState({ kind: 'folder', folderId: folder.id });
 
   const hasChildren = folder.children.length > 0;
   /* Кнопки лежат поверх имени — имя тянется до правого поля, как на артборде. */
@@ -181,6 +242,14 @@ export function FolderRow({
     }
   }, [renaming]);
 
+  // Груз завис над свёрнутой папкой — раскрываем её, чтобы можно было донести глубже.
+  // Считаем по `aimed`, а не по `over`: сама папка бросок не примет, а её вложенные — да.
+  useEffect(() => {
+    if (!aimed || !hasChildren || !collapsed) return;
+    const timer = window.setTimeout(() => viewActions.expandFolder(folder.id), HOVER_EXPAND_MS);
+    return () => window.clearTimeout(timer);
+  }, [aimed, hasChildren, collapsed, folder.id]);
+
   const FolderIcon = hasChildren && !collapsed ? FolderOpen : Folder;
   const Chevron = collapsed ? ChevronDown : ChevronUp;
 
@@ -194,33 +263,37 @@ export function FolderRow({
           '--marquee-dur': `${duration}ms`,
         } as CSSProperties
       }
+      {...{ [DROP_TARGET_ATTR]: `folder:${folder.id}` }}
       className={cn(
         'sidebar-row group relative flex h-[var(--size-row)] items-center gap-[var(--sidebar-row-gap)]',
         'rounded-md transition-colors duration-[var(--dur-fast)] ease-out',
         // Ховер и выбор — разные роли: раньше заливка была одна, и наведение читалось как выбор.
         active ? 'bg-surface-row text-ink' : 'text-ink-muted hover:bg-surface-row-hover',
         menuOpen && !active && 'bg-surface-row-hover',
-        // ORG-03 — папка под курсором при перетаскивании карточек.
-        dropTarget && 'bg-accent-soft text-ink ring-1 ring-accent',
+        // ORG-03 — папка под курсором. Файл уже в ней: подсветки нет, курсор запрещает.
+        over && 'bg-surface-active text-ink ring-1 ring-accent-ring',
+        denied && 'cursor-not-allowed',
       )}
+      /* Файлы из Finder идут прежним путём: HTML5-drop в браузере до сайдбара доходит. */
       onDragOver={(event) => {
-        if (!fileDrag.isActive()) return;
+        if (!hasExternalFiles(event)) return;
         event.preventDefault();
-        event.dataTransfer.dropEffect = 'move';
-        setDropTarget(true);
+        event.dataTransfer.dropEffect = 'copy';
+        fileDrag.setExternalOver(key);
       }}
-      onDragLeave={() => setDropTarget(false)}
+      onDragLeave={() => fileDrag.clearExternalOver(key)}
       onDrop={(event) => {
-        if (!fileDrag.isActive()) return;
+        if (!hasExternalFiles(event)) return;
         event.preventDefault();
-        setDropTarget(false);
-        const ids = fileDrag.get();
-        fileDrag.end();
-        // Данные дублируются в dataTransfer — на случай перетаскивания между окнами.
-        void event.dataTransfer.getData(DRAG_MIME);
-        if (ids.length > 0) onDropFiles?.(folder.id, ids);
+        event.stopPropagation();
+        fileDrag.clearExternalOver(key);
+        fileDrag.setExternal(false);
+        const files = Array.from(event.dataTransfer.files);
+        if (files.length > 0) onImportFiles?.(folder.id, files);
       }}
     >
+      <DropHint show={accepts} dim={over} />
+
       {/*
         Слот иконки. У папки с вложенными он же переключатель: при наведении
         именно на него папка сменяется шевроном — так видно, что по нему кликают.
@@ -362,6 +435,48 @@ export function FolderRow({
   );
 }
 
+/**
+ * Строка раздела. Два из трёх разделов — цели сброса: «Не разобрано» вынимает
+ * файл из папки, «Корзина» отправляет в корзину (тон danger, а не акцент).
+ */
+function ScopeRow({
+  item,
+  active,
+  count,
+}: {
+  item: ScopeItem;
+  active: boolean;
+  count: number | null;
+}) {
+  const { accepts, over, denied } = useDropState(item.target);
+  const danger = item.target?.kind === 'trash';
+  const ScopeIcon = item.icon;
+
+  return (
+    <button
+      type="button"
+      onClick={() => viewActions.setScope(item.scope)}
+      {...(item.target ? { [DROP_TARGET_ATTR]: dropTargetKey(item.target) } : null)}
+      className={cn(
+        'relative flex h-[var(--size-row)] w-full items-center gap-[var(--sidebar-row-gap)] rounded-md',
+        'px-[var(--sidebar-row-pad-x)] transition-colors duration-[var(--dur-fast)] ease-out',
+        active ? 'bg-surface-row text-ink' : 'text-ink-muted hover:bg-surface-row-hover',
+        over && (danger ? 'bg-danger-soft text-danger ring-1 ring-danger' : 'bg-surface-active text-ink ring-1 ring-accent-ring'),
+        denied && 'cursor-not-allowed',
+      )}
+    >
+      <DropHint show={accepts} dim={over} />
+      <span className="sidebar-icon">
+        <ScopeIcon className="size-4" strokeWidth={1.5} aria-hidden />
+      </span>
+      <span className={cn('min-w-0 flex-1 truncate text-left text-md', active && 'font-medium')}>
+        {item.label}
+      </span>
+      {count !== null && <span className="label-count">{count}</span>}
+    </button>
+  );
+}
+
 export function Sidebar({
   folders,
   stats,
@@ -371,7 +486,7 @@ export function Sidebar({
   onRenameCommit,
   onRenameCancel,
   onDeleteFolder,
-  onDropFiles,
+  onImportFiles,
   onOpenSettings,
 }: SidebarProps) {
   const collapsed = useViewSelector((s) => s.sidebarCollapsed);
@@ -396,51 +511,50 @@ export function Sidebar({
     >
       <div className="sidebar-shell flex h-full w-[var(--size-sidebar)] flex-col gap-7">
         {/*
-          Логотип: своё левое поле, как у строк ниже — артборд 3IV-0.
-          Заодно вторая зона перетаскивания окна (аудит логики §7): оболочку
-          сайдбара целиком размечать нельзя — строки папок остаются целями drop.
+          Логотип: своё левое поле, как у строк ниже — артборд 3IV-0. Высота ряда
+          зафиксирована по логотипу (22px), чтобы кнопка 28×28 справа не сдвинула
+          вниз всё, что ниже: она выходит за ряд на 3px сверху и снизу.
         */}
-        <div
-          data-tauri-drag-region="deep"
-          className="flex shrink-0 items-center gap-[var(--sidebar-logo-gap)] pl-[var(--sidebar-row-pad-x)]"
-        >
-          <span
-            className="size-[22px] shrink-0 rounded-[7px] bg-linear-to-br from-accent to-accent-deep"
-            aria-hidden
-          />
-          <span className="text-md leading-[18px] font-medium text-ink">Копирка</span>
+        <div className="flex h-[22px] shrink-0 items-center pl-[var(--sidebar-row-pad-x)]">
+          {/*
+            Зона перетаскивания окна (аудит логики §7): оболочку сайдбара целиком
+            размечать нельзя — строки папок остаются целями drop. Кнопка нарочно
+            снаружи этого блока: за неё окно тянуться не должно.
+          */}
+          <div
+            data-tauri-drag-region="deep"
+            className="flex h-full min-w-0 flex-1 items-center gap-[var(--sidebar-logo-gap)]"
+          >
+            <span
+              className="size-[22px] shrink-0 rounded-[7px] bg-linear-to-br from-accent to-accent-deep"
+              aria-hidden
+            />
+            <span className="text-md leading-[18px] font-medium text-ink">Копирка</span>
+          </div>
+
+          {/* Свернуть сайдбар. Развернуть обратно — кнопкой в углу верхней панели. */}
+          <Tooltip content="Свернуть сайдбар" hotkey="⌘\" side="bottom">
+            <IconButton
+              size="sm"
+              label="Свернуть сайдбар"
+              onClick={() => viewActions.toggleSidebar()}
+              className="-mr-1.5"
+            >
+              <PanelLeftClose className="size-4" strokeWidth={2} aria-hidden />
+            </IconButton>
+          </Tooltip>
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col gap-8">
           <nav className="flex shrink-0 flex-col">
-            {SCOPES.map((item) => {
-              const active = scope === item.scope && activeFolderId === null;
-              const ScopeIcon = item.icon;
-              return (
-                <button
-                  key={item.scope}
-                  type="button"
-                  onClick={() => viewActions.setScope(item.scope)}
-                  className={cn(
-                    'flex h-[var(--size-row)] w-full items-center gap-[var(--sidebar-row-gap)] rounded-md',
-                    'px-[var(--sidebar-row-pad-x)] transition-colors duration-[var(--dur-fast)] ease-out',
-                    active
-                      ? 'bg-surface-row text-ink'
-                      : 'text-ink-muted hover:bg-surface-row-hover',
-                  )}
-                >
-                  <span className="sidebar-icon">
-                    <ScopeIcon className="size-4" strokeWidth={1.5} aria-hidden />
-                  </span>
-                  <span
-                    className={cn('min-w-0 flex-1 truncate text-left text-md', active && 'font-medium')}
-                  >
-                    {item.label}
-                  </span>
-                  {item.counter && <span className="label-count">{stats[item.counter]}</span>}
-                </button>
-              );
-            })}
+            {SCOPES.map((item) => (
+              <ScopeRow
+                key={item.scope}
+                item={item}
+                active={scope === item.scope && activeFolderId === null}
+                count={item.counter ? stats[item.counter] : null}
+              />
+            ))}
           </nav>
 
           <div className="flex min-h-0 flex-1 flex-col gap-2">
@@ -459,7 +573,11 @@ export function Sidebar({
               </Tooltip>
             </div>
 
-            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+            {/* Автопрокрутка при переносе идёт по этому контейнеру — см. dnd.ts. */}
+            <div
+              {...{ [DROP_SCROLL_ATTR]: '' }}
+              className="flex min-h-0 flex-1 flex-col overflow-y-auto"
+            >
               {visible.map(({ folder, depth }) => (
                 <FolderRow
                   key={folder.id}
@@ -475,7 +593,7 @@ export function Sidebar({
                   onRenameCommit={onRenameCommit}
                   onRenameCancel={onRenameCancel}
                   onDelete={onDeleteFolder}
-                  onDropFiles={onDropFiles}
+                  onImportFiles={onImportFiles}
                 />
               ))}
             </div>

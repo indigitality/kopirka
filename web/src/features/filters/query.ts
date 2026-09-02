@@ -14,12 +14,13 @@ export const SORT_OPTIONS: readonly { value: SortKey; label: string }[] = [
 
 export const DEFAULT_SORT: SortKey = 'added_desc';
 
-export type DatePreset = 'today' | 'week' | 'month';
+export type DatePreset = 'today' | 'week' | 'month' | 'year';
 
 export const DATE_PRESETS: readonly { value: DatePreset; label: string }[] = [
   { value: 'today', label: 'Сегодня' },
   { value: 'week', label: 'Неделя' },
   { value: 'month', label: 'Месяц' },
+  { value: 'year', label: 'Год' },
 ];
 
 /** `YYYY-MM-DD` в локальной зоне: `toISOString` увёл бы дату на день назад западнее UTC. */
@@ -34,6 +35,7 @@ export function presetRange(preset: DatePreset): { dateFrom: string; dateTo: str
   const from = new Date(today);
   if (preset === 'week') from.setDate(from.getDate() - 6);
   if (preset === 'month') from.setMonth(from.getMonth() - 1);
+  if (preset === 'year') from.setFullYear(from.getFullYear() - 1);
   return { dateFrom: toDateInput(from), dateTo: toDateInput(today) };
 }
 
@@ -60,13 +62,17 @@ export function countActiveFilters(query: FileListQuery): number {
   );
 }
 
-/** Сброс — снимает фильтры и сортировку, но не трогает раздел, папку и строку поиска. */
+/**
+ * Сброс — снимает фильтры, но не трогает раздел, папку, строку поиска и сортировку.
+ * Сортировка с 02.09.2026 живёт в верхней панели (решение D6) и фильтром не считается:
+ * «Сбросить» в панели не должно молча менять видимый порядок.
+ */
 export function clearFilters(query: FileListQuery): FileListQuery {
-  const { tags: _tags, exts: _exts, dateFrom: _from, dateTo: _to, sort: _sort, ...rest } = query;
+  const { tags: _tags, exts: _exts, dateFrom: _from, dateTo: _to, ...rest } = query;
   return { ...rest, cursor: null };
 }
 
-/** Есть ли что сбрасывать: фильтры или несортировка по умолчанию. */
+/** Есть ли что сбрасывать. */
 export function isDirty(query: FileListQuery): boolean {
-  return countActiveFilters(query) > 0 || (query.sort !== undefined && query.sort !== DEFAULT_SORT);
+  return countActiveFilters(query) > 0;
 }

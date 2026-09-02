@@ -5,6 +5,7 @@
 
 mod backend;
 mod capture;
+mod events;
 mod http;
 mod menu;
 mod tray;
@@ -26,6 +27,8 @@ pub fn quit(app: &AppHandle) {
 
 fn main() {
     tauri::Builder::default()
+        // Диалог выбора папки библиотеки: настройки и онбординг зовут его из интерфейса.
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .manage(backend::BackendState::default())
         // Аварийное окно живёт на собственной схеме: у него нет ни сервера, ни IPC,

@@ -16,7 +16,7 @@ import {
 } from '../../shared/api.js';
 import type { Db } from './db.js';
 import { getFile, getFileRow, findActiveBySha, findAnyBySha, mapFileRow } from './files.js';
-import { folderExists } from './folders.js';
+import { folderExists, getFolderFlat } from './folders.js';
 import {
   detectExt,
   hammingDistance,
@@ -163,6 +163,27 @@ async function persist(state: AppState, input: PersistInput): Promise<FileRecord
   return record;
 }
 
+/**
+ * Отметить успешный импорт в журнале — это единственный сигнал для оболочки и окна.
+ * Зовётся на всех путях, где файл действительно оказался в библиотеке, включая возврат
+ * из корзины и досохранение после модалки «Похоже, уже есть».
+ */
+function noteImported(
+  state: AppState,
+  file: FileRecord,
+  outcome: 'added' | 'added_similar',
+): void {
+  const folderName =
+    file.folderId === null ? null : (getFolderFlat(state.db, file.folderId)?.name ?? null);
+  state.events.push({
+    fileId: file.id,
+    sourceType: file.sourceType,
+    folderId: file.folderId,
+    folderName,
+    outcome,
+  });
+}
+
 function recordFor(db: Db, fileId: number): FileRecord | undefined {
   const row = getFileRow(db, fileId);
   if (!row) return undefined;
@@ -199,7 +220,10 @@ export async function importOne(state: AppState, input: ImportInput): Promise<Im
     if (inTrash) {
       state.db.prepare(`UPDATE files SET deleted_at = NULL WHERE id = ?`).run(inTrash.id);
       const restored = recordFor(state.db, inTrash.id);
-      if (restored) return { originalFilename: filename, outcome: 'added', file: restored };
+      if (restored) {
+        noteImported(state, restored, 'added');
+        return { originalFilename: filename, outcome: 'added', file: restored };
+      }
     }
 
     // 2. Похожий дубль. SVG участвует только в проверке точного дубля.
@@ -241,6 +265,7 @@ export async function importOne(state: AppState, input: ImportInput): Promise<Im
     });
 
     if (similar !== null) {
+      noteImported(state, file, 'added_similar');
       return {
         originalFilename: filename,
         outcome: 'added_similar',
@@ -248,6 +273,7 @@ export async function importOne(state: AppState, input: ImportInput): Promise<Im
         existingFile: recordFor(state.db, similar.fileId),
       };
     }
+    noteImported(state, file, 'added');
     return { originalFilename: filename, outcome: 'added', file };
   } catch (error) {
     log.error(`импорт «${rawName}» упал`, error);
@@ -306,6 +332,7 @@ export async function confirmPending(state: AppState, token: string): Promise<Im
       // Пока пользователь думал, папку могли удалить — тогда файл ложится без папки.
       folderId: meta.folderId !== null && folderExists(state.db, meta.folderId) ? meta.folderId : null,
     });
+    noteImported(state, file, 'added');
     return { originalFilename: meta.filename, outcome: 'added', file };
   } catch (error) {
     log.error(`подтверждённый импорт «${meta.filename}» упал`, error);

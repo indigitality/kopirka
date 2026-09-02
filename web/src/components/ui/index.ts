@@ -14,7 +14,14 @@ export {
   PopoverItem,
   PopoverSeparator,
 } from './Popover';
-export { Modal, ModalTrigger, ModalClose, ModalContent, type ModalContentProps } from './Modal';
+export {
+  Modal,
+  ModalTrigger,
+  ModalClose,
+  ModalContent,
+  type ModalContentProps,
+  type ModalSize,
+} from './Modal';
 export {
   Tooltip,
   TooltipProvider,
@@ -51,5 +58,10 @@ export {
   type LayerMotionProps,
 } from './motion-presets';
 export { Select, type SelectProps, type SelectOption, type SelectValue } from './Select';
+export {
+  SegmentedControl,
+  type SegmentedControlProps,
+  type SegmentedOption,
+} from './SegmentedControl';
 export { EmptyState, type EmptyStateProps } from './EmptyState';
 export { SelectionBar, type SelectionBarProps } from './SelectionBar';

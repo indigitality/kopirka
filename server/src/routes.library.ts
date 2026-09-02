@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import net from 'node:net';
 import type { Hono } from 'hono';
-import { SCHEMA_VERSION, type SettingsResponse } from '../../shared/api.js';
+import { SCHEMA_VERSION, type EventsResponse, type SettingsResponse } from '../../shared/api.js';
 import { expandHome } from './config.js';
 import { badRequest } from './errors.js';
 import { createFolder, deleteFolder, listFolders, updateFolder } from './folders.js';
@@ -55,6 +55,20 @@ export function registerLibraryRoutes(app: Hono, state: AppState): void {
   app.get('/api/health', (c) =>
     c.json({ ok: true, appVersion: VERSION, schemaVersion: SCHEMA_VERSION, libraryPath: state.libraryPath }),
   );
+
+  /**
+   * Лента успешных импортов. Без `after` отдаём только номер последнего события:
+   * так новый клиент запоминает точку отсчёта и не получает залпом всё накопившееся.
+   */
+  app.get('/api/events', (c) => {
+    const raw = c.req.query('after');
+    const after = raw === undefined ? null : Number(raw);
+    const payload: EventsResponse = {
+      events: after !== null && Number.isInteger(after) && after >= 0 ? state.events.since(after) : [],
+      last: state.events.last,
+    };
+    return c.json(payload);
+  });
 
   // Возвращаем голый массив: такой формат объявлен в клиенте (web/src/lib/api.ts).
   app.get('/api/folders', (c) => c.json(listFolders(state.db)));
