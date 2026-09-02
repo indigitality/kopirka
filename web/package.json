@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc -b --noEmit"
+    "typecheck": "tsc -b --noEmit",
+    "storybook": "storybook dev -p 6006 --no-open",
+    "build-storybook": "storybook build"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.3.0",
@@ -25,10 +27,13 @@
     "tailwind-merge": "^3.3.1"
   },
   "devDependencies": {
+    "@storybook/react-vite": "^10.5.10",
     "@tailwindcss/vite": "^4.3.3",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.1",
     "@vitejs/plugin-react": "^5.0.4",
+    "storybook": "^10.5.10",
+    "storybook-addon-pseudo-states": "^10.5.10",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.9.3",
     "vite": "^7.1.9"
