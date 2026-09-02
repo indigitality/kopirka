@@ -7,7 +7,8 @@ export type IconButtonSize = 'sm' | 'md';
 const VARIANT: Record<IconButtonVariant, string> = {
   ghost: 'bg-transparent text-ink-muted hover:bg-surface-hover hover:text-ink',
   secondary: 'bg-surface-raised text-ink border border-line-strong hover:bg-surface-hover',
-  danger: 'bg-transparent text-ink-muted hover:bg-danger-soft hover:text-danger',
+  /* Спека §4: опасная — подложка danger-soft уже в покое, иначе корзина не читается. */
+  danger: 'bg-danger-soft text-danger hover:brightness-125',
 };
 
 /** Квадратная кнопка: 32×32 и 28×28. */
@@ -35,7 +36,8 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
       aria-label={label}
       className={cn(
         'inline-flex shrink-0 items-center justify-center rounded-md',
-        'transition-colors duration-[var(--dur-fast)] ease-out',
+        'transition-[color,background-color,border-color,filter,transform] duration-[var(--dur-fast)] ease-out',
+        'active:scale-[.98] active:brightness-[.94]',
         'disabled:pointer-events-none disabled:opacity-40',
         VARIANT[variant],
         SIZE[size],

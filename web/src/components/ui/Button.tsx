@@ -1,7 +1,7 @@
 import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from 'react';
 import { cn } from '@/lib/cn';
 
-export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
+export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'danger-solid';
 export type ButtonSize = 'sm' | 'md';
 
 /** Раскладка вариантов — раздел 4 спеки. */
@@ -11,6 +11,11 @@ const VARIANT: Record<ButtonVariant, string> = {
   secondary: 'bg-surface-raised text-ink border border-line-strong hover:bg-surface-hover',
   ghost: 'bg-transparent text-ink-muted hover:bg-surface-hover hover:text-ink',
   danger: 'bg-danger-soft text-danger hover:brightness-125',
+  /*
+    Необратимое действие: мягкий `danger` на тёмном читается как серая кнопка
+    и по весу равен «Отмене» (дизайн-аудит 4.22). Здесь заливка сплошная.
+  */
+  'danger-solid': 'bg-danger text-danger-ink font-medium hover:brightness-110',
 };
 
 const SIZE: Record<ButtonSize, string> = {
@@ -39,7 +44,9 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       type={type ?? 'button'}
       className={cn(
         'inline-flex shrink-0 select-none items-center justify-center rounded-md whitespace-nowrap',
-        'transition-colors duration-[var(--dur-fast)] ease-out',
+        // Нажатие должно отзываться: масштаб и затемнение фона на 6% (аудит 4.33).
+        'transition-[color,background-color,border-color,filter,transform] duration-[var(--dur-fast)] ease-out',
+        'active:scale-[.98] active:brightness-[.94]',
         'disabled:pointer-events-none disabled:opacity-40',
         VARIANT[variant],
         SIZE[size],

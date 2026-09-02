@@ -29,7 +29,8 @@ export function ConfirmDialog({
             <Button variant="secondary" onClick={onCancel}>
               Отмена
             </Button>
-            <Button variant="danger" onClick={onConfirm}>
+            {/* Действие необратимо — сплошная опасная кнопка, а не мягкая (02 §4.22). */}
+            <Button variant="danger-solid" onClick={onConfirm}>
               {confirmLabel}
             </Button>
           </>

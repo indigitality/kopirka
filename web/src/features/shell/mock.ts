@@ -16,13 +16,16 @@ function folder(name: string, fileCount: number, children: FolderRecord[] = []):
     sortOrder: id,
     createdAt: '2026-08-01T10:00:00.000Z',
     fileCount,
+    /* D2: родительская папка показывает всё поддерево — счётчик суммарный. */
+    totalFileCount: fileCount + children.reduce((sum, child) => sum + child.totalFileCount, 0),
     children: children.map((child) => ({ ...child, parentFolderId: id })),
   };
 }
 
 export const mockFolders: FolderRecord[] = [
+  /* Третий уровень — с 02.09.2026 глубина дерева не ограничена (PRD §5.6). */
   folder('Интерфейсы', 214, [
-    folder('Дашборды', 86),
+    folder('Дашборды', 86, [folder('Аналитика', 24), folder('Финансовые сводки и отчёты', 18)]),
     folder('Онбординг', 41),
     folder('Формы и поля', 33),
   ]),

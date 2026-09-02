@@ -29,19 +29,36 @@ fn main() {
         .plugin(tauri_plugin_notification::init())
         .manage(backend::BackendState::default())
         // Аварийное окно живёт на собственной схеме: у него нет ни сервера, ни IPC,
-        // а кнопка «Выйти» — обычная ссылка, которую ловит этот же обработчик.
-        .register_uri_scheme_protocol("kopirka", |ctx, request| {
-            if request.uri().path() == "/quit" {
+        // а кнопки — обычные ссылки, которые ловит этот же обработчик.
+        .register_uri_scheme_protocol("kopirka", |ctx, request| match request.uri().path() {
+            "/quit" => {
                 let app = ctx.app_handle().clone();
                 // Выход прямо из обработчика запроса подвесил бы главный поток.
                 std::thread::spawn(move || quit(&app));
-                return tauri::http::Response::builder().status(204).body(Vec::new()).unwrap();
+                no_content()
             }
-            tauri::http::Response::builder()
-                .status(200)
-                .header("Content-Type", "text/html; charset=utf-8")
-                .body(windows::error_page().into_bytes())
-                .unwrap()
+            // Кнопка «Сбросить порт»: правим конфиг и перезапускаемся уже на 43117.
+            "/reset-port" => match backend::reset_port() {
+                Ok(()) => {
+                    let app = ctx.app_handle().clone();
+                    // Как и с выходом: перезапуск из главного потока подвесил бы его.
+                    std::thread::spawn(move || app.restart());
+                    no_content()
+                }
+                // Не вышло — объясняем причину в том же окне, без паники.
+                Err(reason) => html_page(windows::error_html(
+                    "Порт не сброшен",
+                    &format!(
+                        "Не удалось вернуть в конфиг порт {}.\n\
+                         {reason}\n\
+                         Поправьте ~/Library/Application Support/Kopirka/config.json руками, \
+                         поле serverPort, и откройте «Копирку» заново.",
+                        backend::DEFAULT_PORT
+                    ),
+                    None,
+                )),
+            },
+            _ => html_page(windows::error_page()),
         })
         .on_menu_event(|app, event| {
             if event.id() == menu::QUIT_ID {
@@ -53,20 +70,29 @@ fn main() {
             // Меню ставим до всего: ⌘Q должен работать и в аварийном окне.
             menu::setup(&handle)?;
             match backend::start(&handle) {
-                Ok(port) => {
-                    windows::open_main(&handle, port)?;
-                    tray::setup(&handle)?;
-                    register_hotkey(&handle)?;
+                Ok(port) => start_ui(&handle, port)?,
+                // На порту отвечает «Копирка» — своя же, поднятая из терминала или
+                // вторым экземпляром. Второй сервер не нужен: показываем интерфейс той.
+                // Гасить её при выходе не будем — в BackendState пусто, гасить нечего.
+                Err(backend::StartError::PortBusy(port)) if backend::health(port) => {
+                    start_ui(&handle, port)?
                 }
-                Err(backend::StartError::PortBusy(port)) => windows::open_error(
-                    &handle,
-                    "Порт занят — Копирка не запустилась",
-                    &format!(
-                        "Порт {port} на 127.0.0.1 уже занят другой программой.\n\
-                         Скорее всего, «Копирка» уже запущена — вторым экземпляром или из терминала командой npm start.\n\
-                         Закройте её и откройте приложение заново. Порт можно сменить в ~/Library/Application Support/Kopirka/config.json, поле serverPort."
-                    ),
-                )?,
+                // Порт занял кто-то посторонний. Честно об этом говорим и даём кнопку,
+                // которая вернёт в конфиг стандартный порт.
+                Err(backend::StartError::PortBusy(port)) => {
+                    let default = backend::DEFAULT_PORT;
+                    let reset = format!("Сбросить порт на {default}");
+                    windows::open_error(
+                        &handle,
+                        "Порт занят — Копирка не запустилась",
+                        &format!(
+                            "Порт {port} занят другой программой.\n\
+                             Сбросьте порт на {default} или закройте программу, которая его заняла.\n\
+                             Порт хранится в ~/Library/Application Support/Kopirka/config.json, поле serverPort."
+                        ),
+                        Some((&reset, windows::RESET_PORT_HREF)),
+                    )?
+                }
                 Err(backend::StartError::Failed(message)) => windows::open_error(
                     &handle,
                     "Копирка не запустилась",
@@ -75,6 +101,7 @@ fn main() {
                          {message}\n\
                          Подробности — в ~/Library/Application Support/Kopirka/kopirka.log."
                     ),
+                    None,
                 )?,
             }
             Ok(())
@@ -111,6 +138,28 @@ fn main() {
         });
 }
 
+/// Пустой ответ обработчика схемы: страница аварийного окна остаётся на месте.
+fn no_content() -> tauri::http::Response<Vec<u8>> {
+    tauri::http::Response::builder().status(204).body(Vec::new()).unwrap()
+}
+
+fn html_page(body: String) -> tauri::http::Response<Vec<u8>> {
+    tauri::http::Response::builder()
+        .status(200)
+        .header("Content-Type", "text/html; charset=utf-8")
+        .body(body.into_bytes())
+        .unwrap()
+}
+
+/// Всё, что нужно для работы поверх живого сервера: окно, иконка строки меню и хоткей.
+/// Порт передаётся явно — он может быть и не наш, если мы подключились к чужому серверу.
+fn start_ui(app: &AppHandle, port: u16) -> tauri::Result<()> {
+    windows::open_main(app, port)?;
+    tray::setup(app)?;
+    register_hotkey(app)?;
+    Ok(())
+}
+
 /// ⌥⌘C в любом приложении — снимок выделенной области.
 fn register_hotkey(app: &AppHandle) -> tauri::Result<()> {
     let hotkey = Shortcut::new(Some(Modifiers::ALT | Modifiers::SUPER), Code::KeyC);
@@ -128,4 +177,44 @@ fn register_hotkey(app: &AppHandle) -> tauri::Result<()> {
         eprintln!("не удалось зарегистрировать ⌥⌘C: {error}");
     }
     Ok(())
+}
+
+/// Капабилити `default` открывает IPC для интерфейса с `http://127.0.0.1:<порт>`
+/// (решение D4). Порт настраиваемый, поэтому шаблон адреса — со звёздочкой; проверяем,
+/// что он и правда покрывает любой порт и не задевает посторонние адреса.
+#[cfg(test)]
+mod capability_tests {
+    use std::str::FromStr;
+    use tauri::utils::acl::RemoteUrlPattern;
+
+    const CAPABILITY: &str = include_str!("../capabilities/default.json");
+
+    fn patterns() -> Vec<RemoteUrlPattern> {
+        let parsed: serde_json::Value = serde_json::from_str(CAPABILITY).unwrap();
+        parsed["remote"]["urls"]
+            .as_array()
+            .expect("в капабилити нет блока remote.urls")
+            .iter()
+            .map(|url| RemoteUrlPattern::from_str(url.as_str().unwrap()).unwrap())
+            .collect()
+    }
+
+    fn allows(url: &str) -> bool {
+        let url = url.parse().unwrap();
+        patterns().iter().any(|pattern| pattern.test(&url))
+    }
+
+    #[test]
+    fn ipc_open_for_local_server_on_any_port() {
+        assert!(allows("http://127.0.0.1:43117/"));
+        assert!(allows("http://127.0.0.1:43317/library"));
+        assert!(allows("http://localhost:43117/"));
+    }
+
+    #[test]
+    fn ipc_closed_for_everything_else() {
+        assert!(!allows("http://example.com/"));
+        assert!(!allows("https://127.0.0.1.evil.com/"));
+        assert!(!allows("http://192.168.1.10:43117/"));
+    }
 }

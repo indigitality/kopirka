@@ -127,6 +127,7 @@ export function listFiles(query: FileListQuery = {}): Promise<FileListResponse> 
       exts: query.exts,
       dateFrom: query.dateFrom,
       dateTo: query.dateTo,
+      hasSimilar: query.hasSimilar,
       sort: query.sort,
       limit: query.limit,
       cursor: query.cursor,

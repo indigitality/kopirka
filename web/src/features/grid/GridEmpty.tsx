@@ -1,8 +1,9 @@
 /** Пустые состояния сетки. У каждого среза свой смысл — общей заглушки быть не должно. */
 import { CheckCheck, FolderOpen, ImageDown, SearchX, ServerCrash, Trash2 } from 'lucide-react';
-import type { LibraryScope } from '@shared/api';
+import type { LibraryScope, TagRecord } from '@shared/api';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { plural } from '@/lib/format';
 
 export interface GridEmptyProps {
   scope: LibraryScope;
@@ -10,23 +11,49 @@ export interface GridEmptyProps {
   inFolder: boolean;
   /** Задан поиск или фильтры — «ничего не нашлось», а не «пусто». */
   filtered: boolean;
+  /** Строка поиска совпала с существующим тегом — поиск по имени его не найдёт. */
+  tagMatch?: TagRecord | null;
+  onShowTag?: (tag: string) => void;
   onResetSearch: () => void;
   /** Открыть системный диалог выбора файлов — тот же путь импорта, что и drag&drop. */
   onPickFiles: () => void;
 }
 
-export function GridEmpty({ scope, inFolder, filtered, onResetSearch, onPickFiles }: GridEmptyProps) {
+export function GridEmpty({
+  scope,
+  inFolder,
+  filtered,
+  tagMatch,
+  onShowTag,
+  onResetSearch,
+  onPickFiles,
+}: GridEmptyProps) {
   if (filtered) {
     return (
       <EmptyState
         className="h-full"
         icon={<SearchX className="size-5" strokeWidth={1.75} />}
         title="Ничего не нашлось"
-        description="Попробуйте другой запрос или снимите фильтры — возможно, файл лежит в другом разделе."
+        description={
+          tagMatch
+            ? 'Поиск смотрит на имена файлов, а такой тег в библиотеке есть.'
+            : 'Попробуйте другой запрос или снимите фильтры — возможно, файл лежит в другом разделе.'
+        }
         action={
-          <Button variant="secondary" onClick={onResetSearch}>
-            Сбросить поиск
-          </Button>
+          tagMatch && onShowTag ? (
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <Button variant="primary" onClick={() => onShowTag(tagMatch.name)}>
+                {`Похоже, это тег. Показать ${tagMatch.fileCount} ${plural(tagMatch.fileCount, 'файл', 'файла', 'файлов')} с тегом «${tagMatch.name}»`}
+              </Button>
+              <Button variant="ghost" onClick={onResetSearch}>
+                Сбросить поиск
+              </Button>
+            </div>
+          ) : (
+            <Button variant="secondary" onClick={onResetSearch}>
+              Сбросить поиск
+            </Button>
+          )
         }
       />
     );
@@ -48,8 +75,8 @@ export function GridEmpty({ scope, inFolder, filtered, onResetSearch, onPickFile
       <EmptyState
         className="h-full"
         icon={<CheckCheck className="size-5" strokeWidth={1.75} />}
-        title="Всё разобрано"
-        description="У каждого файла есть папка и хотя бы один тег. Новые импорты будут появляться здесь."
+        title="Все файлы разложены по папкам"
+        description="Сюда попадают файлы без папки. Новые импорты будут появляться здесь."
       />
     );
   }

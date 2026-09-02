@@ -84,23 +84,33 @@ function reportPortBusy(port: number): void {
   log.error(`порт ${port} занят`);
 }
 
+const PARENT_POLL_MS = 5000;
+
 /**
  * Десктопная оболочка (Tauri) отдаёт серверу свой stdin как поводок: когда родитель
  * умирает — хоть штатно, хоть по SIGKILL, — труба закрывается и сервер уходит следом.
  * Без этого осиротевший Node продолжил бы держать порт, и следующий запуск не состоялся бы.
+ *
+ * Вторая страховка на тот же случай — опрос ppid: осиротевший процесс переходит к init (1).
+ * Она не зависит от того, что случилось с трубой.
  */
 function watchParent(shutdown: (reason: string) => void): void {
   if (!process.env.KOPIRKA_PARENT_STDIN) return;
   let done = false;
-  const bye = () => {
+  const bye = (reason: string) => {
     if (done) return;
     done = true;
-    shutdown('закрытие stdin родителя');
+    shutdown(reason);
   };
   process.stdin.resume();
-  process.stdin.on('end', bye);
-  process.stdin.on('close', bye);
-  process.stdin.on('error', bye);
+  process.stdin.on('end', () => bye('закрытие stdin родителя'));
+  process.stdin.on('close', () => bye('закрытие stdin родителя'));
+  process.stdin.on('error', () => bye('закрытие stdin родителя'));
+
+  const poll = setInterval(() => {
+    if (process.ppid === 1) bye('родитель умер');
+  }, PARENT_POLL_MS);
+  poll.unref();
 }
 
 async function main(): Promise<void> {

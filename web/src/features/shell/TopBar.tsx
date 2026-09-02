@@ -1,6 +1,5 @@
-import { SlidersHorizontal } from 'lucide-react';
-import { Button } from '@/components/ui/Button';
 import { SearchField, type BeamMode } from '@/components/ui/SearchField';
+import { FilterButton } from '@/features/filters/FilterButton';
 import { useViewSelector, viewActions } from '@/store/view';
 
 export interface TopBarProps {
@@ -18,23 +17,19 @@ export function TopBar({ beamMode = 'hover', onOpenFilter, filterCount = 0, filt
   const query = useViewSelector((s) => s.query);
 
   return (
-    <header className="flex h-[var(--size-topbar)] shrink-0 items-center bg-surface px-[var(--grid-pad)]">
+    /*
+      `data-tauri-drag-region` — зона перетаскивания окна: полосы заголовка нет,
+      и без разметки окно тянулось только за невидимые верхние 28 px (аудит логики §7).
+      `deep` разрешает тянуть за фон панели; поле ввода и кнопки внутри
+      перетаскивание блокируют сами. В браузере это обычный data-атрибут.
+    */
+    <header
+      data-tauri-drag-region="deep"
+      className="flex h-[var(--size-topbar)] shrink-0 items-center bg-surface px-[var(--grid-pad)]"
+    >
       <SearchField value={query} onValueChange={viewActions.setQuery} beamMode={beamMode} />
       <div className="flex-1" />
-      <Button
-        variant="secondary"
-        icon={<SlidersHorizontal className="size-3.5" strokeWidth={2} />}
-        onClick={onOpenFilter}
-        aria-expanded={filterOpen}
-        className={filterOpen ? 'border-accent-ring text-ink' : undefined}
-      >
-        Фильтр
-        {filterCount > 0 ? (
-          <span className="ml-1.5 rounded-pill bg-accent-soft px-1.5 font-mono text-2xs text-accent">
-            {filterCount}
-          </span>
-        ) : null}
-      </Button>
+      <FilterButton count={filterCount} open={filterOpen} onClick={() => onOpenFilter?.()} />
     </header>
   );
 }

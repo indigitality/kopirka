@@ -18,6 +18,14 @@ const SELECT_FOLDERS = `
     FROM folders f
    ORDER BY f.sort_order ASC, f.name COLLATE NOCASE ASC, f.id ASC`;
 
+/** Суммарный счётчик по поддереву: один проход снизу вверх, без запроса на каждую папку. */
+function fillTotals(node: FolderRecord): number {
+  let total = node.fileCount;
+  for (const child of node.children) total += fillTotals(child);
+  node.totalFileCount = total;
+  return total;
+}
+
 export function listFolders(db: Db): FolderRecord[] {
   const rows = db.prepare(SELECT_FOLDERS).all() as FolderRow[];
   const byId = new Map<number, FolderRecord>();
@@ -29,6 +37,7 @@ export function listFolders(db: Db): FolderRecord[] {
       sortOrder: row.sort_order,
       createdAt: row.created_at,
       fileCount: row.fileCount,
+      totalFileCount: row.fileCount,
       children: [],
     });
   }
@@ -40,6 +49,7 @@ export function listFolders(db: Db): FolderRecord[] {
     if (parent) parent.children.push(node);
     else roots.push(node);
   }
+  for (const root of roots) fillTotals(root);
   return roots;
 }
 
@@ -59,13 +69,29 @@ export function getFolderFlat(db: Db, id: number): FolderRecord | null {
     sortOrder: row.sort_order,
     createdAt: row.created_at,
     fileCount: row.fileCount,
+    // Одна папка вне дерева: суммарный счётчик считаем тем же CTE, одним запросом.
+    totalFileCount: subtreeFileCount(db, id),
     children: [],
   };
 }
 
+/** Файлы в папке и всех её подпапках, не считая корзину. */
+export function subtreeFileCount(db: Db, rootId: number): number {
+  const ids = subtreeIds(db, rootId);
+  if (ids.length === 0) return 0;
+  const placeholders = ids.map(() => '?').join(',');
+  const row = db
+    .prepare(`SELECT COUNT(*) AS c FROM files WHERE deleted_at IS NULL AND folder_id IN (${placeholders})`)
+    .get(...ids) as { c: number };
+  return row.c;
+}
+
+export function folderExists(db: Db, id: number): boolean {
+  return (db.prepare(`SELECT 1 AS ok FROM folders WHERE id = ?`).get(id) as { ok: number } | undefined) !== undefined;
+}
+
 export function assertFolderExists(db: Db, id: number): void {
-  const row = db.prepare(`SELECT 1 AS ok FROM folders WHERE id = ?`).get(id) as { ok: number } | undefined;
-  if (!row) throw notFound(`Папка ${id} не найдена`, 'folder_not_found');
+  if (!folderExists(db, id)) throw notFound(`Папка ${id} не найдена`, 'folder_not_found');
 }
 
 function nextSortOrder(db: Db, parentId: number | null): number {
@@ -91,7 +117,12 @@ export function createFolder(db: Db, name: string, parentFolderId: number | null
   return created;
 }
 
-function subtreeIds(db: Db, rootId: number): number[] {
+/**
+ * Идентификаторы папки и всего её поддерева. Единственное место с этим рекурсивным CTE —
+ * им пользуются и удаление папки, и фильтр списка файлов (решение 02.09.2026).
+ * Несуществующая папка даёт пустой массив.
+ */
+export function subtreeIds(db: Db, rootId: number): number[] {
   const rows = db
     .prepare(
       `WITH RECURSIVE sub(id) AS (

@@ -19,6 +19,8 @@ export interface PendingMeta {
   sourceType: SourceType;
   sourceUrl: string | null;
   similarToFileId: number | null;
+  /** Папка из исходного запроса импорта: после подтверждения файл ложится именно в неё. */
+  folderId: number | null;
 }
 
 interface PendingEntry extends PendingMeta {

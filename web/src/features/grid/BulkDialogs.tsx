@@ -1,5 +1,5 @@
 /** Диалоги панели выделения: «В папку» (ORG-03) и «Тег» (ORG-01). */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Folder } from 'lucide-react';
 import type { FolderRecord } from '@shared/api';
 import { Button } from '@/components/ui/Button';
@@ -8,6 +8,9 @@ import { Select, type SelectOption } from '@/components/ui/Select';
 import { flattenFolders } from '@/lib/folders';
 import { plural } from '@/lib/format';
 import { TagInput } from '@/features/library/TagInput';
+
+/** Значение «пользователь ещё ничего не выбрал» для селекта: такого id у папок нет. */
+const NOTHING_SELECTED = -1;
 
 function folderOptions(folders: readonly FolderRecord[]): SelectOption<number | null>[] {
   return [
@@ -34,7 +37,13 @@ export function MoveToFolderDialog({
   onMove: (folderId: number | null) => void;
   onCancel: () => void;
 }) {
-  const [folderId, setFolderId] = useState<number | null>(null);
+  /** undefined — ничего не выбрано; null — осознанный выбор «Без папки» (02 §4.24). */
+  const [folderId, setFolderId] = useState<number | null | undefined>(undefined);
+
+  // Диалог переиспользуется между выделениями — прошлый выбор к новому отношения не имеет.
+  useEffect(() => {
+    if (open) setFolderId(undefined);
+  }, [open]);
 
   return (
     <Modal open={open} onOpenChange={(next) => (next ? undefined : onCancel())}>
@@ -46,14 +55,21 @@ export function MoveToFolderDialog({
             <Button variant="secondary" onClick={onCancel}>
               Отмена
             </Button>
-            <Button variant="primary" onClick={() => onMove(folderId)}>
+            <Button
+              variant="primary"
+              disabled={folderId === undefined}
+              onClick={() => {
+                if (folderId !== undefined) onMove(folderId);
+              }}
+            >
               Переместить
             </Button>
           </>
         }
       >
         <Select
-          value={folderId}
+          // Ни одна папка не имеет id −1: селект не находит совпадения и рисует плейсхолдер.
+          value={folderId === undefined ? NOTHING_SELECTED : folderId}
           onValueChange={setFolderId}
           options={folderOptions(folders)}
           icon={<Folder className="size-3.5" strokeWidth={2} aria-hidden />}
@@ -83,12 +99,13 @@ export function AddTagDialog({
         title="Добавить тег"
         description={`Тег получат ${count} ${plural(count, 'выбранный файл', 'выбранных файла', 'выбранных файлов')}.`}
         footer={
-          <Button variant="secondary" onClick={onCancel}>
+          // Первичное действие — «Добавить» у поля; «Готово» просто закрывает (02 §4.25).
+          <Button variant="ghost" onClick={onCancel}>
             Готово
           </Button>
         }
       >
-        <TagInput known={known} onSubmit={onAdd} onCancel={onCancel} />
+        <TagInput known={known} onSubmit={onAdd} onCancel={onCancel} submitLabel="Добавить" />
       </ModalContent>
     </Modal>
   );

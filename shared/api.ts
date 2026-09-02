@@ -68,6 +68,8 @@ export interface FolderRecord {
   createdAt: string;
   /** Количество файлов непосредственно в папке (без подпапок), не считая корзину. */
   fileCount: number;
+  /** Файлы в папке и всех подпапках, не считая корзину. */
+  totalFileCount: number;
   children: FolderRecord[];
 }
 
@@ -85,14 +87,17 @@ export interface TagRecord {
 /** Какой срез библиотеки показываем. Соответствует разделам сайдбара. */
 export type LibraryScope =
   | 'library' // Вся библиотека
-  | 'untagged' // «Не разобрано» — SET-05: нет папки ИЛИ нет тегов
+  | 'untagged' // «Не разобрано» — SET-05 в редакции 02.09.2026: файл без папки
   | 'trash'; // Корзина
 
 export type SortKey = 'added_desc' | 'added_asc' | 'name_asc' | 'name_desc';
 
 export interface FileListQuery {
   scope?: LibraryScope;
+  /** Папка и всё её поддерево (решение 02.09.2026). null — файлы без папки. */
   folderId?: number | null;
+  /** IMP-01 — только файлы с непринятой пометкой похожести (similarToFileId). */
+  hasSimilar?: boolean;
   /** SEARCH-02 — подстрока в имени файла. */
   query?: string;
   /** SEARCH-01 — И-логика: файл должен иметь все перечисленные теги. */
@@ -119,6 +124,8 @@ export interface StatsResponse {
   library: number;
   untagged: number;
   trash: number;
+  /** IMP-01 — файлы с непринятой пометкой похожести, не в корзине. */
+  similar: number;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -181,7 +188,10 @@ export interface ImportCaptureRequest {
   sourceType: Extract<SourceType, 'tab_screenshot' | 'area_screenshot'>;
 }
 
-/** POST /api/import/confirm — досохранить файл, отложенный как 'needs_confirmation'. */
+/**
+ * POST /api/import/confirm — досохранить файл, отложенный как 'needs_confirmation'.
+ * Папка берётся из исходного запроса импорта, повторно её передавать не нужно.
+ */
 export interface ImportConfirmRequest {
   pendingToken: string;
 }
@@ -252,6 +262,15 @@ export interface SettingsUpdateResponse extends SettingsResponse {
   restartRequired: boolean;
 }
 
+/** Коды ошибок `PATCH /api/settings` — интерфейс подсвечивает ими конкретное поле. */
+export type SettingsErrorCode =
+  /** Путь библиотеки существует, но это не папка. */
+  | 'invalid_library_path'
+  /** Порт вне допустимого диапазона. */
+  | 'invalid_port'
+  /** SVC-06 — новый порт занят другой программой, менять его нельзя. */
+  | 'port_busy';
+
 /** LIB-06 — «выход в работу». */
 export interface RevealResponse {
   ok: boolean;
@@ -259,6 +278,7 @@ export interface RevealResponse {
 
 export interface ApiError {
   error: string;
+  /** Машинный код: например, `SettingsErrorCode` для `PATCH /api/settings`. */
   code?: string;
 }
 

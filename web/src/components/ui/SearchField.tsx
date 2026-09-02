@@ -1,8 +1,9 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { BorderBeam } from 'border-beam';
-import { Search } from 'lucide-react';
+import { Search, X } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useReducedMotion } from '@/lib/useReducedMotion';
+import { Tooltip } from './Tooltip';
 
 // ── Параметры бима. Крутить здесь. ─────────────────────────────────────────
 /** Пресет вращающегося бима по периметру. */
@@ -144,7 +145,7 @@ export const SearchField = forwardRef<HTMLInputElement, SearchFieldProps>(functi
     >
       <div
         className={cn(
-          'flex h-[34px] w-full items-center gap-2 rounded-lg bg-surface-raised px-2.5',
+          'flex h-[34px] w-full items-center gap-2 rounded-lg bg-surface-raised pr-1.5 pl-2.5',
           'transition-colors duration-[var(--dur-fast)] ease-out',
         )}
       >
@@ -162,7 +163,30 @@ export const SearchField = forwardRef<HTMLInputElement, SearchFieldProps>(functi
             'outline-none [&::-webkit-search-cancel-button]:appearance-none',
           )}
         />
-        <kbd className="shrink-0 rounded-xs bg-surface-active px-1.5 py-0.5 font-mono text-2xs text-ink-faint">
+        {/* Нативный крестик у type="search" отключён — свой, и только когда есть что стирать. */}
+        {value ? (
+          <Tooltip content="Очистить" side="bottom">
+            <button
+              type="button"
+              aria-label="Очистить поиск"
+              onClick={() => {
+                onValueChange?.('');
+                inputRef.current?.focus();
+              }}
+              className={cn(
+                'flex size-4 shrink-0 items-center justify-center rounded-xs text-ink-faint',
+                'transition-colors duration-[var(--dur-fast)] ease-out hover:text-ink',
+              )}
+            >
+              <X className="size-4" strokeWidth={2} aria-hidden />
+            </button>
+          </Tooltip>
+        ) : null}
+        {/*
+          Бейдж ⌘K. Плашка `--color-surface-active` на поле давала 1.06:1 —
+          её просто не было видно (дизайн-аудит 4.6).
+        */}
+        <kbd className="shrink-0 rounded-xs bg-surface-chip px-[5px] py-0.5 font-mono text-2xs text-ink-faint">
           ⌘K
         </kbd>
       </div>

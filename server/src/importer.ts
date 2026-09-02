@@ -16,6 +16,7 @@ import {
 } from '../../shared/api.js';
 import type { Db } from './db.js';
 import { getFile, getFileRow, findActiveBySha, findAnyBySha, mapFileRow } from './files.js';
+import { folderExists } from './folders.js';
 import {
   detectExt,
   hammingDistance,
@@ -215,6 +216,7 @@ export async function importOne(state: AppState, input: ImportInput): Promise<Im
         sourceType: input.sourceType,
         sourceUrl: input.sourceUrl ?? null,
         similarToFileId: null,
+        folderId: input.folderId ?? null,
       };
       const pendingToken = state.pending.put(input.buffer, meta);
       return {
@@ -300,7 +302,9 @@ export async function confirmPending(state: AppState, token: string): Promise<Im
       sourceUrl: meta.sourceUrl,
       // Пользователь уже решил, что файл нужен — бейдж «возможный дубль» не ставим.
       similarToFileId: null,
-      folderId: null,
+      // Папка берётся из исходного запроса: файл, брошенный в подпапку, там и остаётся.
+      // Пока пользователь думал, папку могли удалить — тогда файл ложится без папки.
+      folderId: meta.folderId !== null && folderExists(state.db, meta.folderId) ? meta.folderId : null,
     });
     return { originalFilename: meta.filename, outcome: 'added', file };
   } catch (error) {

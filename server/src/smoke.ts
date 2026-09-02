@@ -13,11 +13,13 @@ import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import sharp from 'sharp';
 import type {
+  ApiError,
   FileListResponse,
   FileRecord,
   FolderRecord,
   ImportResponse,
   SettingsResponse,
+  SettingsUpdateResponse,
   StatsResponse,
   TagRecord,
 } from '../../shared/api.js';
@@ -167,13 +169,16 @@ async function main(): Promise<void> {
     .modulate({ brightness: 1.04 })
     .jpeg({ quality: 45 })
     .toBuffer();
+  const jpgVariant3 = await sharp(pngAlpha).resize(408, 306).jpeg({ quality: 65 }).toBuffer();
   const notAnImage = Buffer.from('%PDF-1.7\n%mock document, not an image\n', 'utf8');
 
   let idAlpha = 0;
   let idBeta = 0;
+  let idGamma = 0;
   let idVariant1 = 0;
   let idVariant2 = 0;
   let folderId = 0;
+  let subFolderId = 0;
 
   // 1 ────────────────────────────────────────────────────────────────────────
   await check('старт сервера на свободном порту, /api/health и /api/settings отвечают', async () => {
@@ -201,7 +206,8 @@ async function main(): Promise<void> {
     const files = result.items.map((item) => item.file as FileRecord);
     idAlpha = files[0]?.id ?? 0;
     idBeta = files[1]?.id ?? 0;
-    assert(idAlpha > 0 && idBeta > 0, 'не вернулись id файлов');
+    idGamma = files[2]?.id ?? 0;
+    assert(idAlpha > 0 && idBeta > 0 && idGamma > 0, 'не вернулись id файлов');
     assert(files.every((file) => file.ext === 'png' && file.width === WIDTH && file.height === HEIGHT), 'размеры или формат прочитались неверно');
     assert(files.every((file) => file.previewUrl !== null && file.hasPreview && !file.isBroken), 'превью не сгенерировалось');
     const preview = await fetch(`${base}/api/files/${idAlpha}/preview`);
@@ -265,12 +271,28 @@ async function main(): Promise<void> {
     assert(similarTo !== null, 'не проставлен similarToFileId');
     assert([idAlpha, idVariant1].includes(similarTo), `similarToFileId=${similarTo}, ожидался ${idAlpha} или ${idVariant1}`);
     assert(item?.file?.sourceType === 'folder_watch', 'источник импорта записался неверно');
-
-    const resolved = await api<FileRecord>('POST', `/api/files/${idVariant2}/resolve-similar`);
-    assert(resolved.similarToFileId === null, 'пометка «возможный дубль» не снимается');
   });
 
   // 6 ────────────────────────────────────────────────────────────────────────
+  await check('IMP-01: фильтр hasSimilar и счётчик stats.similar, resolve-similar их обнуляет', async () => {
+    const before = await api<StatsResponse>('GET', '/api/stats');
+    assert(before.similar === 1, `stats.similar=${before.similar}, ожидалась 1`);
+
+    const marked = await api<FileListResponse>('GET', '/api/files?hasSimilar=1&limit=100');
+    assert(marked.total === 1 && marked.files[0]?.id === idVariant2, `hasSimilar вернул ${marked.total} файлов вместо 1`);
+    const all = await api<FileListResponse>('GET', '/api/files?limit=100');
+    assert(all.total > marked.total, 'hasSimilar не сузил выдачу');
+
+    const resolved = await api<FileRecord>('POST', `/api/files/${idVariant2}/resolve-similar`);
+    assert(resolved.similarToFileId === null, 'пометка «возможный дубль» не снимается');
+
+    const after = await api<StatsResponse>('GET', '/api/stats');
+    assert(after.similar === 0, `после снятия пометки stats.similar=${after.similar}`);
+    const empty = await api<FileListResponse>('GET', '/api/files?hasSimilar=true&limit=100');
+    assert(empty.total === 0, `hasSimilar всё ещё возвращает ${empty.total} файлов`);
+  });
+
+  // 7 ────────────────────────────────────────────────────────────────────────
   await check('файл неподдерживаемого формата → error: unsupported_format', async () => {
     const result = await upload('/api/import', [{ name: 'document.png', buffer: notAnImage }], {
       sourceType: 'drag_drop',
@@ -283,8 +305,8 @@ async function main(): Promise<void> {
     assert(stats.library === 5, `в библиотеке ${stats.library} файлов вместо 5`);
   });
 
-  // 7 ────────────────────────────────────────────────────────────────────────
-  await check('папка, перемещение, теги: файл уходит из «Не разобрано» (SET-05)', async () => {
+  // 8 ────────────────────────────────────────────────────────────────────────
+  await check('«Не разобрано» — это файлы без папки, теги не в счёт (SET-05 от 02.09.2026)', async () => {
     const folder = await api<FolderRecord>('POST', '/api/folders', { name: 'Референсы' });
     folderId = folder.id;
     assert(folderId > 0, 'папка не создалась');
@@ -294,14 +316,21 @@ async function main(): Promise<void> {
 
     await api<FileRecord>('PATCH', `/api/files/${idAlpha}`, { folderId, tags: ['вдохновение'] });
     await api<{ moved: number }>('POST', '/api/files/move', { fileIds: [idBeta], folderId });
+    // Тег без папки разобранным файл не делает.
+    await api<FileRecord>('PATCH', `/api/files/${idGamma}`, { tags: ['ссылка'] });
 
     const alpha = await api<FileRecord>('GET', `/api/files/${idAlpha}`);
     assert(alpha.folderId === folderId && alpha.tags.length === 1, 'файл не разложился');
 
     const untagged = await api<FileListResponse>('GET', '/api/files?scope=untagged&limit=100');
     assert(!untagged.files.some((file) => file.id === idAlpha), 'файл с папкой и тегом остался в «Не разобрано»');
-    // OR, а не AND: папка есть, тегов нет — файл всё ещё неразобран.
-    assert(untagged.files.some((file) => file.id === idBeta), 'файл с папкой, но без тегов, выпал из «Не разобрано»');
+    // Правило считает только папку: папка есть, тегов нет — файл разобран.
+    assert(!untagged.files.some((file) => file.id === idBeta), 'файл с папкой, но без тегов, остался в «Не разобрано»');
+    assert(untagged.files.some((file) => file.id === idGamma), 'файл без папки, но с тегом, выпал из «Не разобрано»');
+
+    // Счётчик сайдбара и список считаются одной и той же функцией.
+    const stats = await api<StatsResponse>('GET', '/api/stats');
+    assert(stats.untagged === untagged.total, `счётчик «Не разобрано» ${stats.untagged} против списка ${untagged.total}`);
 
     const inFolder = await api<FileListResponse>('GET', `/api/files?folderId=${folderId}&limit=100`);
     assert(inFolder.total === 2, `в папке ${inFolder.total} файлов вместо 2`);
@@ -309,7 +338,75 @@ async function main(): Promise<void> {
     assert(folders[0]?.fileCount === 2, 'счётчик файлов в папке неверен');
   });
 
-  // 8 ────────────────────────────────────────────────────────────────────────
+  // 9 ────────────────────────────────────────────────────────────────────────
+  await check('папка показывает всё поддерево, totalFileCount суммарный (решение 02.09.2026)', async () => {
+    const child = await api<FolderRecord>('POST', '/api/folders', {
+      name: 'Наброски',
+      parentFolderId: folderId,
+    });
+    subFolderId = child.id;
+    assert(child.fileCount === 0 && child.totalFileCount === 0, 'у новой папки ненулевые счётчики');
+    await api<{ moved: number }>('POST', '/api/files/move', { fileIds: [idGamma], folderId: subFolderId });
+
+    const parent = await api<FileListResponse>('GET', `/api/files?folderId=${folderId}&limit=100`);
+    assert(parent.total === 3, `родительская папка показывает ${parent.total} файлов вместо 3`);
+    assert(parent.files.some((file) => file.id === idGamma), 'файл из подпапки не виден при запросе родителя');
+
+    const inChild = await api<FileListResponse>('GET', `/api/files?folderId=${subFolderId}&limit=100`);
+    assert(inChild.total === 1 && inChild.files[0]?.id === idGamma, `в подпапке ${inChild.total} файлов вместо 1`);
+
+    const folders = await api<FolderRecord[]>('GET', '/api/folders');
+    const root = folders.find((item) => item.id === folderId);
+    assert(root?.fileCount === 2, `fileCount родителя ${root?.fileCount} вместо 2 — это только свои файлы`);
+    assert(root?.totalFileCount === 3, `totalFileCount родителя ${root?.totalFileCount} вместо 3 — свои плюс вложенные`);
+    const nested = root?.children[0];
+    assert(
+      nested?.id === subFolderId && nested.fileCount === 1 && nested.totalFileCount === 1,
+      'счётчики подпапки неверны',
+    );
+
+    // total и курсор считаются по тому же поддереву, что и страница.
+    const firstPage = await api<FileListResponse>('GET', `/api/files?folderId=${folderId}&sort=name_asc&limit=2`);
+    assert(
+      firstPage.total === 3 && firstPage.files.length === 2 && firstPage.nextCursor !== null,
+      'постраничность по поддереву сломана',
+    );
+    const secondPage = await api<FileListResponse>(
+      'GET',
+      `/api/files?folderId=${folderId}&sort=name_asc&limit=2&cursor=${encodeURIComponent(firstPage.nextCursor ?? '')}`,
+    );
+    assert(secondPage.total === 3 && secondPage.files.length === 1, 'вторая страница поддерева неверна');
+    const firstIds = new Set(firstPage.files.map((file) => file.id));
+    assert(secondPage.files.every((file) => !firstIds.has(file.id)), 'страницы поддерева пересекаются');
+
+    // Несуществующая папка — пустой список, а не ошибка: поведение сохранено.
+    const missing = await api<FileListResponse>('GET', '/api/files?folderId=999999&limit=100');
+    assert(missing.total === 0 && missing.files.length === 0, 'несуществующая папка вернула файлы');
+  });
+
+  // 10 ───────────────────────────────────────────────────────────────────────
+  await check('подтверждение похожего дубля сохраняет папку исходного запроса', async () => {
+    const result = await upload('/api/import', [{ name: 'plasma-alpha-third.jpg', buffer: jpgVariant3 }], {
+      sourceType: 'drag_drop',
+      folderId: String(subFolderId),
+    });
+    const item = result.items[0];
+    assert(item?.outcome === 'needs_confirmation', `outcome=${item?.outcome}`);
+
+    const confirmed = await api<ImportResponse>('POST', '/api/import/confirm', {
+      pendingToken: item?.pendingToken ?? '',
+    });
+    const added = confirmed.items[0];
+    assert(added?.outcome === 'added', `после подтверждения outcome=${added?.outcome} (${added?.errorMessage})`);
+    assert(added?.file?.folderId === subFolderId, `файл лёг в папку ${added?.file?.folderId} вместо ${subFolderId}`);
+
+    // Проверка самодостаточна: файл убираем, чтобы не смещать счётчики следующих проверок.
+    const id = added?.file?.id ?? 0;
+    await api<{ deleted: number }>('POST', '/api/files/delete', { fileIds: [id] });
+    await api<{ purged: number }>('POST', '/api/files/purge', { fileIds: [id] });
+  });
+
+  // 11 ───────────────────────────────────────────────────────────────────────
   await check('нормализация тегов: «Дизайн» и «  дизайн » — один тег', async () => {
     const updated = await api<FileRecord>('PATCH', `/api/files/${idBeta}`, {
       tags: ['Дизайн', '  дизайн ', 'ДИЗАЙН', 'веб   дизайн'],
@@ -322,7 +419,7 @@ async function main(): Promise<void> {
     assert(tags.filter((tag) => tag.name === 'дизайн').length === 1, 'в списке тегов дубликат');
   });
 
-  // 9 ────────────────────────────────────────────────────────────────────────
+  // 12 ───────────────────────────────────────────────────────────────────────
   await check('корзина: удаление → trash, восстановление → та же папка и теги', async () => {
     const before = await api<FileRecord>('GET', `/api/files/${idAlpha}`);
     await api<{ deleted: number }>('POST', '/api/files/delete', { fileIds: [idAlpha] });
@@ -331,8 +428,12 @@ async function main(): Promise<void> {
     assert(trash.files.some((file) => file.id === idAlpha), 'файл не попал в корзину');
     const library = await api<FileListResponse>('GET', '/api/files?scope=library&limit=100');
     assert(!library.files.some((file) => file.id === idAlpha), 'удалённый файл виден в библиотеке');
+
+    // Корзина в «Не разобрано» не попадает — проверяем на файле, у которого папки и так нет.
+    await api<{ deleted: number }>('POST', '/api/files/delete', { fileIds: [idVariant1] });
     const untagged = await api<FileListResponse>('GET', '/api/files?scope=untagged&limit=100');
-    assert(!untagged.files.some((file) => file.id === idAlpha), 'файл из корзины виден в «Не разобрано»');
+    assert(!untagged.files.some((file) => file.id === idVariant1), 'файл из корзины виден в «Не разобрано»');
+    await api<{ restored: number }>('POST', '/api/files/restore', { fileIds: [idVariant1] });
 
     await api<{ restored: number }>('POST', '/api/files/restore', { fileIds: [idAlpha] });
     const after = await api<FileRecord>('GET', `/api/files/${idAlpha}`);
@@ -341,7 +442,7 @@ async function main(): Promise<void> {
     assert(after.tags.join(',') === before.tags.join(','), 'теги после восстановления другие');
   });
 
-  // 10 ───────────────────────────────────────────────────────────────────────
+  // 13 ───────────────────────────────────────────────────────────────────────
   await check('удаление папки: файлы живы, folderId = null, попали в «Не разобрано»', async () => {
     const child = await api<FolderRecord>('POST', '/api/folders', {
       name: 'Подпапка',
@@ -353,7 +454,7 @@ async function main(): Promise<void> {
 
     const folders = await api<FolderRecord[]>('GET', '/api/folders');
     assert(folders.length === 0, 'поддерево папок не удалилось');
-    for (const id of [idAlpha, idBeta, idVariant1]) {
+    for (const id of [idAlpha, idBeta, idGamma, idVariant1]) {
       const file = await api<FileRecord>('GET', `/api/files/${id}`);
       assert(file.folderId === null, `у файла ${id} осталась папка`);
       assert(file.deletedAt === null, `файл ${id} исчез вместе с папкой`);
@@ -362,7 +463,7 @@ async function main(): Promise<void> {
     assert(untagged.files.some((file) => file.id === idAlpha), 'файл без папки не попал в «Не разобрано»');
   });
 
-  // 11 ───────────────────────────────────────────────────────────────────────
+  // 14 ───────────────────────────────────────────────────────────────────────
   await check('поиск по имени, фильтр по тегу, по расширению, по диапазону дат', async () => {
     const byName = await api<FileListResponse>('GET', '/api/files?query=BETA&limit=100');
     assert(byName.total === 1 && byName.files[0]?.id === idBeta, `поиск по имени вернул ${byName.total}`);
@@ -528,6 +629,34 @@ async function main(): Promise<void> {
     assert(result.items[0]?.outcome === 'added', `outcome=${result.items[0]?.outcome}`);
     assert(file?.sourceType === 'tab_screenshot', 'источник записан неверно');
     assert(file?.originalFilename === 'tab-shot.png', `имя файла ${file?.originalFilename}`);
+  });
+
+  // Дополнительно: SVC-06 — занятый порт нельзя записать в настройки, иначе после
+  // перезапуска сервер не поднимется, а вернуть порт будет уже неоткуда.
+  await check('SVC-06: PATCH /api/settings с занятым портом → 400 port_busy, конфиг не меняется', async () => {
+    const busyPort = await freePort();
+    const squatter = net.createServer();
+    await new Promise<void>((resolve) => squatter.listen(busyPort, '127.0.0.1', () => resolve()));
+    try {
+      const response = await fetch(`${base}/api/settings`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serverPort: busyPort }),
+      });
+      assert(response.status === 400, `занятый порт приняли со статусом ${response.status}`);
+      const body = (await response.json()) as ApiError;
+      assert(body.code === 'port_busy', `code=${body.code}`);
+      assert(body.error.includes(String(busyPort)), 'в сообщении нет номера порта');
+    } finally {
+      await new Promise<void>((resolve) => squatter.close(() => resolve()));
+    }
+
+    const settings = await api<SettingsResponse>('GET', '/api/settings');
+    assert(settings.serverPort === port, `порт в конфиге стал ${settings.serverPort} вместо ${port}`);
+    // Собственный порт — это «без изменений», его проверка занятости пропускает.
+    const same = await api<SettingsUpdateResponse>('PATCH', '/api/settings', { serverPort: port });
+    assert(same.restartRequired === false, 'смена порта на текущий потребовала перезапуска');
+    assert(same.serverPort === port, 'текущий порт не принялся');
   });
 
   // Дополнительно: SVC-06 — занятый порт объясняется словами, а не стектрейсом.

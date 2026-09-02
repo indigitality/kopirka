@@ -20,7 +20,8 @@ export const Tag = forwardRef<HTMLSpanElement, TagProps>(function Tag(
         'group/tag inline-flex h-6 max-w-full items-center rounded-pill px-2.5 text-sm',
         'transition-colors duration-[var(--dur-fast)] ease-out',
         dashed
-          ? 'border border-dashed border-line-strong bg-transparent text-ink-faint hover:text-ink-muted'
+          ? // Пунктир «+ тег» — рамка контрола, а не разделитель: иначе кнопки не видно.
+            'border border-dashed border-line-control bg-transparent text-ink-faint hover:text-ink-muted'
           : 'bg-surface-active text-ink-muted hover:text-ink',
         onRemove && 'pr-1.5',
         className,

@@ -1,33 +1,73 @@
-import { forwardRef, type ComponentPropsWithoutRef, type ElementRef } from 'react';
+import {
+  createContext,
+  forwardRef,
+  useCallback,
+  useContext,
+  useState,
+  type ComponentPropsWithoutRef,
+  type ElementRef,
+} from 'react';
 import * as ContextMenuPrimitive from '@radix-ui/react-context-menu';
-import { motion } from 'motion/react';
+import { AnimatePresence, motion } from 'motion/react';
 import { cn } from '@/lib/cn';
-import { EASE_OUT, DUR_FAST } from '@/lib/motion';
+import { DUR_FAST } from '@/lib/motion';
+import { useReducedMotion } from '@/lib/useReducedMotion';
+import { layerMotion } from './motion-presets';
 
-export const ContextMenu = ContextMenuPrimitive.Root;
+/**
+ * Открыто ли меню. Radix наружу это не отдаёт, а без флага `AnimatePresence`
+ * не сыграет уход: с `forceMount` контент живёт всегда.
+ */
+const OpenContext = createContext(false);
+
+export type ContextMenuProps = ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Root>;
+
+export function ContextMenu({ onOpenChange, children, ...rest }: ContextMenuProps) {
+  const [open, setOpen] = useState(false);
+
+  const handleOpenChange = useCallback(
+    (next: boolean) => {
+      setOpen(next);
+      onOpenChange?.(next);
+    },
+    [onOpenChange],
+  );
+
+  return (
+    <ContextMenuPrimitive.Root onOpenChange={handleOpenChange} {...rest}>
+      <OpenContext.Provider value={open}>{children}</OpenContext.Provider>
+    </ContextMenuPrimitive.Root>
+  );
+}
+
 export const ContextMenuTrigger = ContextMenuPrimitive.Trigger;
 
 export const ContextMenuContent = forwardRef<
   ElementRef<typeof ContextMenuPrimitive.Content>,
   ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Content>
 >(function ContextMenuContent({ className, children, ...rest }, ref) {
+  const open = useContext(OpenContext);
+  const reduced = useReducedMotion();
+
   return (
-    <ContextMenuPrimitive.Portal>
-      <ContextMenuPrimitive.Content ref={ref} asChild {...rest}>
-        <motion.div
-          initial={{ opacity: 0, scale: 0.97 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: DUR_FAST, ease: EASE_OUT }}
-          className={cn(
-            'z-50 min-w-[196px] rounded-md bg-surface-overlay p-1 shadow-popover outline-none',
-            'origin-[var(--radix-context-menu-content-transform-origin)]',
-            className,
-          )}
-        >
-          {children}
-        </motion.div>
-      </ContextMenuPrimitive.Content>
-    </ContextMenuPrimitive.Portal>
+    <AnimatePresence>
+      {open ? (
+        <ContextMenuPrimitive.Portal forceMount key="context-menu">
+          <ContextMenuPrimitive.Content ref={ref} forceMount asChild {...rest}>
+            <motion.div
+              {...layerMotion({ scale: 0.97, enter: DUR_FAST, reduced })}
+              className={cn(
+                'z-50 min-w-[196px] rounded-md bg-surface-overlay p-1 shadow-popover outline-none',
+                'origin-[var(--radix-context-menu-content-transform-origin)]',
+                className,
+              )}
+            >
+              {children}
+            </motion.div>
+          </ContextMenuPrimitive.Content>
+        </ContextMenuPrimitive.Portal>
+      ) : null}
+    </AnimatePresence>
   );
 });
 

@@ -131,6 +131,20 @@ export function KitPage() {
               Выключена
             </Button>
           </Row>
+          {/* Необратимое действие: мягкий danger по весу равен «Отмене» (аудит 4.22). */}
+          <Row label="Опасная сплошная">
+            <Button variant="secondary">Отмена</Button>
+            <Button variant="danger-solid">Удалить навсегда</Button>
+            <Button variant="danger-solid" size="sm">
+              Удалить навсегда
+            </Button>
+            <Button variant="danger-solid" icon={<Trash2 className="size-3.5" strokeWidth={2} />}>
+              С иконкой
+            </Button>
+            <Button variant="danger-solid" disabled>
+              Выключена
+            </Button>
+          </Row>
         </Section>
 
         <Section title="Кнопки-иконки">
@@ -315,6 +329,12 @@ export function KitPage() {
               }
             >
               Сводка импорта
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => toast({ title: 'Скопировано в буфер', tone: 'success' })}
+            >
+              Успех
             </Button>
             <Button
               variant="secondary"

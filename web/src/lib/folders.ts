@@ -34,6 +34,35 @@ export function flattenVisibleFolders(
   return result;
 }
 
+/** Найти папку в дереве по id. */
+export function findFolder(
+  folders: readonly FolderRecord[],
+  id: number,
+): FolderRecord | null {
+  for (const folder of folders) {
+    if (folder.id === id) return folder;
+    const found = findFolder(folder.children, id);
+    if (found) return found;
+  }
+  return null;
+}
+
+/**
+ * Папка и всё её поддерево — решение D2 от 02.09.2026: открытая папка показывает
+ * и содержимое вложенных. Нужен, чтобы понять, ушёл файл из вида или остался.
+ */
+export function folderSubtreeIds(folders: readonly FolderRecord[], id: number): Set<number> {
+  const result = new Set<number>();
+  const root = findFolder(folders, id);
+  if (!root) return result;
+  const walk = (folder: FolderRecord) => {
+    result.add(folder.id);
+    folder.children.forEach(walk);
+  };
+  walk(root);
+  return result;
+}
+
 /** Рекурсивная правка одной папки в дереве. Возвращает новое дерево. */
 export function mapFolderTree(
   folders: readonly FolderRecord[],

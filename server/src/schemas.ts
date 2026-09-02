@@ -67,3 +67,7 @@ export const scopeSchema = z.enum(['library', 'untagged', 'trash']);
 export const sortSchema = z.enum(['added_desc', 'added_asc', 'name_asc', 'name_desc']);
 export const extSchema = z.enum(ACCEPTED_EXTS);
 export const syncSourceSchema = z.enum(['drag_drop', 'clipboard']);
+/** Булев флаг в query-строке: `1`/`true` — да, `0`/`false` — нет. Регистр не важен. */
+export const boolFlagSchema = z
+  .enum(['1', 'true', '0', 'false'])
+  .transform((value) => value === '1' || value === 'true');

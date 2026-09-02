@@ -171,8 +171,10 @@ export function SettingsScreen({ settings, onSave, onClose, className }: Setting
       const code = (error as { code?: string }).code;
       const message = error instanceof Error ? error.message : 'Не удалось сохранить';
       if (code === 'invalid_library_path') setFieldError({ field: 'libraryPath', message });
-      else if (code === 'invalid_port') setFieldError({ field: 'serverPort', message });
-      else setFormError(message);
+      // port_busy — сервер проверил порт до записи: показываем у поля, а не общей ошибкой.
+      else if (code === 'invalid_port' || code === 'port_busy') {
+        setFieldError({ field: 'serverPort', message });
+      } else setFormError(message);
     } finally {
       setSaving(false);
     }
@@ -256,28 +258,14 @@ export function SettingsScreen({ settings, onSave, onClose, className }: Setting
             ) : null}
           </Section>
 
-          {/* SET-05 — правило действует, но в MVP не настраивается. */}
+          {/* SET-05 в редакции 02.09.2026 (решение Сергея D1): «не разобрано» = нет папки. */}
           <Section title="«Не разобрано»">
-            <p className="text-base text-ink-muted">
-              Файл попадает в раздел, если выполнено <span className="text-ink">хотя бы одно</span> условие:
+            <p className="text-base text-ink">Сюда попадают файлы без папки.</p>
+            <p className="mt-2 text-base text-ink-muted">
+              Положил в папку — файл ушёл из раздела. Теги на это не влияют.
             </p>
-            <ul className="mt-3 space-y-2">
-              {['у файла нет папки', 'у файла нет ни одного тега'].map((rule, index) => (
-                <li key={rule} className="flex items-center gap-3">
-                  <span className="flex w-8 shrink-0 justify-center">
-                    {index === 0 ? (
-                      <span className="size-1.5 rounded-pill bg-ink-faint" aria-hidden />
-                    ) : (
-                      <span className="font-mono text-2xs tracking-label text-ink-faint uppercase">или</span>
-                    )}
-                  </span>
-                  <span className="text-base text-ink">{rule}</span>
-                </li>
-              ))}
-            </ul>
-            <p className="mt-3 text-sm text-ink-faint">
-              Файл с папкой, но без тегов — попадает. С тегами, но без папки — тоже. Файлы из корзины
-              в разделе не показываются. Правило в этой версии не настраивается.
+            <p className="mt-2 text-sm text-ink-faint">
+              Файлы из корзины в разделе не показываются. Правило в этой версии не настраивается.
             </p>
           </Section>
 

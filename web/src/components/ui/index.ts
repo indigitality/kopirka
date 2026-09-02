@@ -37,7 +37,19 @@ export {
   type ToastOptions,
   type ToastAction,
   type ToastStat,
+  type ToastTone,
 } from './Toast';
+export {
+  layerMotion,
+  overlayMotion,
+  scrimMotion,
+  tooltipMotion,
+  EASE_IN,
+  DUR_EXIT,
+  DUR_EXIT_FAST,
+  type LayerMotionOptions,
+  type LayerMotionProps,
+} from './motion-presets';
 export { Select, type SelectProps, type SelectOption, type SelectValue } from './Select';
 export { EmptyState, type EmptyStateProps } from './EmptyState';
 export { SelectionBar, type SelectionBarProps } from './SelectionBar';

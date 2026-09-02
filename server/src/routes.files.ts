@@ -32,6 +32,7 @@ import { parseId, parseJsonBody, sendFile } from './http.js';
 import { log } from './logger.js';
 import { resolveInLibrary } from './paths.js';
 import {
+  boolFlagSchema,
   bulkMoveSchema,
   bulkTagSchema,
   fileIdsSchema,
@@ -90,6 +91,14 @@ function parseListQuery(url: URL): ListQuery {
       }
       query.folderId = folderId;
     }
+  }
+
+  // IMP-01 — фильтр «только возможные дубли». Отсутствие и `false` означают «не фильтровать».
+  const hasSimilarRaw = params.get('hasSimilar');
+  if (hasSimilarRaw !== null && hasSimilarRaw !== '') {
+    const hasSimilar = boolFlagSchema.safeParse(hasSimilarRaw.toLowerCase());
+    if (!hasSimilar.success) throw badRequest(`Некорректный hasSimilar: ${hasSimilarRaw}`, 'invalid_has_similar');
+    if (hasSimilar.data) query.hasSimilar = true;
   }
 
   const text = params.get('query');

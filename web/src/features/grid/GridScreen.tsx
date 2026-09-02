@@ -115,6 +115,19 @@ export function GridScreen() {
   const handleToggle = useCallback((file: FileRecord) => viewActions.toggleSelected(file.id), []);
   const handleOpen = useCallback((file: FileRecord) => viewActions.openFile(file.id), []);
 
+  /** Правый клик по карточке вне выделения переносит выделение на неё — 02 §4.9. */
+  const handleContextSelect = useCallback((file: FileRecord) => {
+    viewActions.setSelection([file.id], file.id);
+  }, []);
+
+  /** «Добавить тег…» из меню карточки — тот же диалог, что у панели выделения. */
+  const handleAddTag = useCallback((file: FileRecord) => {
+    if (!getViewState().selectedIds.includes(file.id)) {
+      viewActions.setSelection([file.id], file.id);
+    }
+    setBulkDialog('tag');
+  }, []);
+
   const handleDragStart = useCallback((file: FileRecord): readonly number[] => {
     const current = getViewState().selectedIds;
     const ids = current.includes(file.id) ? current : [file.id];
@@ -180,7 +193,10 @@ export function GridScreen() {
       if (id === undefined) return;
       try {
         await api.copyFile(id);
-        toast({ title: ids.length > 1 ? 'Скопирован первый выбранный файл' : 'Скопировано в буфер' });
+        toast({
+          title: ids.length > 1 ? 'Скопирован первый выбранный файл' : 'Скопировано в буфер',
+          tone: 'success',
+        });
       } catch (cause) {
         notifyError(cause, 'Не удалось скопировать файл');
       }
@@ -257,7 +273,22 @@ export function GridScreen() {
     filters.dateTo !== null;
 
   // Имя папки на карточке — только там, где непонятно, откуда файл (§2 спеки).
-  const showFolderName = scope === 'untagged' || query.trim() !== '';
+  // Внутри папки это карточки из её подпапок: после D2 они подмешаны в список.
+  const needle = query.trim();
+  const folderNameFor = (file: FileRecord): string | null => {
+    if (file.folderId === null) return null;
+    const unclear =
+      scope === 'untagged' || needle !== '' || (folderId !== null && file.folderId !== folderId);
+    if (!unclear) return null;
+    return library.folderNameById.get(file.folderId) ?? null;
+  };
+
+  // Поиск по имени тег не находит (SEARCH-02) — предлагаем перейти в фильтр (01 п.2a).
+  const tagMatch =
+    needle === ''
+      ? null
+      : (library.tags.find((tag) => tag.name.toLowerCase() === needle.toLowerCase()) ?? null);
+
   const empty = !loading && files.length === 0;
 
   return (
@@ -267,7 +298,8 @@ export function GridScreen() {
         <div className="sticky top-0 z-20 flex h-12 items-center gap-3 bg-bg/85 px-[var(--grid-pad)] backdrop-blur-[6px]">
           <span className="text-base text-ink-muted">
             В корзине <span className="font-mono text-ink">{library.total}</span>{' '}
-            {plural(library.total, 'файл', 'файла', 'файлов')} · хранятся 30 дней
+            {plural(library.total, 'файл', 'файла', 'файлов')} ·{' '}
+            {plural(library.total, 'хранится', 'хранятся', 'хранятся')} 30 дней
           </span>
           <div className="flex-1" />
           <Button
@@ -287,6 +319,8 @@ export function GridScreen() {
           scope={scope}
           inFolder={folderId !== null}
           filtered={filtered}
+          tagMatch={tagMatch}
+          onShowTag={(tag) => viewActions.showTag(tag)}
           onResetSearch={() => {
             viewActions.setQuery('');
             viewActions.resetFilters();
@@ -322,15 +356,13 @@ export function GridScreen() {
                       box={box}
                       scope={scope}
                       selected={selection.has(file.id)}
-                      folderName={
-                        showFolderName && file.folderId !== null
-                          ? (library.folderNameById.get(file.folderId) ?? null)
-                          : null
-                      }
+                      folderName={folderNameFor(file)}
                       onSelectClick={handleSelectClick}
                       onToggle={handleToggle}
                       onOpen={handleOpen}
                       onDragStart={handleDragStart}
+                      onContextSelect={handleContextSelect}
+                      onAddTag={handleAddTag}
                       onTrash={(item) => void trashIds([item.id])}
                       onRestore={(item) => void restoreIds([item.id])}
                       onPurge={(item) => setConfirm({ kind: 'purge', ids: [item.id] })}

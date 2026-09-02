@@ -12,9 +12,13 @@ import {
   ChevronUp,
   Folder,
   FolderOpen,
+  Inbox,
+  Library,
   MoreVertical,
   Plus,
   Settings,
+  Trash2,
+  type LucideIcon,
 } from 'lucide-react';
 import type { FolderRecord, LibraryScope, StatsResponse } from '@shared/api';
 import { cn } from '@/lib/cn';
@@ -23,6 +27,7 @@ import { flattenVisibleFolders } from '@/lib/folders';
 import { useViewSelector, viewActions } from '@/store/view';
 import { DRAG_MIME, fileDrag } from '@/features/grid/dnd';
 import { Popover, PopoverContent, PopoverItem, PopoverSeparator, PopoverTrigger } from '@/components/ui/Popover';
+import { Tooltip } from '@/components/ui/Tooltip';
 
 /* Метрики строки сняты с артборда 2-0; дублируют одноимённые токены. */
 const ICON = 16; // слот иконки папки
@@ -31,9 +36,7 @@ const ROW_PAD_X = 12; // поля строки
 const INDENT = 12; // отступ уровня вложенности
 const ACTION = 12; // «+» и «⋮»
 const ACTION_GAP = 2; // зазор между ними — по макету
-
-/** Глубина дерева: корень и один вложенный уровень. Глубже подпапку не создать. */
-const MAX_DEPTH = 1;
+const COUNT_GUTTER = 28; // место под счётчик у правого поля: до 4 цифр 10px + зазор
 
 /** Прокрутка длинного имени: скорость и границы длительности. */
 const MARQUEE_SPEED = 90; // px в секунду
@@ -57,10 +60,20 @@ export interface SidebarProps {
   onOpenSettings?: () => void;
 }
 
-const SCOPES: { scope: LibraryScope; label: string; counter: keyof StatsResponse | null }[] = [
-  { scope: 'library', label: 'Вся библиотека', counter: null },
-  { scope: 'untagged', label: 'Не разобрано', counter: 'untagged' },
-  { scope: 'trash', label: 'Корзина', counter: 'trash' },
+/*
+  Иконки у разделов — не украшение: без них текст разделов начинался на x = 28,
+  а имена папок на x = 52, и сайдбар распадался на два столбца (аудит 4.1).
+  Слот тот же `.sidebar-icon`, что у папок.
+*/
+const SCOPES: {
+  scope: LibraryScope;
+  label: string;
+  icon: LucideIcon;
+  counter: keyof StatsResponse | null;
+}[] = [
+  { scope: 'library', label: 'Вся библиотека', icon: Library, counter: null },
+  { scope: 'untagged', label: 'Не разобрано', icon: Inbox, counter: 'untagged' },
+  { scope: 'trash', label: 'Корзина', icon: Trash2, counter: 'trash' },
 ];
 
 /**
@@ -94,7 +107,13 @@ function useMarquee(text: string, freeSpace: number) {
         ROW_GAP;
       const overflow = label.scrollWidth - available;
       setMetrics({
-        overflows: overflow > 0.5,
+        /*
+          Затухание включаем чуть раньше настоящего переполнения: в покое у правого
+          края лежит счётчик, и имя, доехавшее вплотную, читалось бы поверх него.
+          Ход при этом считается от настоящей ширины окна — иначе имя уехало бы дальше,
+          чем нужно.
+        */
+        overflows: label.scrollWidth > available - COUNT_GUTTER,
         shift: overflow > 0.5 ? Math.max(0, Math.ceil(overflow - freeSpace)) : 0,
       });
     };
@@ -109,7 +128,7 @@ function useMarquee(text: string, freeSpace: number) {
   return { boxRef, textRef, ...metrics };
 }
 
-function FolderRow({
+export function FolderRow({
   folder,
   depth,
   active,
@@ -143,9 +162,8 @@ function FolderRow({
   const inputRef = useRef<HTMLInputElement>(null);
 
   const hasChildren = folder.children.length > 0;
-  const canNest = depth < MAX_DEPTH;
   /* Кнопки лежат поверх имени — имя тянется до правого поля, как на артборде. */
-  const trailingWidth = canNest ? ACTION * 2 + ACTION_GAP : ACTION;
+  const trailingWidth = ACTION * 2 + ACTION_GAP;
   const { boxRef, textRef, overflows, shift } = useMarquee(
     folder.name,
     ICON + ROW_GAP - trailingWidth,
@@ -179,8 +197,9 @@ function FolderRow({
       className={cn(
         'sidebar-row group relative flex h-[var(--size-row)] items-center gap-[var(--sidebar-row-gap)]',
         'rounded-md transition-colors duration-[var(--dur-fast)] ease-out',
-        active ? 'bg-surface-row text-ink' : 'text-ink-muted hover:bg-surface-row',
-        menuOpen && 'bg-surface-row',
+        // Ховер и выбор — разные роли: раньше заливка была одна, и наведение читалось как выбор.
+        active ? 'bg-surface-row text-ink' : 'text-ink-muted hover:bg-surface-row-hover',
+        menuOpen && !active && 'bg-surface-row-hover',
         // ORG-03 — папка под курсором при перетаскивании карточек.
         dropTarget && 'bg-accent-soft text-ink ring-1 ring-accent',
       )}
@@ -260,6 +279,23 @@ function FolderRow({
       )}
 
       {/*
+        Счётчик: файлы папки вместе с подпапками (решение D2 от 02.09.2026 —
+        родительская папка показывает всё поддерево). Уходит под курсором,
+        освобождая место кнопкам: они встают ровно на его место.
+      */}
+      <span
+        className={cn(
+          'label-count pointer-events-none absolute inset-y-0 flex items-center',
+          'transition-opacity duration-[var(--dur-fast)] ease-out',
+          'group-hover:opacity-0',
+          (menuOpen || active) && 'opacity-0',
+        )}
+        style={{ right: ROW_PAD_X }}
+      >
+        {folder.totalFileCount}
+      </span>
+
+      {/*
         Трейлинг лежит поверх имени, а не в потоке: по макету имя тянется до
         правого поля строки, а кнопки проявляются над ним при наведении.
       */}
@@ -267,7 +303,7 @@ function FolderRow({
         className="absolute inset-y-0 flex items-center"
         style={{ right: ROW_PAD_X, gap: ACTION_GAP }}
       >
-        {canNest && (
+        <Tooltip content="Новая папка внутри" side="bottom">
           <button
             type="button"
             aria-label={`Новая папка внутри «${folder.name}»`}
@@ -279,28 +315,28 @@ function FolderRow({
           >
             <Plus className="size-3" strokeWidth={1.5} aria-hidden />
           </button>
-        )}
+        </Tooltip>
         <Popover open={menuOpen} onOpenChange={setMenuOpen}>
-          <PopoverTrigger
-            aria-label={`Действия с папкой «${folder.name}»`}
-            className={cn(
-              'sidebar-action opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
-              (menuOpen || active) && 'opacity-100',
-            )}
-          >
-            <MoreVertical className="size-3" strokeWidth={1.5} aria-hidden />
-          </PopoverTrigger>
+          <Tooltip content="Действия с папкой" side="bottom">
+            <PopoverTrigger
+              aria-label={`Действия с папкой «${folder.name}»`}
+              className={cn(
+                'sidebar-action opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
+                (menuOpen || active) && 'opacity-100',
+              )}
+            >
+              <MoreVertical className="size-3" strokeWidth={1.5} aria-hidden />
+            </PopoverTrigger>
+          </Tooltip>
           <PopoverContent align="end" sideOffset={4} className="min-w-[168px]">
-            {canNest && (
-              <PopoverItem
-                onClick={() => {
-                  setMenuOpen(false);
-                  onCreateChild();
-                }}
-              >
-                Новая папка внутри
-              </PopoverItem>
-            )}
+            <PopoverItem
+              onClick={() => {
+                setMenuOpen(false);
+                onCreateChild();
+              }}
+            >
+              Новая папка внутри
+            </PopoverItem>
             <PopoverItem
               onClick={() => {
                 setMenuOpen(false);
@@ -359,8 +395,15 @@ export function Sidebar({
       data-collapsed={collapsed}
     >
       <div className="sidebar-shell flex h-full w-[var(--size-sidebar)] flex-col gap-7">
-        {/* Логотип: своё левое поле, как у строк ниже — артборд 3IV-0 */}
-        <div className="flex shrink-0 items-center gap-[var(--sidebar-logo-gap)] pl-[var(--sidebar-row-pad-x)]">
+        {/*
+          Логотип: своё левое поле, как у строк ниже — артборд 3IV-0.
+          Заодно вторая зона перетаскивания окна (аудит логики §7): оболочку
+          сайдбара целиком размечать нельзя — строки папок остаются целями drop.
+        */}
+        <div
+          data-tauri-drag-region="deep"
+          className="flex shrink-0 items-center gap-[var(--sidebar-logo-gap)] pl-[var(--sidebar-row-pad-x)]"
+        >
           <span
             className="size-[22px] shrink-0 rounded-[7px] bg-linear-to-br from-accent to-accent-deep"
             aria-hidden
@@ -372,18 +415,28 @@ export function Sidebar({
           <nav className="flex shrink-0 flex-col">
             {SCOPES.map((item) => {
               const active = scope === item.scope && activeFolderId === null;
+              const ScopeIcon = item.icon;
               return (
                 <button
                   key={item.scope}
                   type="button"
                   onClick={() => viewActions.setScope(item.scope)}
                   className={cn(
-                    'flex h-[var(--size-row)] w-full items-center rounded-md px-[var(--sidebar-row-pad-x)]',
-                    'transition-colors duration-[var(--dur-fast)] ease-out',
-                    active ? 'bg-surface-row text-ink' : 'text-ink-muted hover:bg-surface-row',
+                    'flex h-[var(--size-row)] w-full items-center gap-[var(--sidebar-row-gap)] rounded-md',
+                    'px-[var(--sidebar-row-pad-x)] transition-colors duration-[var(--dur-fast)] ease-out',
+                    active
+                      ? 'bg-surface-row text-ink'
+                      : 'text-ink-muted hover:bg-surface-row-hover',
                   )}
                 >
-                  <span className="min-w-0 flex-1 truncate text-left text-md">{item.label}</span>
+                  <span className="sidebar-icon">
+                    <ScopeIcon className="size-4" strokeWidth={1.5} aria-hidden />
+                  </span>
+                  <span
+                    className={cn('min-w-0 flex-1 truncate text-left text-md', active && 'font-medium')}
+                  >
+                    {item.label}
+                  </span>
                   {item.counter && <span className="label-count">{stats[item.counter]}</span>}
                 </button>
               );
@@ -394,14 +447,16 @@ export function Sidebar({
             {/* Заголовок секции «ПАПКИ» + создание в корне */}
             <div className="flex h-3 shrink-0 items-center px-[var(--sidebar-row-pad-x)]">
               <span className="label-sidebar min-w-0 flex-1">Папки</span>
-              <button
-                type="button"
-                aria-label="Новая папка"
-                onClick={() => onCreateFolder?.(null)}
-                className="sidebar-action"
-              >
-                <Plus className="size-3" strokeWidth={1.5} aria-hidden />
-              </button>
+              <Tooltip content="Новая папка" side="bottom">
+                <button
+                  type="button"
+                  aria-label="Новая папка"
+                  onClick={() => onCreateFolder?.(null)}
+                  className="sidebar-action"
+                >
+                  <Plus className="size-3" strokeWidth={1.5} aria-hidden />
+                </button>
+              </Tooltip>
             </div>
 
             <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
@@ -437,7 +492,9 @@ export function Sidebar({
           onClick={onOpenSettings}
           className={cn(
             'flex h-[var(--size-row)] w-full shrink-0 items-center gap-[var(--sidebar-row-gap)] rounded-md',
-            'px-[var(--sidebar-row-pad-x)] text-ink-muted transition-colors hover:bg-surface-row',
+            'px-[var(--sidebar-row-pad-x)] text-ink-muted hover:bg-surface-row-hover',
+            // Единственная кнопка сайдбара, которая шла мимо токенов движения (аудит 4.3).
+            'transition-colors duration-[var(--dur-fast)] ease-out',
           )}
         >
           <span className="sidebar-icon">

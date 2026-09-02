@@ -33,7 +33,13 @@ export interface GridCardProps {
   onPurge: (file: FileRecord) => void;
   onCopy: (file: FileRecord) => void;
   onReveal: (file: FileRecord) => void;
+  /** Правый клик по невыделенной карточке: меню должно действовать на неё (02 §4.9). */
+  onContextSelect: (file: FileRecord) => void;
+  onAddTag: (file: FileRecord) => void;
 }
+
+/** Сколько тегов помещается на карточке; остальные сворачиваются в «+N» — решение D3. */
+const MAX_CARD_TAGS = 3;
 
 /** Пропорции карточки. Битый файл размеров не имеет — даём ему спокойный ландшафт. */
 export function cardRatio(file: FileRecord): number {
@@ -92,8 +98,12 @@ export const GridCard = memo(function GridCard({
   onPurge,
   onCopy,
   onReveal,
+  onContextSelect,
+  onAddTag,
 }: GridCardProps) {
   const inTrash = scope === 'trash';
+  const shownTags = file.tags.slice(0, MAX_CARD_TAGS);
+  const hiddenTags = file.tags.length - shownTags.length;
 
   return (
     <ContextMenu>
@@ -113,6 +123,9 @@ export const GridCard = memo(function GridCard({
             event.dataTransfer.setData(DRAG_MIME, JSON.stringify(ids));
           }}
           onDragEnd={() => fileDrag.end()}
+          onContextMenu={() => {
+            if (!selected) onContextSelect(file);
+          }}
           onClick={(event) => onSelectClick(file, event)}
           onDoubleClick={() => onOpen(file)}
           onKeyDown={(event) => {
@@ -150,9 +163,26 @@ export const GridCard = memo(function GridCard({
               {file.similarToFileId !== null ? <Badge>похоже, дубль</Badge> : null}
             </div>
 
-            {file.ext === 'gif' ? (
-              <div className="pointer-events-none absolute bottom-0 left-0 p-2">
-                <Badge>gif</Badge>
+            {/* Нижний ряд: «gif» виден всегда, теги — только по наведению (решение D3). */}
+            {file.ext === 'gif' || shownTags.length > 0 ? (
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-wrap items-end gap-1 p-2">
+                {file.ext === 'gif' ? <Badge>gif</Badge> : null}
+                {shownTags.length > 0 ? (
+                  <span
+                    className={cn(
+                      'flex min-w-0 flex-wrap items-end gap-1',
+                      'transition-opacity duration-[var(--dur-fast)] ease-out',
+                      selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+                    )}
+                  >
+                    {shownTags.map((tag) => (
+                      <Badge key={tag} className="max-w-[120px]">
+                        {tag}
+                      </Badge>
+                    ))}
+                    {hiddenTags > 0 ? <Badge>+{hiddenTags}</Badge> : null}
+                  </span>
+                ) : null}
               </div>
             ) : null}
 
@@ -180,6 +210,7 @@ export const GridCard = memo(function GridCard({
             <ContextMenuItem hotkey="⌘C" onSelect={() => onCopy(file)}>
               Скопировать
             </ContextMenuItem>
+            <ContextMenuItem onSelect={() => onAddTag(file)}>Добавить тег…</ContextMenuItem>
             <ContextMenuItem onSelect={() => onReveal(file)}>Показать в Finder</ContextMenuItem>
             <ContextMenuSeparator />
             <ContextMenuItem danger hotkey="⌫" onSelect={() => onTrash(file)}>

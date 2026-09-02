@@ -28,12 +28,51 @@ fn config_dir() -> Option<PathBuf> {
     Some(PathBuf::from(home).join("Library").join("Application Support").join("Kopirka"))
 }
 
+fn config_file() -> Option<PathBuf> {
+    Some(config_dir()?.join("config.json"))
+}
+
 /// Порт из конфига сервера: его можно сменить в настройках «Копирки», и оболочка
 /// обязана стучаться туда же, куда встанет сервер.
 fn configured_port() -> Option<u16> {
-    let raw = std::fs::read(config_dir()?.join("config.json")).ok()?;
+    let raw = std::fs::read(config_file()?).ok()?;
     let parsed: serde_json::Value = serde_json::from_slice(&raw).ok()?;
     u16::try_from(parsed["serverPort"].as_u64()?).ok().filter(|port| *port > 0)
+}
+
+/// Вернуть в конфиг стандартный порт. Зовётся из аварийного окна, когда порт занят
+/// посторонней программой. В ответе — человеческая причина отказа, паники не бывает.
+pub fn reset_port() -> Result<(), String> {
+    if std::env::var_os("KOPIRKA_PORT").is_some() {
+        return Err(
+            "порт задан переменной окружения KOPIRKA_PORT, правка конфига его не перебьёт"
+                .to_string(),
+        );
+    }
+    let path = config_file().ok_or_else(|| "не найдена папка конфига".to_string())?;
+    if !path.is_file() {
+        return Err(format!(
+            "конфига {} нет, порт в нём не задан — «Копирка» и так берёт {DEFAULT_PORT}",
+            path.display()
+        ));
+    }
+
+    let raw = std::fs::read(&path)
+        .map_err(|error| format!("{} не читается: {error}", path.display()))?;
+    let mut parsed: serde_json::Value = serde_json::from_slice(&raw)
+        .map_err(|error| format!("{} — не разбирается как JSON: {error}", path.display()))?;
+    let fields = parsed
+        .as_object_mut()
+        .ok_or_else(|| format!("{} — не объект JSON", path.display()))?;
+    fields.insert("serverPort".to_string(), serde_json::json!(DEFAULT_PORT));
+
+    // Пишем через временный файл: оборванная запись не должна оставить огрызок конфига.
+    let text = serde_json::to_string_pretty(&parsed).map_err(|error| error.to_string())?;
+    let temporary = path.with_extension("json.tmp");
+    std::fs::write(&temporary, text)
+        .map_err(|error| format!("{} не записывается: {error}", temporary.display()))?;
+    std::fs::rename(&temporary, &path)
+        .map_err(|error| format!("{} не переименовывается: {error}", temporary.display()))
 }
 
 /// Порт читается один раз за запуск: сервер тоже берёт его при старте и на лету не меняет.
@@ -78,8 +117,9 @@ fn backend_dir(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 /// Проверка, что на порту действительно «Копирка», а не чужой процесс.
-fn health(port: u16) -> bool {
-    match http::get(port, "/api/health") {
+/// Зовётся дважды: в ожидании собственного сервера и при разборе занятого порта.
+pub fn health(port: u16) -> bool {
+    match http::get_probe(port, "/api/health") {
         Ok(response) => response.status == 200 && response.body.starts_with(b"{\"ok\":true"),
         Err(_) => false,
     }
@@ -169,9 +209,69 @@ impl Backend {
 }
 
 /// Гасим сервер. Вызывается на выходе приложения; повторный вызов безопасен.
+///
+/// Если «Копирка» подключилась к чужому серверу (порт был занят живым экземпляром),
+/// в состоянии пусто — чужой процесс мы не заводили и не гасим.
 pub fn shutdown(app: &AppHandle) {
     let taken = app.state::<BackendState>().0.lock().unwrap().take();
     if let Some(mut backend) = taken {
         backend.kill();
+    }
+}
+
+/// Развилка занятого порта из `main.rs` целиком держится на `health`: `true` — открываем
+/// интерфейс на чужом сервере, `false` — аварийное окно. Проверяем обе стороны.
+#[cfg(test)]
+mod tests {
+    use super::health;
+    use std::io::{Read, Write};
+    use std::net::{Ipv4Addr, TcpListener};
+
+    /// Сервер на одно соединение: отдаёт заготовленный ответ и закрывается.
+    fn serve_once(response: &'static str) -> u16 {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buffer = [0u8; 1024];
+                let _ = stream.read(&mut buffer);
+                let _ = stream.write_all(response.as_bytes());
+            }
+        });
+        port
+    }
+
+    #[test]
+    fn health_recognises_kopirka() {
+        let port = serve_once(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n\
+             {\"ok\":true,\"version\":\"0.1.0\"}",
+        );
+        assert!(health(port));
+    }
+
+    #[test]
+    fn health_rejects_foreign_program() {
+        let port = serve_once(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n\
+             <html>это не Копирка</html>",
+        );
+        assert!(!health(port));
+    }
+
+    #[test]
+    fn health_rejects_silent_port() {
+        // Порт занят, но на запрос никто не отвечает — соединение просто закрывается.
+        let port = serve_once("");
+        assert!(!health(port));
+    }
+
+    #[test]
+    fn health_false_when_nobody_listens() {
+        // Порт получен и тут же освобождён — на нём заведомо никого нет.
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        assert!(!health(port));
     }
 }

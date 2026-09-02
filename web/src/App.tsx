@@ -4,6 +4,7 @@ import { AppShell } from '@/features/shell/AppShell';
 import { KitPage } from '@/features/kit/KitPage';
 import { GridScreen } from '@/features/grid/GridScreen';
 import { ConfirmDialog } from '@/features/grid/ConfirmDialog';
+import { overlayOpen } from '@/features/grid/useGridHotkeys';
 import { DetailView } from '@/features/detail/DetailView';
 import { ImportProvider } from '@/features/import/ImportProvider';
 import { LibraryProvider, useLibrary } from '@/features/library/LibraryProvider';
@@ -71,6 +72,18 @@ function Shell({ settings, onSettingsChange }: ShellProps) {
     },
     [filters, sort],
   );
+
+  // Настройки — оверлей на весь экран, но не Radix-диалог: Esc вешаем руками (02 §4.26).
+  useEffect(() => {
+    if (!settingsOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || overlayOpen()) return;
+      event.preventDefault();
+      setSettingsOpen(false);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [settingsOpen]);
 
   const handleSaveSettings = useCallback(
     async (patch: Partial<AppConfig>) => {

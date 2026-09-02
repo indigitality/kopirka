@@ -107,6 +107,22 @@ export const viewActions = {
   setQuery(query: string): void {
     setState({ query });
   },
+  /**
+   * «Показать всё с этим тегом» — из пилюли в просмотре и из пустого состояния поиска.
+   * Раздел и папка сбрасываются: счётчик тега считается по всей библиотеке,
+   * и результат должен совпасть с обещанным числом.
+   */
+  showTag(tag: string): void {
+    setState({
+      scope: 'library',
+      folderId: null,
+      query: '',
+      filters: { ...emptyFilters, tags: [tag] },
+      selectedIds: [],
+      selectionAnchorId: null,
+      openFileId: null,
+    });
+  },
   setFilters(filters: ViewFilters): void {
     setState({ filters, selectedIds: [], selectionAnchorId: null });
   },

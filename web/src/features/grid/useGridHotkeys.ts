@@ -13,11 +13,15 @@ export function isEditableTarget(target: EventTarget | null): boolean {
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
 }
 
-/** Открыта модалка или поповер — Esc принадлежит им. */
-function overlayOpen(): boolean {
+/**
+ * Открыта модалка или поповер — Esc принадлежит им.
+ * Смотрим только на `data-state="open"`: закрытый слой живёт в DOM ещё ~140 мс,
+ * пока проигрывается выход, и его присутствие ничего не значит.
+ */
+export function overlayOpen(): boolean {
   return (
     document.querySelector('[role="dialog"][data-state="open"]') !== null ||
-    document.querySelector('[data-radix-popper-content-wrapper]') !== null
+    document.querySelector('[data-radix-popper-content-wrapper] [data-state="open"]') !== null
   );
 }
 

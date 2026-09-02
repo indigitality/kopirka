@@ -4,6 +4,7 @@
  * поэтому сравниваем и подсказываем по нормализованной форме.
  */
 import { useMemo, useRef, useState } from 'react';
+import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { cn } from '@/lib/cn';
 
@@ -21,6 +22,8 @@ export interface TagInputProps {
   onCancel?: () => void;
   placeholder?: string;
   autoFocus?: boolean;
+  /** Если задан — справа от поля первичная кнопка с этим текстом (02 §4.25). */
+  submitLabel?: string;
   className?: string;
 }
 
@@ -33,6 +36,7 @@ export function TagInput({
   onCancel,
   placeholder = 'Название тега',
   autoFocus = true,
+  submitLabel,
   className,
 }: TagInputProps) {
   const [value, setValue] = useState('');
@@ -57,23 +61,35 @@ export function TagInput({
 
   return (
     <div className={cn('flex w-full flex-col gap-2', className)}>
-      <Input
-        ref={inputRef}
-        value={value}
-        autoFocus={autoFocus}
-        placeholder={placeholder}
-        onChange={(event) => setValue(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter') {
-            event.preventDefault();
-            submit(value);
-          }
-          if (event.key === 'Escape') {
-            event.preventDefault();
-            onCancel?.();
-          }
-        }}
-      />
+      <div className="flex items-center gap-2">
+        <Input
+          ref={inputRef}
+          className="min-w-0 flex-1"
+          value={value}
+          autoFocus={autoFocus}
+          placeholder={placeholder}
+          onChange={(event) => setValue(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              submit(value);
+            }
+            if (event.key === 'Escape') {
+              event.preventDefault();
+              onCancel?.();
+            }
+          }}
+        />
+        {submitLabel ? (
+          <Button
+            variant="primary"
+            disabled={normalizeTag(value) === ''}
+            onClick={() => submit(value)}
+          >
+            {submitLabel}
+          </Button>
+        ) : null}
+      </div>
       {suggestions.length > 0 ? (
         <div className="flex flex-wrap gap-1.5">
           {suggestions.map((tag) => (

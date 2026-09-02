@@ -17,7 +17,8 @@ import { IconButton } from '@/components/ui/IconButton';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { cn } from '@/lib/cn';
-import { DUR_BASE, EASE_OUT } from '@/lib/motion';
+import { DUR_FAST, EASE_OUT } from '@/lib/motion';
+import { DUR_EXIT_FAST, EASE_IN } from '@/components/ui/motion-presets';
 import { CheckRow } from './CheckRow';
 import {
   DATE_PRESETS,
@@ -52,7 +53,8 @@ function Section({ title, hint, children }: { title: string; hint?: ReactNode; c
     <section className="border-t border-line px-4 py-3.5 first:border-t-0">
       <div className="flex items-baseline gap-2">
         <span className="label-section">{title}</span>
-        {hint ? <span className="min-w-0 flex-1 truncate text-2xs text-ink-faint">{hint}</span> : null}
+        {/* 10 px не моно — прямое нарушение спеки §6, поэтому 12 (аудит 3.1). */}
+        {hint ? <span className="min-w-0 flex-1 truncate text-sm text-ink-faint">{hint}</span> : null}
       </div>
       <div className="mt-2.5">{children}</div>
     </section>
@@ -180,14 +182,18 @@ export function FilterPanel({
   return (
     <AnimatePresence>
       {open ? (
+        /*
+          Вход короткий: 200 мс сквозь полупрозрачную панель читаются карточки,
+          и это выглядит как глюк отрисовки (аудит 3.1). Уход — ещё короче и по
+          кривой входа в экран.
+        */
         <motion.div
           ref={panelRef}
           role="dialog"
           aria-label="Фильтры"
           initial={{ opacity: 0, scale: 0.98, y: -6 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.98, y: -6 }}
-          transition={{ duration: DUR_BASE, ease: EASE_OUT }}
+          animate={{ opacity: 1, scale: 1, y: 0, transition: { duration: DUR_FAST, ease: EASE_OUT } }}
+          exit={{ opacity: 0, scale: 0.98, y: -6, transition: { duration: DUR_EXIT_FAST, ease: EASE_IN } }}
           className={cn(
             'absolute top-2 right-[var(--grid-pad)] z-30 w-[340px] origin-top-right',
             'flex max-h-[calc(100%-16px)] flex-col overflow-hidden rounded-xl',

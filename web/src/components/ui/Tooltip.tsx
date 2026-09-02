@@ -1,8 +1,18 @@
-import { forwardRef, type ComponentPropsWithoutRef, type ElementRef, type ReactNode } from 'react';
+import {
+  createContext,
+  forwardRef,
+  useCallback,
+  useContext,
+  useState,
+  type ComponentPropsWithoutRef,
+  type ElementRef,
+  type ReactNode,
+} from 'react';
 import * as TooltipPrimitive from '@radix-ui/react-tooltip';
-import { motion } from 'motion/react';
+import { AnimatePresence, motion } from 'motion/react';
 import { cn } from '@/lib/cn';
-import { EASE_OUT, DUR_FAST } from '@/lib/motion';
+import { useReducedMotion } from '@/lib/useReducedMotion';
+import { tooltipMotion } from './motion-presets';
 
 export const TooltipProvider = ({ children, ...rest }: ComponentPropsWithoutRef<typeof TooltipPrimitive.Provider>) => (
   <TooltipPrimitive.Provider delayDuration={400} skipDelayDuration={200} {...rest}>
@@ -10,30 +20,58 @@ export const TooltipProvider = ({ children, ...rest }: ComponentPropsWithoutRef<
   </TooltipPrimitive.Provider>
 );
 
-export const TooltipRoot = TooltipPrimitive.Root;
+/** Открыт ли тултип: с `forceMount` Radix сам этого не скажет, а уход без флага не сыграть. */
+const OpenContext = createContext(false);
+
+export type TooltipRootProps = ComponentPropsWithoutRef<typeof TooltipPrimitive.Root>;
+
+export function TooltipRoot({ open, defaultOpen, onOpenChange, children, ...rest }: TooltipRootProps) {
+  const [uncontrolled, setUncontrolled] = useState(defaultOpen ?? false);
+  const isOpen = open ?? uncontrolled;
+
+  const handleOpenChange = useCallback(
+    (next: boolean) => {
+      if (open === undefined) setUncontrolled(next);
+      onOpenChange?.(next);
+    },
+    [open, onOpenChange],
+  );
+
+  return (
+    <TooltipPrimitive.Root open={isOpen} onOpenChange={handleOpenChange} {...rest}>
+      <OpenContext.Provider value={isOpen}>{children}</OpenContext.Provider>
+    </TooltipPrimitive.Root>
+  );
+}
+
 export const TooltipTrigger = TooltipPrimitive.Trigger;
 
 export const TooltipContent = forwardRef<
   ElementRef<typeof TooltipPrimitive.Content>,
   ComponentPropsWithoutRef<typeof TooltipPrimitive.Content>
 >(function TooltipContent({ className, sideOffset = 6, children, ...rest }, ref) {
+  const open = useContext(OpenContext);
+  const reduced = useReducedMotion();
+
   return (
-    <TooltipPrimitive.Portal>
-      <TooltipPrimitive.Content ref={ref} sideOffset={sideOffset} asChild {...rest}>
-        <motion.div
-          initial={{ opacity: 0, scale: 0.96, y: 2 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          transition={{ duration: DUR_FAST, ease: EASE_OUT }}
-          className={cn(
-            'z-50 rounded-sm bg-surface-overlay px-2 py-1 text-sm text-ink shadow-popover',
-            'select-none whitespace-nowrap',
-            className,
-          )}
-        >
-          {children}
-        </motion.div>
-      </TooltipPrimitive.Content>
-    </TooltipPrimitive.Portal>
+    <AnimatePresence>
+      {open ? (
+        <TooltipPrimitive.Portal forceMount key="tooltip">
+          <TooltipPrimitive.Content ref={ref} forceMount sideOffset={sideOffset} asChild {...rest}>
+            <motion.div
+              {...tooltipMotion(reduced)}
+              className={cn(
+                'z-50 rounded-sm bg-surface-overlay px-2 py-1 text-sm text-ink shadow-popover',
+                'select-none whitespace-nowrap',
+                className,
+              )}
+            >
+              {children}
+            </motion.div>
+          </TooltipPrimitive.Content>
+        </TooltipPrimitive.Portal>
+      ) : null}
+    </AnimatePresence>
   );
 });
 

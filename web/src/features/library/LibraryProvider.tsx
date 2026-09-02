@@ -23,7 +23,7 @@ import type {
   TagRecord,
 } from '@shared/api';
 import * as api from '@/lib/api';
-import { flattenFolders } from '@/lib/folders';
+import { flattenFolders, folderSubtreeIds } from '@/lib/folders';
 import { useViewSelector, useViewState } from '@/store/view';
 
 /** Сколько карточек тянем за раз. Хватает на 2–3 экрана сетки. */
@@ -31,7 +31,7 @@ const PAGE_SIZE = 60;
 /** SEARCH-02 — пауза перед запросом, пока пользователь печатает. */
 const QUERY_DEBOUNCE_MS = 250;
 
-const EMPTY_STATS: StatsResponse = { library: 0, untagged: 0, trash: 0 };
+const EMPTY_STATS: StatsResponse = { library: 0, untagged: 0, trash: 0, similar: 0 };
 
 export interface LibraryValue {
   /** Файлы текущего среза в порядке сортировки. */
@@ -243,11 +243,23 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   );
 
   const scope = view.scope;
+  const openFolderId = view.folderId;
 
   const value = useMemo<LibraryValue>(() => {
     const folderNameById = new Map<number, string>(
       flattenFolders(folders).map(({ folder }) => [folder.id, folder.name]),
     );
+
+    /**
+     * Уехал ли файл из текущего среза, попав в папку `target`.
+     * D1 — «Не разобрано» это файлы без папки; D2 — открытая папка показывает и поддерево.
+     */
+    const leftScopeAfterMove = (target: number | null): boolean => {
+      if (scope === 'untagged') return target !== null;
+      if (scope !== 'library' || openFolderId === null) return false;
+      if (target === null) return true;
+      return !folderSubtreeIds(folders, openFolderId).has(target);
+    };
 
     return {
       files,
@@ -268,25 +280,20 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
       async moveToFolder(ids, folderId) {
         const response = await api.moveFiles({ fileIds: [...ids], folderId });
-        // В «Не разобрано» файл с папкой остаётся, только если у него нет тегов, —
-        // сервер знает точно, поэтому в этом срезе просто перечитываем список.
-        if (scope === 'untagged') await reload();
-        else await afterMutation(response.files, null);
+        await afterMutation(response.files, leftScopeAfterMove(folderId) ? ids : null);
       },
+      // После D1 теги на состав «Не разобрано» не влияют — перезагрузка среза не нужна.
       async addTags(ids, tags_) {
         const response = await api.tagFiles({ fileIds: [...ids], add: [...tags_] });
-        if (scope === 'untagged') await reload();
-        else await afterMutation(response.files, null);
+        await afterMutation(response.files, null);
       },
       async removeTags(ids, tags_) {
         const response = await api.tagFiles({ fileIds: [...ids], remove: [...tags_] });
-        if (scope === 'untagged') await reload();
-        else await afterMutation(response.files, null);
+        await afterMutation(response.files, null);
       },
       async setFileTags(id, tags_) {
         const updated = await api.updateFile(id, { tags: [...tags_] });
-        if (scope === 'untagged') await reload();
-        else await afterMutation([updated], null);
+        await afterMutation([updated], null);
       },
       async trashFiles(ids) {
         await api.deleteFiles({ fileIds: [...ids] });
@@ -343,6 +350,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     afterMutation,
     refreshMeta,
     scope,
+    openFolderId,
   ]);
 
   return <LibraryContext.Provider value={value}>{children}</LibraryContext.Provider>;

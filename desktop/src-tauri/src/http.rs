@@ -10,6 +10,9 @@ use std::time::Duration;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_millis(500);
 const IO_TIMEOUT: Duration = Duration::from_secs(30);
+/// Ожидание ответа при разведке «кто занял порт». Короткое намеренно: молчаливая
+/// чужая программа не должна держать запуск приложения полминуты.
+const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 
 pub struct Response {
     pub status: u16,
@@ -25,11 +28,11 @@ pub fn port_in_use(port: u16) -> bool {
     TcpStream::connect_timeout(&address(port), CONNECT_TIMEOUT).is_ok()
 }
 
-fn request(port: u16, head: String, body: &[u8]) -> Result<Response, String> {
+fn request(port: u16, head: String, body: &[u8], timeout: Duration) -> Result<Response, String> {
     let mut stream =
         TcpStream::connect_timeout(&address(port), CONNECT_TIMEOUT).map_err(|e| e.to_string())?;
-    stream.set_read_timeout(Some(IO_TIMEOUT)).ok();
-    stream.set_write_timeout(Some(IO_TIMEOUT)).ok();
+    stream.set_read_timeout(Some(timeout)).ok();
+    stream.set_write_timeout(Some(timeout)).ok();
     stream.write_all(head.as_bytes()).map_err(|e| e.to_string())?;
     if !body.is_empty() {
         stream.write_all(body).map_err(|e| e.to_string())?;
@@ -54,11 +57,19 @@ fn request(port: u16, head: String, body: &[u8]) -> Result<Response, String> {
     Ok(Response { status, body: raw[separator + 4..].to_vec() })
 }
 
-pub fn get(port: u16, path: &str) -> Result<Response, String> {
-    let head = format!(
+fn get_head(port: u16, path: &str) -> String {
+    format!(
         "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nAccept: application/json\r\nConnection: close\r\n\r\n"
-    );
-    request(port, head, &[])
+    )
+}
+
+pub fn get(port: u16, path: &str) -> Result<Response, String> {
+    request(port, get_head(port, path), &[], IO_TIMEOUT)
+}
+
+/// GET с коротким ожиданием — для проверки, кто отвечает на занятом порту.
+pub fn get_probe(port: u16, path: &str) -> Result<Response, String> {
+    request(port, get_head(port, path), &[], PROBE_TIMEOUT)
 }
 
 pub fn post_json(port: u16, path: &str, body: &str) -> Result<Response, String> {
@@ -66,5 +77,5 @@ pub fn post_json(port: u16, path: &str, body: &str) -> Result<Response, String> 
         "POST {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         body.len()
     );
-    request(port, head, body.as_bytes())
+    request(port, head, body.as_bytes(), IO_TIMEOUT)
 }

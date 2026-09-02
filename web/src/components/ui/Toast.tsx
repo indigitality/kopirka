@@ -6,9 +6,11 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
 } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
+import { X } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { EASE_OUT, DUR_BASE } from '@/lib/motion';
 import type { ImportResponse } from '@shared/api';
@@ -27,12 +29,15 @@ export interface ToastStat {
   tone?: 'default' | 'muted' | 'danger';
 }
 
+export type ToastTone = 'default' | 'danger' | 'success';
+
 export interface ToastOptions {
   title?: string;
   /** Сводка вида «Добавлено 48 · Дубли 2 · Ошибки 1». */
   stats?: readonly ToastStat[];
   action?: ToastAction;
-  tone?: 'default' | 'danger';
+  /** `success` — «Скопировано», «Файл вернулся»; `danger` — не получилось. */
+  tone?: ToastTone;
   /** мс; 0 — не скрывать автоматически. */
   duration?: number;
 }
@@ -70,7 +75,35 @@ const STAT_TONE: Record<NonNullable<ToastStat['tone']>, string> = {
   danger: 'text-danger',
 };
 
-function ToastRow({ record, onDismiss }: { record: ToastRecord; onDismiss: () => void }) {
+const TITLE_TONE: Record<ToastTone, string> = {
+  default: 'text-ink',
+  danger: 'text-danger',
+  success: 'text-success',
+};
+
+function ToastRow({
+  record,
+  onDismiss,
+  onPause,
+  onResume,
+}: {
+  record: ToastRecord;
+  onDismiss: () => void;
+  onPause: () => void;
+  onResume: () => void;
+}) {
+  /* Пауза таймера под курсором: прочитать сводку из шести чисел за 5 секунд нельзя. */
+  const [paused, setPaused] = useState(false);
+
+  const hold = () => {
+    setPaused(true);
+    onPause();
+  };
+  const release = () => {
+    setPaused(false);
+    onResume();
+  };
+
   return (
     <motion.div
       layout
@@ -79,15 +112,17 @@ function ToastRow({ record, onDismiss }: { record: ToastRecord; onDismiss: () =>
       exit={{ opacity: 0, y: 8, scale: 0.98 }}
       transition={{ duration: DUR_BASE, ease: EASE_OUT }}
       role="status"
+      onMouseEnter={hold}
+      onMouseLeave={release}
+      onFocusCapture={hold}
+      onBlurCapture={release}
       className={cn(
         'pointer-events-auto relative flex min-h-10 items-center gap-3 overflow-hidden',
-        'rounded-md bg-surface-overlay px-4 py-2 shadow-float',
+        'rounded-md bg-surface-overlay py-2 pr-2.5 pl-4 shadow-float',
       )}
     >
       {record.title ? (
-        <span className={cn('text-base', record.tone === 'danger' ? 'text-danger' : 'text-ink')}>
-          {record.title}
-        </span>
+        <span className={cn('text-base', TITLE_TONE[record.tone ?? 'default'])}>{record.title}</span>
       ) : null}
 
       {record.stats ? (
@@ -122,31 +157,52 @@ function ToastRow({ record, onDismiss }: { record: ToastRecord; onDismiss: () =>
         </>
       ) : null}
 
+      {/* Закрыть руками, не дожидаясь пяти секунд (аудит 4.23). */}
+      <button
+        type="button"
+        aria-label="Закрыть уведомление"
+        onClick={onDismiss}
+        className={cn(
+          'flex size-5 shrink-0 items-center justify-center rounded-xs text-ink-faint',
+          'transition-colors duration-[var(--dur-fast)] ease-out hover:text-ink',
+        )}
+      >
+        <X className="size-4" strokeWidth={2} aria-hidden />
+      </button>
+
       {/* Полоска остатка времени — видно, сколько осталось на «Отменить». */}
       {record.action && record.duration > 0 ? (
-        <motion.span
+        <span
           aria-hidden
-          initial={{ scaleX: 1 }}
-          animate={{ scaleX: 0 }}
-          transition={{ duration: record.duration / 1000, ease: 'linear' }}
-          className="absolute inset-x-0 bottom-0 h-px origin-left bg-accent"
+          style={
+            {
+              '--toast-duration': `${record.duration}ms`,
+              animationPlayState: paused ? 'paused' : 'running',
+            } as CSSProperties
+          }
+          className="toast-countdown absolute inset-x-0 bottom-0 h-px bg-accent"
         />
       ) : null}
     </motion.div>
   );
 }
 
+/** Таймер одного тоста. `handle === null` — стоит на паузе под курсором. */
+interface ToastTimer {
+  handle: number | null;
+  endsAt: number;
+  remaining: number;
+}
+
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<ToastRecord[]>([]);
   const nextId = useRef(1);
-  const timers = useRef(new Map<number, number>());
+  const timers = useRef(new Map<number, ToastTimer>());
 
   const dismiss = useCallback((id: number) => {
     const timer = timers.current.get(id);
-    if (timer !== undefined) {
-      window.clearTimeout(timer);
-      timers.current.delete(id);
-    }
+    if (timer?.handle != null) window.clearTimeout(timer.handle);
+    timers.current.delete(id);
     setItems((prev) => prev.filter((item) => item.id !== id));
   }, []);
 
@@ -156,12 +212,38 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       const duration = options.duration ?? DEFAULT_DURATION_MS;
       setItems((prev) => [...prev, { ...options, id, duration }]);
       if (duration > 0) {
-        timers.current.set(
-          id,
-          window.setTimeout(() => dismiss(id), duration),
-        );
+        timers.current.set(id, {
+          handle: window.setTimeout(() => dismiss(id), duration),
+          endsAt: Date.now() + duration,
+          remaining: duration,
+        });
       }
       return id;
+    },
+    [dismiss],
+  );
+
+  /** Курсор на тосте — таймер стоит; уехал — идёт дальше с того же места. */
+  const pause = useCallback((id: number) => {
+    const timer = timers.current.get(id);
+    if (!timer || timer.handle === null) return;
+    window.clearTimeout(timer.handle);
+    timers.current.set(id, {
+      handle: null,
+      endsAt: timer.endsAt,
+      remaining: Math.max(0, timer.endsAt - Date.now()),
+    });
+  }, []);
+
+  const resume = useCallback(
+    (id: number) => {
+      const timer = timers.current.get(id);
+      if (!timer || timer.handle !== null) return;
+      timers.current.set(id, {
+        handle: window.setTimeout(() => dismiss(id), timer.remaining),
+        endsAt: Date.now() + timer.remaining,
+        remaining: timer.remaining,
+      });
     },
     [dismiss],
   );
@@ -169,7 +251,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const active = timers.current;
     return () => {
-      for (const timer of active.values()) window.clearTimeout(timer);
+      for (const timer of active.values()) if (timer.handle != null) window.clearTimeout(timer.handle);
       active.clear();
     };
   }, []);
@@ -182,7 +264,13 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       <div className="pointer-events-none fixed inset-x-0 bottom-6 z-[60] flex flex-col items-center gap-2">
         <AnimatePresence initial={false}>
           {items.map((item) => (
-            <ToastRow key={item.id} record={item} onDismiss={() => dismiss(item.id)} />
+            <ToastRow
+              key={item.id}
+              record={item}
+              onDismiss={() => dismiss(item.id)}
+              onPause={() => pause(item.id)}
+              onResume={() => resume(item.id)}
+            />
           ))}
         </AnimatePresence>
       </div>

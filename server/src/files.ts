@@ -10,6 +10,7 @@ import type {
   StatsResponse,
 } from '../../shared/api.js';
 import type { Db } from './db.js';
+import { subtreeIds } from './folders.js';
 import { resolveInLibrary, safeUnlink } from './paths.js';
 import { pruneOrphanTags, tagsForFiles } from './tags.js';
 
@@ -95,7 +96,10 @@ export function findAnyBySha(db: Db, sha256: string): FileRow | null {
 
 export interface ListQuery {
   scope: LibraryScope;
+  /** Папка и всё её поддерево (решение 02.09.2026). null — файлы без папки. */
   folderId?: number | null;
+  /** IMP-01 — только файлы с непринятой пометкой похожести. */
+  hasSimilar?: boolean;
   query?: string;
   tags?: string[];
   exts?: FileExt[];
@@ -129,27 +133,37 @@ function likePattern(value: string): string {
   return `%${value.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
 }
 
-/** Условие среза библиотеки. «Не разобрано» — OR, не AND (SET-05), и без файлов корзины. */
+/**
+ * Условие среза библиотеки. «Не разобрано» — SET-05 в редакции 02.09.2026: файл без папки.
+ * Теги не учитываются. Корзина в срез не попадает.
+ */
 function scopeCondition(scope: LibraryScope): string {
   if (scope === 'trash') return `files.deleted_at IS NOT NULL`;
-  if (scope === 'untagged') {
-    return `files.deleted_at IS NULL
-            AND (files.folder_id IS NULL
-                 OR NOT EXISTS (SELECT 1 FROM file_tags ft WHERE ft.file_id = files.id))`;
-  }
+  if (scope === 'untagged') return `files.deleted_at IS NULL AND files.folder_id IS NULL`;
   return `files.deleted_at IS NULL`;
 }
 
-function buildFilters(query: ListQuery): { sql: string; params: unknown[] } {
+function buildFilters(db: Db, query: ListQuery): { sql: string; params: unknown[] } {
   const clauses: string[] = [scopeCondition(query.scope)];
   const params: unknown[] = [];
 
   if (query.folderId !== undefined) {
     if (query.folderId === null) clauses.push(`files.folder_id IS NULL`);
     else {
-      clauses.push(`files.folder_id = ?`);
-      params.push(query.folderId);
+      // Решение 02.09.2026: папка показывает всё своё поддерево.
+      const ids = subtreeIds(db, query.folderId);
+      if (ids.length === 0) {
+        // Папки нет — как и раньше, пустой результат, а не ошибка.
+        clauses.push(`1 = 0`);
+      } else {
+        clauses.push(`files.folder_id IN (${ids.map(() => '?').join(',')})`);
+        params.push(...ids);
+      }
     }
+  }
+  if (query.hasSimilar === true) {
+    // IMP-01 — только файлы с непринятой пометкой похожести.
+    clauses.push(`files.similar_to_file_id IS NOT NULL`);
   }
   if (query.query !== undefined && query.query.trim() !== '') {
     clauses.push(`kp_lower(files.original_filename) LIKE kp_lower(?) ESCAPE '\\'`);
@@ -199,7 +213,8 @@ function cursorKey(row: FileRow, sort: SortKey): string {
 }
 
 export function listFiles(db: Db, query: ListQuery): FileListResponse {
-  const filters = buildFilters(query);
+  // total, страница и курсор считаются по одному и тому же условию.
+  const filters = buildFilters(db, query);
   const { expr, direction } = sortParts(query.sort);
 
   const totalRow = db
@@ -236,7 +251,13 @@ export function listFiles(db: Db, query: ListQuery): FileListResponse {
 export function stats(db: Db): StatsResponse {
   const count = (scope: LibraryScope): number =>
     (db.prepare(`SELECT COUNT(*) AS c FROM files WHERE ${scopeCondition(scope)}`).get() as { c: number }).c;
-  return { library: count('library'), untagged: count('untagged'), trash: count('trash') };
+  // IMP-01 — не срез, а счётчик: раздел «Возможные дубли» исчезает, когда дублей нет.
+  const similar = (
+    db
+      .prepare(`SELECT COUNT(*) AS c FROM files WHERE deleted_at IS NULL AND similar_to_file_id IS NOT NULL`)
+      .get() as { c: number }
+  ).c;
+  return { library: count('library'), untagged: count('untagged'), trash: count('trash'), similar };
 }
 
 // ─── Мутации ─────────────────────────────────────────────────────────────────

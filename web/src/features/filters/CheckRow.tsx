@@ -40,7 +40,8 @@ export function CheckRow({ checked, onCheckedChange, children, trailing, classNa
           'peer-focus-visible:ring-offset-surface-overlay',
           checked
             ? 'border-accent bg-accent text-accent-ink'
-            : 'border-line-strong bg-surface-raised text-transparent',
+            : // Рамка контрола: `line-strong` на оверлее давала 1.22:1 — чекбоксов не было видно.
+              'border-line-control bg-surface-raised text-transparent',
         )}
       >
         <Check className="size-3" strokeWidth={3} />

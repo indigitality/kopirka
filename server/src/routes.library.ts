@@ -1,5 +1,6 @@
 /** Служебные эндпоинты: здоровье, папки, теги, настройки, онбординг. */
 import fs from 'node:fs';
+import net from 'node:net';
 import type { Hono } from 'hono';
 import { SCHEMA_VERSION, type SettingsResponse } from '../../shared/api.js';
 import { expandHome } from './config.js';
@@ -23,6 +24,20 @@ function appVersion(): string {
 }
 
 const VERSION = appVersion();
+
+/**
+ * SVC-06 — порт проверяем до записи в конфиг: иначе после перезапуска сервер не поднимется,
+ * а вернуть порт будет уже неоткуда — интерфейса не будет.
+ */
+function portIsFree(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const probe = net.createServer();
+    probe.once('error', (error: NodeJS.ErrnoException) => {
+      resolve(error.code !== 'EADDRINUSE' && error.code !== 'EACCES');
+    });
+    probe.listen(port, '127.0.0.1', () => probe.close(() => resolve(true)));
+  });
+}
 
 function settingsPayload(state: AppState): SettingsResponse {
   return {
@@ -78,7 +93,14 @@ export function registerLibraryRoutes(app: Hono, state: AppState): void {
       // SET-02: файлы не переносятся, приложение просто начинает работать с новой директорией.
       patch.libraryPath = resolved;
     }
-    if (body.serverPort !== undefined) patch.serverPort = body.serverPort;
+    if (body.serverPort !== undefined) {
+      // Свой же порт — это «без изменений», занимать его повторно нельзя и не нужно.
+      const own = body.serverPort === previousPort || body.serverPort === state.boundPort;
+      if (!own && !(await portIsFree(body.serverPort))) {
+        throw badRequest(`Порт ${body.serverPort} занят другой программой`, 'port_busy');
+      }
+      patch.serverPort = body.serverPort;
+    }
     if (body.firstRunCompleted !== undefined) patch.firstRunCompleted = body.firstRunCompleted;
     state.patchConfig(patch);
     if (body.serverPort !== undefined) {
