@@ -4,9 +4,10 @@
  * объяснение в одну фразу, путь библиотеки и кнопка. Всё остальное — потом.
  *
  * Оболочка та же, что у всего приложения: фон окна `--color-app`, поле
- * `--shell-pad`, внутри — одна панель `--color-panel` с радиусом
- * `--radius-panel`. Колонка 420 стоит по центру панели, элементы разделены
- * зазором 28 (узлы R11); подзаголовок поджат к заголовку на 14.
+ * `--shell-pad` (сверху `--shell-pad-top` — полоса светофора в окне macOS),
+ * внутри — одна панель `--color-panel` с радиусом `--radius-panel`. Колонка 420
+ * стоит по центру панели, элементы разделены зазором 28 (узлы R11);
+ * подзаголовок поджат к заголовку на 14.
  */
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { Clipboard, Folder, Image, Puzzle, type LucideIcon } from 'lucide-react';
@@ -110,12 +111,18 @@ export function OnboardingScreen({
   };
 
   return (
-    <div className={cn('flex h-full flex-col bg-app p-[var(--shell-pad)]', className)}>
+    <div
+      className={cn(
+        'flex h-full flex-col bg-app p-[var(--shell-pad)] pt-[var(--shell-pad-top)]',
+        className,
+      )}
+    >
       <div className="min-h-0 flex-1 overflow-y-auto rounded-[var(--radius-panel)] bg-panel">
         {/*
           Полоса перетаскивания окна. Верхней панели оболочки на онбординге нет,
           и первое окно приложения нечем было двигать (замечание Сергея
-          02.09.2026). Высота — `--size-topbar`, как у верхней панели оболочки.
+          02.09.2026). Высота — `--size-topbar` 60, как у верхней панели оболочки;
+          кнопки светофора сюда не заходят — их держит поле `--shell-pad-top` выше.
           Обёртка нулевой высоты и `sticky`: полоса не занимает места в потоке,
           держится у верха видимой области и не мешает прокрутке колеса — она
           лежит внутри прокручиваемого блока. Интерактивного в этих 60 px нет:

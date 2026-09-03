@@ -14,7 +14,7 @@ function getSnapshot(): boolean {
   return window.matchMedia(QUERY).matches;
 }
 
-/** Системная настройка «уменьшить движение». Бим поиска её обязан уважать. */
+/** Системная настройка «уменьшить движение»: её уважают пресеты слоёв в `motion-presets`. */
 export function useReducedMotion(): boolean {
   return useSyncExternalStore(subscribe, getSnapshot, () => false);
 }

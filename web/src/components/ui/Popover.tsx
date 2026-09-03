@@ -33,6 +33,7 @@ import * as PopoverPrimitive from '@radix-ui/react-popover';
 import { AnimatePresence, motion } from 'motion/react';
 import { cn } from '@/lib/cn';
 import { useReducedMotion } from '@/lib/useReducedMotion';
+import { ModalContentContext } from './Modal';
 import { glassLayerMotion, sideToFrom } from './motion-presets';
 
 /**
@@ -89,11 +90,20 @@ export const PopoverContent = forwardRef<
 ) {
   const open = useContext(OpenContext);
   const reduced = useReducedMotion();
+  /*
+    Внутри модалки поповер порталится в её тело, а не в `<body>`: иначе
+    `react-remove-scroll` вокруг Radix Dialog глушит колесо мыши в списке —
+    цель события оказывается вне замка и вне его `shards` (баг «Переместить в
+    папку», правка Сергея 03.09.2026). Снаружи модалки контекст пуст, `container`
+    равен `undefined`, и Radix порталит как всегда. На стек слоёв (Esc, клик
+    снаружи) переезд не влияет: `DismissableLayer` считает порядок сам, а не по DOM.
+  */
+  const modalContent = useContext(ModalContentContext);
 
   return (
     <AnimatePresence>
       {open ? (
-        <PopoverPrimitive.Portal forceMount key="popover">
+        <PopoverPrimitive.Portal forceMount key="popover" container={modalContent ?? undefined}>
           <PopoverPrimitive.Content
             ref={ref}
             forceMount

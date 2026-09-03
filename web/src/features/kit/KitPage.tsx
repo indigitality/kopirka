@@ -247,15 +247,15 @@ export function KitPage() {
           </Row>
         </Section>
 
-        <Section title="Поиск с бим-эффектом">
+        <Section title="Поиск">
           <div className="flex flex-wrap gap-10">
             <div>
-              <p className="text-technical mb-2">beamMode=&quot;hover&quot; · 3 оборота</p>
-              <SearchField beamMode="hover" />
+              <p className="text-technical mb-2">покой · ⌘K фокусирует</p>
+              <SearchField />
             </div>
             <div>
-              <p className="text-technical mb-2">beamMode=&quot;cycle&quot; · пауза 2000 мс</p>
-              <SearchField beamMode="cycle" globalHotkey={false} />
+              <p className="text-technical mb-2">с запросом · крестик очистки</p>
+              <SearchField value="градиент" globalHotkey={false} />
             </div>
           </div>
         </Section>

@@ -75,22 +75,39 @@ export const Пустая: Story = {
   },
 };
 
+/** Кнопки окна macOS слева направо: закрыть · свернуть · развернуть. */
+const TRAFFIC_LIGHT_COLORS = ['#FF5F57', '#FEBC2E', '#28C840'];
+
 /**
- * Окно macOS: кнопки светофора лежат поверх интерфейса, и оболочка обязана
- * увести логотип ниже них. Переменную ставит десктопная обёртка
- * (`desktop/src-tauri/src/windows.rs`, 28 px) — здесь она подставлена руками,
- * чтобы состояние было видно и в браузере.
+ * Окно macOS: кнопки светофора лежат поверх интерфейса, и оболочка отдаёт им
+ * собственную полосу фона окна — верхнее поле растёт с 12 до 36
+ * (`--shell-pad-top`), панели начинаются под кнопками. Переменную ставит
+ * десктопная обёртка (`desktop/src-tauri/src/windows.rs`, 36 px); здесь она
+ * подставлена руками, чтобы состояние было видно и в браузере.
+ *
+ * Три кружка — макет самих кнопок: обёртка ставит их в (20, 12), круги 12 px,
+ * шаг 20. Левый край совпадает с левым краем строк сайдбара (12 + 8), от
+ * нижнего края кнопок до панелей остаётся 12 — как поле по бокам.
  */
 export const СИнсетомСветофора: Story = {
-  name: 'Инсет светофора macOS (28 px)',
+  name: 'Полоса светофора macOS (36 px)',
   args: { children: <GridPlaceholder /> },
   decorators: [
     (Story) => (
       <div
-        className="h-screen w-full bg-app"
-        style={{ '--kopirka-titlebar-inset': '28px' } as CSSProperties}
+        className="relative h-screen w-full bg-app"
+        style={{ '--kopirka-titlebar-inset': '36px' } as CSSProperties}
       >
         <Story />
+        <div aria-hidden className="pointer-events-none absolute inset-0">
+          {TRAFFIC_LIGHT_COLORS.map((color, index) => (
+            <span
+              key={color}
+              className="absolute size-3 rounded-full"
+              style={{ left: 20 + index * 20, top: 12, background: color }}
+            />
+          ))}
+        </div>
       </div>
     ),
   ],

@@ -7,7 +7,7 @@ export {
   type IconButtonShape,
 } from './IconButton';
 export { Input, type InputProps } from './Input';
-export { SearchField, type SearchFieldProps, type BeamMode } from './SearchField';
+export { SearchField, type SearchFieldProps } from './SearchField';
 export { Chip, type ChipProps, type ChipVariant } from './Chip';
 export { Tag, type TagProps } from './Tag';
 export { Badge, type BadgeProps, type BadgeVariant } from './Badge';

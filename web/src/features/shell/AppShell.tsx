@@ -46,10 +46,14 @@ export function AppShell({
       заголовка нет, а рамка вокруг панелей ровно для этого и годится. Атрибут
       без `deep` нарочно: тянется только сам фон оболочки, дети (сайдбар,
       панель контента) остаются обычными.
+
+      Сверху поле шире (`--shell-pad-top`): в окне macOS это 36 — собственная
+      полоса фона окна под кнопки светофора, и она же зона перетаскивания.
+      В браузере переменной нет и сверху те же 12, что по остальным сторонам.
     */
     <div
       data-tauri-drag-region
-      className="flex h-full w-full overflow-hidden gap-[var(--shell-gap)] bg-app p-[var(--shell-pad)]"
+      className="flex h-full w-full overflow-hidden gap-[var(--shell-gap)] bg-app p-[var(--shell-pad)] pt-[var(--shell-pad-top)]"
     >
       <Sidebar folders={folders} stats={stats} {...sidebarProps} />
 

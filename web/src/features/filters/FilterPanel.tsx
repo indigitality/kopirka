@@ -222,7 +222,7 @@ export function FilterPanel({
               верха: (высота кнопки − высота верхней панели) / 2 + 8.
             */
             'glass absolute right-[var(--panel-pad)] z-30 origin-top-right',
-            'top-[calc((var(--size-row)-var(--shell-topbar))/2+8px)]',
+            'top-[calc((var(--size-row)-var(--size-topbar))/2+8px)]',
             'w-[var(--size-filter-panel)] max-w-[calc(100%-2*var(--panel-pad))]',
             'flex max-h-[calc(100%-16px)] flex-col overflow-hidden rounded-card',
             'text-ink shadow-popover outline-none',

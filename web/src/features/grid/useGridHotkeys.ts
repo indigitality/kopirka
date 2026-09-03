@@ -19,10 +19,11 @@ export function isEditableTarget(target: EventTarget | null): boolean {
  * Смотрим только на `data-state="open"`: закрытый слой живёт в DOM ещё ~140 мс,
  * пока проигрывается выход, и его присутствие ничего не значит.
  *
- * Проверка по DOM опаздывает ровно на Esc: Radix снимает слой из обработчика
- * в фазе перехвата, атрибут успевает стать `closed`, и наш обработчик в фазе
- * всплытия видит «слоёв нет» и заодно сбрасывает выделение. Поэтому сетка
- * дополнительно сообщает про свои слои флагом `layerOpen` (см. ниже).
+ * Спрашивать это в фазе всплытия поздно: Radix снимает слой из своего
+ * обработчика в фазе перехвата, и к всплытию атрибут уже `closed`. Замерено на
+ * списке папок в панели деталей: перехват — `open`, всплытие — `closed`, из-за
+ * чего один Esc закрывал и список, и сам просмотр. Поэтому снимок делается в
+ * перехвате, до Radix (см. `useGridHotkeys`).
  */
 export function overlayOpen(): boolean {
   return (
@@ -43,9 +44,11 @@ export interface GridHotkeyHandlers {
   stepDetail: (delta: 1 | -1) => void;
   hasSelection: boolean;
   /**
-   * Открыт слой самой сетки: модалка массового действия, подтверждение,
-   * переименование папки, меню «⋮». Esc и Backspace в этот момент принадлежат
-   * слою: окно закрывается, выделение остаётся.
+   * Открыт слой самой сетки, который по DOM не виден: переименование папки
+   * (обычный `<input>` в строке) и прочее не-Radix. Esc и Backspace в этот
+   * момент принадлежат слою: окно закрывается, выделение остаётся.
+   * Слои Radix (модалки, поповеры, списки) ловятся снимком `overlayOpen()`
+   * и в этом флаге не нуждаются.
    */
   layerOpen?: boolean;
   /** D5 — ⌘1 / ⌘2 / ⌘3 переключают размер карточек. */
@@ -65,12 +68,28 @@ export function useGridHotkeys(handlers: GridHotkeyHandlers): void {
   ref.current = handlers;
 
   useEffect(() => {
+    /*
+      Был ли открыт слой в момент нажатия — снимок, а не проверка по месту.
+      Слушатель перехвата вешается на монтировании сетки, то есть заведомо
+      раньше, чем Radix вешает свой на открытии слоя; на одной цели и в одной
+      фазе слушатели срабатывают в порядке подписки, поэтому снимок снимается
+      до того, как слой успел закрыться. Обработчик всплытия ниже читает уже
+      его — иначе один Esc гасил бы и поповер, и то, что под ним (список папок
+      в панели деталей закрывал заодно и сам просмотр).
+    */
+    const layerAtKeyDown = { current: false };
+
+    const onKeyDownCapture = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' && event.key !== 'Delete' && event.key !== 'Backspace') return;
+      layerAtKeyDown.current = Boolean(ref.current.layerOpen) || overlayOpen();
+    };
+
     const onKeyDown = (event: KeyboardEvent) => {
       if (isEditableTarget(event.target)) return;
       const meta = event.metaKey || event.ctrlKey;
 
       if (event.key === 'Escape') {
-        if (ref.current.layerOpen || overlayOpen()) return;
+        if (layerAtKeyDown.current) return;
         if (ref.current.detailOpen) {
           event.preventDefault();
           ref.current.closeDetail();
@@ -115,7 +134,7 @@ export function useGridHotkeys(handlers: GridHotkeyHandlers): void {
         if (meta) return;
         // Открыт слой — Backspace принадлежит ему: иначе нажатие в модалке
         // (например, в настройках) отправило бы выделенное в корзину.
-        if (ref.current.layerOpen || overlayOpen()) return;
+        if (layerAtKeyDown.current) return;
         event.preventDefault();
         ref.current.deleteSelection();
       }
@@ -130,9 +149,11 @@ export function useGridHotkeys(handlers: GridHotkeyHandlers): void {
       ref.current.paste(event.clipboardData);
     };
 
+    document.addEventListener('keydown', onKeyDownCapture, true);
     document.addEventListener('keydown', onKeyDown);
     document.addEventListener('paste', onPaste);
     return () => {
+      document.removeEventListener('keydown', onKeyDownCapture, true);
       document.removeEventListener('keydown', onKeyDown);
       document.removeEventListener('paste', onPaste);
     };

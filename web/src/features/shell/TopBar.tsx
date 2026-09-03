@@ -7,7 +7,7 @@
  */
 import { Grid2x2, Grid3x3, Square } from 'lucide-react';
 import { Icon } from '@/lib/icons';
-import { SearchField, type BeamMode } from '@/components/ui/SearchField';
+import { SearchField } from '@/components/ui/SearchField';
 import { SegmentedControl, type SegmentedOption } from '@/components/ui/SegmentedControl';
 import { FilterButton } from '@/features/filters/FilterButton';
 import { SortButton } from '@/features/filters/SortButton';
@@ -25,8 +25,6 @@ const GRID_SIZE_OPTIONS: readonly SegmentedOption<GridSize>[] = [
 ];
 
 export interface TopBarProps {
-  /** Режим бима поля поиска. */
-  beamMode?: BeamMode;
   /** Открытие панели фильтров — SEARCH-01/03/04. */
   onOpenFilter?: () => void;
   /** Сколько фильтров активно; 0 — бейдж не показываем. */
@@ -36,7 +34,6 @@ export interface TopBarProps {
 }
 
 export function TopBar({
-  beamMode = 'hover',
   onOpenFilter,
   filterCount = 0,
   filterOpen = false,
@@ -48,20 +45,19 @@ export function TopBar({
   return (
     /*
       `data-tauri-drag-region` — зона перетаскивания окна: полосы заголовка нет,
-      и без разметки окно тянулось только за невидимые верхние 28 px (аудит логики §7).
+      и без разметки окно тянулось только за верхнее поле оболочки (аудит логики §7).
       `deep` разрешает тянуть за фон панели; поле ввода и кнопки внутри
       перетаскивание блокируют сами. В браузере это обычный data-атрибут.
 
-      Высота — `--shell-topbar`, а не `--size-topbar`: десктопная обёртка
-      прибавляет ко второму инсет светофора (28 px), а в редизайне светофор
-      лежит над сайдбаром, и опускать панель контента незачем — инсет
-      отрабатывает сайдбар. `desktop/` при этом не трогаем.
+      Высота — честные `--size-topbar` 60. Отдельного `--shell-topbar` больше нет:
+      он был нужен, пока десктопная обёртка пересчитывала `--size-topbar`, прибавляя
+      инсет светофора; теперь инсет живёт в полосе оболочки (`--shell-pad-top`).
     */
     <header
       data-tauri-drag-region="deep"
-      className="flex h-[var(--shell-topbar)] shrink-0 items-center gap-[var(--panel-pad)] px-[var(--panel-pad)]"
+      className="flex h-[var(--size-topbar)] shrink-0 items-center gap-[var(--panel-pad)] px-[var(--panel-pad)]"
     >
-      <SearchField value={query} onValueChange={viewActions.setQuery} beamMode={beamMode} />
+      <SearchField value={query} onValueChange={viewActions.setQuery} />
 
       <div className="flex-1" />
 

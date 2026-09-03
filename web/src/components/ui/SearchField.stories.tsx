@@ -24,12 +24,14 @@ export const СЗапросом: Story = {
   args: { value: 'градиент' },
 };
 
-/** Бим включается по наведению и фокусу, проходит три оборота и гаснет. */
+/** Наведение — заливка `control-hover`, больше ничего (R01). */
 export const Наведение: Story = {
   parameters: { pseudo: { hover: true } },
 };
 
-/** Режим для витрины: оборот, пауза 2 с, повтор. В приложении по умолчанию hover. */
-export const Цикл: Story = {
-  args: { beamMode: 'cycle' },
+/** Фокус — лаймовая обводка 1 px внутрь (R05). */
+export const ВФокусе: Story = {
+  name: 'В фокусе',
+  args: { value: 'градиент' },
+  parameters: { pseudo: { focusWithin: true } },
 };
