@@ -12,19 +12,11 @@
 .head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
   height: 44px;
   padding: 0 10px 0 12px;
   flex-shrink: 0;
-  background: var(--color-surface);
   border-bottom: 1px solid var(--color-line);
-}
-
-.head__name {
-  flex: 1;
-  font-size: var(--text-md);
-  font-weight: 500;
-  letter-spacing: var(--tracking-tight);
 }
 
 /* ── Состояния ──────────────────────────────────────────────────────────── */
@@ -79,8 +71,8 @@
   min-height: 96px;
   max-height: 240px;
   padding: 6px;
-  border-radius: var(--radius-md);
-  background: var(--color-surface-raised);
+  border-radius: var(--radius-card);
+  background: var(--color-raised);
   overflow: hidden;
 }
 
@@ -105,25 +97,19 @@
 }
 
 /* ── Сообщения ──────────────────────────────────────────────────────────── */
+/* Обе плашки popup — «Копирка не запущена» и «Не удалось сохранить» — это
+   проблемные состояния: тон совпадает с EmptyState tone="danger" (§10) —
+   danger-tint подложка, danger заголовок, приглушённый текст. */
 .notice {
   padding: 10px 12px;
-  border-radius: var(--radius-md);
-  background: var(--color-surface-raised);
-  border: 1px solid var(--color-line-strong);
-}
-
-.notice--danger {
-  background: var(--color-danger-soft);
-  border-color: transparent;
+  border-radius: var(--radius-card);
+  background: var(--color-danger-tint);
 }
 
 .notice__title {
   margin: 0 0 4px;
   font-size: var(--text-md);
-  font-weight: 500;
-}
-
-.notice--danger .notice__title {
+  font-weight: var(--font-weight-medium);
   color: var(--color-danger);
 }
 
@@ -137,17 +123,18 @@
 
 .notice__address {
   margin: 8px 0 0;
-  color: var(--color-ink-faint);
 }
 
 /* ── Галочка успеха ─────────────────────────────────────────────────────── */
+/* Лаймовая, не зелёная: «success» как отдельный цвет в редизайне не звучит
+   (то же решение — web/src/components/ui/Toast.tsx). */
 .check {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
+  width: var(--size-row);
+  height: var(--size-row);
   border-radius: var(--radius-pill);
-  background: var(--color-accent-soft);
-  color: var(--color-accent);
+  background: var(--color-brand-soft);
+  color: var(--color-brand);
 }

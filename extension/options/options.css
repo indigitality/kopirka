@@ -10,15 +10,11 @@
 .options__head {
   display: flex;
   align-items: center;
-  gap: 8px;
   margin-bottom: 18px;
 }
 
 .options__title {
   margin: 0;
-  font-size: var(--text-lg);
-  font-weight: 500;
-  letter-spacing: var(--tracking-tight);
 }
 
 .options__row {
@@ -33,7 +29,7 @@
 }
 
 .options__row .btn {
-  height: 34px;
+  height: var(--size-field);
   flex-shrink: 0;
 }
 
@@ -43,7 +39,7 @@
 }
 
 .options__status--ok {
-  color: var(--color-accent);
+  color: var(--color-brand);
 }
 
 .options__status--error {

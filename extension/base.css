@@ -1,6 +1,6 @@
 /**
- * Общие примитивы страниц расширения: типографика, кнопки, поля.
- * Кнопки — по разделу 4 визуальной спеки (app/web/DESIGN-SPEC.md).
+ * Общие примитивы страниц расширения: типографика, логотип, кнопки, поля.
+ * Роли и значения — редизайн 03.09.2026 (лайм), канон `app/web/DESIGN-SPEC.md`.
  */
 
 * {
@@ -11,46 +11,69 @@
 
 body {
   margin: 0;
-  background: var(--color-bg);
+  /* Popup и страница настроек — сами по себе одна панель, а не окно с зазорами:
+     тон --color-panel, тот же, что у иконки на панели инструментов. */
+  background: var(--color-panel);
   color: var(--color-ink);
-  font-family: var(--font-sans);
+  font-family: var(--font-ui);
   font-size: var(--text-base);
   line-height: var(--leading-normal);
   -webkit-font-smoothing: antialiased;
 }
 
 :focus-visible {
-  outline: 2px solid var(--color-accent-ring);
+  outline: 2px solid var(--color-brand);
   outline-offset: 2px;
 }
 
 ::selection {
-  background: var(--color-accent);
-  color: var(--color-accent-ink);
+  background: var(--color-brand);
+  color: var(--color-brand-ink);
 }
 
+/* Заголовок секции: «АДРЕС СЕРВЕРА». 10/12 Medium, трекинг 0.055em, ink-muted. */
 .label-section {
-  font-family: var(--font-mono);
   font-size: var(--text-2xs);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.2;
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
-  color: var(--color-ink-faint);
-}
-
-.text-technical {
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
   color: var(--color-ink-muted);
 }
 
-/* ── Логотип: мятный квадрат с градиентом акцента ───────────────────────── */
+/* Техническое: размеры кадра, адрес сервера. Моноширинного в редизайне нет —
+   тот же шрифт, отличают табличные цифры. */
+.text-technical {
+  font-size: var(--text-xs);
+  line-height: 1.273; /* 11/14 */
+  color: var(--color-ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Логотип: знак + слово, инлайн-SVG из web/src/assets/logo-*.svg ────────
+   Знак — лайм (currentColor на .logo__mark), слово — основной текст
+   (currentColor на .logo__word). Контур знака на доли пикселя выходит за
+   viewBox слева (см. web/src/components/ui/Logo.tsx) — без overflow: visible
+   срезается кромка верхней фигуры. */
 .logo {
-  display: block;
-  width: 20px;
-  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px; /* --sidebar-logo-gap в вебе; здесь не токенизировано — одно место использования */
   flex-shrink: 0;
-  border-radius: var(--radius-sm);
-  background: linear-gradient(135deg, var(--color-accent), var(--color-accent-deep));
+}
+
+.logo svg {
+  display: block;
+  overflow: visible;
+  flex-shrink: 0;
+}
+
+.logo__mark {
+  color: var(--color-brand);
+}
+
+.logo__word {
+  color: var(--color-ink);
 }
 
 /* ── Кнопки ─────────────────────────────────────────────────────────────── */
@@ -61,37 +84,51 @@ body {
   gap: 8px;
   min-height: var(--size-row);
   padding: 0 12px;
-  border: 1px solid transparent;
+  border: 0;
   border-radius: var(--radius-md);
   font: inherit;
-  font-size: var(--text-base);
+  font-size: var(--text-md);
+  font-weight: var(--font-weight-medium);
   cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 .btn:disabled {
-  opacity: 0.5;
+  opacity: 0.4;
   cursor: default;
 }
 
 .btn--primary {
-  background: linear-gradient(135deg, var(--color-accent), var(--color-accent-deep));
-  color: var(--color-accent-ink);
-  font-weight: 500;
+  background: var(--color-brand);
+  color: var(--color-brand-ink);
 }
 
 .btn--primary:hover:not(:disabled) {
-  background: linear-gradient(135deg, var(--color-accent-hover), var(--color-accent));
+  background: var(--color-brand-hover);
+}
+
+.btn--primary:active:not(:disabled) {
+  background: var(--color-brand-deep);
 }
 
 .btn--secondary {
-  background: var(--color-surface-raised);
-  border-color: var(--color-line-strong);
+  background: var(--color-control);
   color: var(--color-ink);
 }
 
 .btn--secondary:hover:not(:disabled) {
-  background: var(--color-surface-hover);
+  background: var(--color-control-hover);
+}
+
+.btn--secondary:active:not(:disabled) {
+  background: var(--color-control-active);
 }
 
 .btn--ghost {
@@ -100,8 +137,12 @@ body {
 }
 
 .btn--ghost:hover:not(:disabled) {
-  background: var(--color-surface-hover);
+  background: var(--color-control);
   color: var(--color-ink);
+}
+
+.btn--ghost:active:not(:disabled) {
+  background: var(--color-control-hover);
 }
 
 .btn--block {
@@ -114,47 +155,69 @@ body {
   height: 16px;
 }
 
+/* Кнопка-иконка: геометрия IconButton variant="ghost" size="md" — 32×32, radius-md. */
 .btn-icon {
   display: inline-flex;
+  flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: var(--size-row);
+  height: var(--size-row);
   padding: 0;
   border: 0;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   background: transparent;
-  color: var(--color-ink-faint);
+  color: var(--color-ink-muted);
   cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
 }
 
 .btn-icon:hover {
-  background: var(--color-surface-hover);
+  background: var(--color-control);
   color: var(--color-ink);
+}
+
+.btn-icon:active {
+  background: var(--color-control-hover);
+  transform: scale(0.97);
 }
 
 /* ── Поля ───────────────────────────────────────────────────────────────── */
 .field {
   width: 100%;
-  height: 34px;
+  height: var(--size-field);
   padding: 0 10px;
-  border: 1px solid var(--color-line-strong);
-  border-radius: var(--radius-lg);
-  background: var(--color-surface-raised);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--color-control);
   color: var(--color-ink);
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
+  font-family: var(--font-ui);
+  font-size: var(--text-md);
+  transition: background-color var(--dur-fast) var(--ease-out);
 }
 
 .field::placeholder {
   color: var(--color-ink-faint);
 }
 
+.field:hover:not(:disabled) {
+  background: var(--color-control-hover);
+}
+
+/* Обводка в покое отсутствует — только по фокусу, и всегда лаймовая, на
+   box-shadow (рамка меняла бы внутренние размеры и текст дёргался бы на 1px). */
 .field:focus {
-  outline: 2px solid var(--color-accent-ring);
-  outline-offset: -1px;
-  border-color: transparent;
+  background: var(--color-control);
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--color-brand);
+}
+
+.field:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 /* ── Индикатор загрузки ─────────────────────────────────────────────────── */
@@ -163,7 +226,7 @@ body {
   height: 18px;
   flex-shrink: 0;
   border: 2px solid var(--color-line-strong);
-  border-top-color: var(--color-accent);
+  border-top-color: var(--color-brand);
   border-radius: var(--radius-pill);
   animation: spin 700ms linear infinite;
 }

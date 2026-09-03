@@ -60,7 +60,14 @@ async function saveImageFromPage(info) {
     const serverUrl = await getServerUrl();
     const response = await importUrl(serverUrl, { imageUrl, pageUrl: info.pageUrl });
     const result = describeImport(response);
-    notify(TEXT.notificationTitle, result.message);
+    // Успех и дубль расширение больше не объявляет: приложение «Копирка» само
+    // показывает системное уведомление по ленте событий сервера (с этой сборки —
+    // и про добавленный файл, и про дубль), и два уведомления об одном действии
+    // задваивались. Уведомляем только о том, о чём приложению неоткуда узнать —
+    // файл, который так и не сохранился.
+    if (!result.ok) {
+      notify(TEXT.saveErrorTitle, result.message);
+    }
   } catch (error) {
     const failure = describeFailure(error);
     if (failure.unreachable) {
@@ -207,7 +214,10 @@ async function showCaptureInPopup() {
     }
   }
 
-  await chrome.action.setBadgeBackgroundColor({ color: '#3ddbb0' });
+  // Лайм редизайна светлый — по умолчанию Chrome пишет бейдж белым, поэтому
+  // текст задан явно тёмным (--color-brand-ink), иначе цифра не читается.
+  await chrome.action.setBadgeBackgroundColor({ color: '#c5fd63' });
+  await chrome.action.setBadgeTextColor({ color: '#17210a' });
   await chrome.action.setBadgeText({ text: '1' });
   notify(TEXT.notificationTitle, 'Кадр снят. Откройте «Копирку» на панели, чтобы сохранить.');
 }

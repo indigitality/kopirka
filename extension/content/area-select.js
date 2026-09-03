@@ -28,6 +28,11 @@
   const MIN_SIDE_PX = 5;
   const HINT_TEXT = 'Протащите, чтобы выбрать область · Esc — отмена';
 
+  // Цвета — копия ролей редизайна (app/web/src/styles/tokens.css), захардкожены:
+  // инжектится обычным скриптом без ссылки на tokens.css расширения.
+  // Акцент — лайм --color-brand #C5FD63 (был мятный #3DDBB0); чип — стекло
+  // --color-raised-glass поверх --color-raised, тот же приём, что у плавающей
+  // подсказки зоны импорта (DESIGN-SPEC §6).
   const CSS = `
     :host { all: initial; }
     .layer {
@@ -35,7 +40,7 @@
       inset: 0;
       z-index: 2147483647;
       cursor: crosshair;
-      font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+      font-family: 'Inter Tight', 'Inter Tight Variable', ui-sans-serif, system-ui, -apple-system, sans-serif;
       -webkit-font-smoothing: antialiased;
       user-select: none;
     }
@@ -47,18 +52,18 @@
     .sel {
       position: absolute;
       display: none;
-      border: 1px solid #3ddbb0;
+      border: 1px solid #c5fd63;
       box-shadow: 0 0 0 100vmax rgb(0 0 0 / 0.45), inset 0 0 0 1px rgb(0 0 0 / 0.35);
-      background: rgb(61 219 176 / 0.06);
+      background: rgb(197 253 99 / 0.06);
     }
     .size {
       position: absolute;
       display: none;
       padding: 3px 6px;
       border-radius: 4px;
-      background: rgb(15 15 17 / 0.94);
-      color: #3ddbb0;
-      font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+      background: rgb(28 29 31 / 0.94);
+      color: #c5fd63;
+      font-variant-numeric: tabular-nums;
       font-size: 11px;
       line-height: 1.2;
       white-space: nowrap;
@@ -71,16 +76,19 @@
       transform: translateX(-50%);
       max-width: 80vw;
       padding: 8px 14px;
-      border-radius: 8px;
-      background: #1c1c21;
-      color: #ededf0;
+      border-radius: 12px;
+      background: #26272ad9;
+      -webkit-backdrop-filter: blur(20px);
+      backdrop-filter: blur(20px);
+      border: 1px solid #33333c;
+      color: #f2f2f2;
       font-size: 13px;
       line-height: 1.25;
-      box-shadow: 0 16px 40px -12px rgb(0 0 0 / 0.8), 0 0 0 1px rgb(255 255 255 / 0.07);
+      box-shadow: 0 16px 40px #0000008c;
       pointer-events: none;
     }
     .chip--error {
-      background: #2a1618;
+      border-color: #f06a6a;
       color: #f06a6a;
     }
   `;
