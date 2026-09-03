@@ -2,18 +2,26 @@
 //!
 //! Раньше их слал `osascript` из Folder Action и быстрой команды Finder — и macOS
 //! рисовала иконку Script Editor, а не «Копирки». Теперь источник уведомления один,
-//! и это само приложение: сервер ведёт журнал успешных импортов (`GET /api/events`),
-//! оболочка опрашивает его в цикле трея и показывает одно уведомление на порцию.
+//! и это само приложение: сервер ведёт ленту событий (`GET /api/events`), оболочка
+//! опрашивает её в цикле трея и показывает одно уведомление на порцию.
 //!
 //! Перетаскивание и ⌘V — на границе: когда окно перед глазами, оно показывает по ним
 //! свой тост, и системное уведомление было бы вторым сообщением об одном и том же.
 //! Когда окна не видно, тост показывать некому — а файлы всё равно приезжают, например
 //! быстрой командой Finder «Добавить в Копирку». Поэтому решает фокус главного окна.
+//!
+//! В ленте два вида записей. `import` — файл прошёл конвейер: добавлен, добавлен с
+//! пометкой похожести или отбит как точный дубль. Про дубль сказать так же важно, как
+//! про успех: человек позвал импорт и должен услышать ответ, а не тишину. `notice` —
+//! готовое сообщение от скрипта снаружи (`POST /api/notify`); его показываем всегда,
+//! потому что сказать его больше некому — ради этого оно в ленту и попало.
 
 use tauri::{AppHandle, Manager};
-use tauri_plugin_notification::NotificationExt;
 
-use crate::http;
+use crate::{http, notify};
+
+/// Заголовок по умолчанию — и для сводок импорта, и для `notice` без своего заголовка.
+const DEFAULT_TITLE: &str = "Копирка";
 
 /// Пути импорта, о которых пользователю сказать больше некому.
 const ALWAYS_NOTIFIED: [&str; 4] = [
@@ -46,6 +54,10 @@ fn main_window_focused(app: &AppHandle) -> bool {
         return false;
     }
     window.is_focused().unwrap_or(false)
+}
+
+fn announce(title: &str, body: &str) {
+    notify::show(title, body);
 }
 
 /// Один заход опроса. `cursor` — номер последнего увиденного события; хранит его
@@ -83,53 +95,124 @@ pub fn poll(app: &AppHandle, port: u16, cursor: &mut Option<i64>) {
     // а дёргать окно на каждое событие незачем.
     let focused = main_window_focused(app);
 
-    let mut count = 0usize;
-    // Внешний None — папку ещё не смотрели, внутренний — папки нет либо порция
-    // разъехалась по разным папкам, и называть одну из них было бы враньём.
-    let mut folder: Option<Option<&str>> = None;
+    let mut tally = Tally::default();
     for event in events {
+        // Поля `kind` может не быть, если рядом оказался сервер прошлой версии:
+        // такая запись — всегда импорт, `notice` появился вместе с полем.
+        let kind = event["kind"].as_str().unwrap_or("import");
+        if kind == "notice" {
+            // Сообщение снаружи показываем как есть и по одному: тексты разные,
+            // складывать их в сводку нечем.
+            let Some(body) = event["body"].as_str() else {
+                continue;
+            };
+            let title = event["title"].as_str().unwrap_or(DEFAULT_TITLE);
+            announce(title, body);
+            continue;
+        }
+
         let source = event["sourceType"].as_str().unwrap_or("");
         if !should_notify(source, focused) {
             continue;
         }
-        count += 1;
-        let name = event["folderName"].as_str();
-        folder = match folder {
-            None => Some(name),
-            Some(previous) if previous == name => Some(previous),
+        match event["outcome"].as_str().unwrap_or("") {
+            "added" | "added_similar" => tally.add(event["folderName"].as_str()),
+            "duplicate" => tally.duplicates += 1,
+            _ => {}
+        }
+    }
+
+    if let Some(body) = tally.describe() {
+        announce(DEFAULT_TITLE, &body);
+    }
+}
+
+/// Итог порции: сколько файлов легло в библиотеку, сколько уже там было и куда именно.
+#[derive(Default)]
+struct Tally<'a> {
+    added: usize,
+    duplicates: usize,
+    /// Внешний None — папку ещё не смотрели, внутренний — папки нет либо порция
+    /// разъехалась по разным папкам, и называть одну из них было бы враньём.
+    folder: Option<Option<&'a str>>,
+}
+
+impl<'a> Tally<'a> {
+    fn add(&mut self, folder: Option<&'a str>) {
+        self.added += 1;
+        // Папку копим только по добавленным: у дубля в событии лежит папка того файла,
+        // который уже был, и к «куда положили сейчас» она отношения не имеет.
+        self.folder = match self.folder {
+            None => Some(folder),
+            Some(previous) if previous == folder => Some(previous),
             Some(_) => Some(None),
         };
     }
-    if count == 0 {
-        return;
-    }
 
-    let body = describe(count, folder.flatten());
-    let _ = app.notification().builder().title("Копирка").body(body).show();
+    fn describe(&self) -> Option<String> {
+        describe(self.added, self.duplicates, self.folder.flatten())
+    }
 }
 
-/// «Добавлен 1 файл», «Добавлено 3 файла», «Добавлено 11 файлов»; с папкой — «… в «Сэбач»».
-fn describe(count: usize, folder: Option<&str>) -> String {
+/// Форма существительного при числе: 1 файл, 2 файла, 5 файлов.
+fn noun(count: usize) -> &'static str {
     let tail = count % 10;
     let hundred = count % 100;
-    let single = tail == 1 && hundred != 11;
-    let verb = if single { "Добавлен" } else { "Добавлено" };
-    let noun = if single {
+    if tail == 1 && hundred != 11 {
         "файл"
     } else if (2..=4).contains(&tail) && !(12..=14).contains(&hundred) {
         "файла"
     } else {
         "файлов"
-    };
-    match folder {
-        Some(name) => format!("{verb} {count} {noun} в «{name}»"),
-        None => format!("{verb} {count} {noun}"),
     }
+}
+
+/// Форма прошедшего времени при числе: 1 был, 2 были, 5 было.
+fn was(count: usize) -> &'static str {
+    let tail = count % 10;
+    let hundred = count % 100;
+    if tail == 1 && hundred != 11 {
+        "был"
+    } else if (2..=4).contains(&tail) && !(12..=14).contains(&hundred) {
+        "были"
+    } else {
+        "было"
+    }
+}
+
+/// «Добавлен 1 файл», «Добавлено 3 файла в «Сэбач»», «1 файл уже есть в библиотеке»,
+/// «Добавлено 2 файла · 1 уже был в библиотеке». None — говорить не о чем.
+fn describe(added: usize, duplicates: usize, folder: Option<&str>) -> Option<String> {
+    if added == 0 && duplicates == 0 {
+        return None;
+    }
+
+    // Ничего не добавилось — тогда сообщение целиком про то, что файлы уже были.
+    // Отдельная фраза, а не хвост к пустому началу: «есть» не требует согласования
+    // по числу, и получается короче.
+    if added == 0 {
+        return Some(format!("{duplicates} {} уже есть в библиотеке", noun(duplicates)));
+    }
+
+    let verb = if noun(added) == "файл" { "Добавлен" } else { "Добавлено" };
+    let mut text = format!("{verb} {added} {}", noun(added));
+    if let Some(name) = folder {
+        text.push_str(&format!(" в «{name}»"));
+    }
+    if duplicates > 0 {
+        text.push_str(&format!(" · {duplicates} уже {} в библиотеке", was(duplicates)));
+    }
+    Some(text)
 }
 
 #[cfg(test)]
 mod tests {
     use super::{describe, should_notify};
+
+    /// Сокращение для читаемости тестов: только добавленные, без дублей.
+    fn added(count: usize, folder: Option<&str>) -> String {
+        describe(count, 0, folder).expect("порция с файлами промолчала")
+    }
 
     #[test]
     fn external_sources_speak_always() {
@@ -158,20 +241,49 @@ mod tests {
 
     #[test]
     fn russian_plurals() {
-        assert_eq!(describe(1, None), "Добавлен 1 файл");
-        assert_eq!(describe(2, None), "Добавлено 2 файла");
-        assert_eq!(describe(4, None), "Добавлено 4 файла");
-        assert_eq!(describe(5, None), "Добавлено 5 файлов");
-        assert_eq!(describe(11, None), "Добавлено 11 файлов");
-        assert_eq!(describe(12, None), "Добавлено 12 файлов");
-        assert_eq!(describe(21, None), "Добавлен 21 файл");
-        assert_eq!(describe(22, None), "Добавлено 22 файла");
-        assert_eq!(describe(111, None), "Добавлено 111 файлов");
+        assert_eq!(added(1, None), "Добавлен 1 файл");
+        assert_eq!(added(2, None), "Добавлено 2 файла");
+        assert_eq!(added(4, None), "Добавлено 4 файла");
+        assert_eq!(added(5, None), "Добавлено 5 файлов");
+        assert_eq!(added(11, None), "Добавлено 11 файлов");
+        assert_eq!(added(12, None), "Добавлено 12 файлов");
+        assert_eq!(added(21, None), "Добавлен 21 файл");
+        assert_eq!(added(22, None), "Добавлено 22 файла");
+        assert_eq!(added(111, None), "Добавлено 111 файлов");
     }
 
     #[test]
     fn folder_is_named_when_known() {
-        assert_eq!(describe(1, Some("Сэбач")), "Добавлен 1 файл в «Сэбач»");
-        assert_eq!(describe(3, Some("Сэбач")), "Добавлено 3 файла в «Сэбач»");
+        assert_eq!(added(1, Some("Сэбач")), "Добавлен 1 файл в «Сэбач»");
+        assert_eq!(added(3, Some("Сэбач")), "Добавлено 3 файла в «Сэбач»");
+    }
+
+    #[test]
+    fn duplicates_only() {
+        assert_eq!(describe(0, 1, None).unwrap(), "1 файл уже есть в библиотеке");
+        assert_eq!(describe(0, 3, None).unwrap(), "3 файла уже есть в библиотеке");
+        assert_eq!(describe(0, 7, None).unwrap(), "7 файлов уже есть в библиотеке");
+        assert_eq!(describe(0, 21, None).unwrap(), "21 файл уже есть в библиотеке");
+        // Папку в этой фразе не называем: файл никуда не клали.
+        assert_eq!(describe(0, 2, Some("Сэбач")).unwrap(), "2 файла уже есть в библиотеке");
+    }
+
+    #[test]
+    fn added_and_duplicates_together() {
+        assert_eq!(describe(2, 1, None).unwrap(), "Добавлено 2 файла · 1 уже был в библиотеке");
+        assert_eq!(describe(1, 2, None).unwrap(), "Добавлен 1 файл · 2 уже были в библиотеке");
+        assert_eq!(describe(3, 5, None).unwrap(), "Добавлено 3 файла · 5 уже было в библиотеке");
+        assert_eq!(describe(1, 11, None).unwrap(), "Добавлен 1 файл · 11 уже было в библиотеке");
+        assert_eq!(describe(1, 21, None).unwrap(), "Добавлен 1 файл · 21 уже был в библиотеке");
+        assert_eq!(
+            describe(2, 1, Some("Сэбач")).unwrap(),
+            "Добавлено 2 файла в «Сэбач» · 1 уже был в библиотеке"
+        );
+    }
+
+    #[test]
+    fn nothing_to_say() {
+        assert!(describe(0, 0, None).is_none());
+        assert!(describe(0, 0, Some("Сэбач")).is_none());
     }
 }

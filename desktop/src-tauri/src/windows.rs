@@ -11,8 +11,26 @@ static ERROR_TEXT: Mutex<String> = Mutex::new(String::new());
 /// Адрес кнопки «Сбросить порт»: путь ловит обработчик схемы `kopirka://` в `main.rs`.
 pub const RESET_PORT_HREF: &str = "kopirka://localhost/reset-port";
 
-/// Насколько опустить шапку интерфейса, чтобы светофор не наехал на логотип.
-const TITLEBAR_INSET_PX: u32 = 28;
+/// Левый верхний угол кнопки «закрыть» от левого верхнего угла окна (семантика tao).
+///
+/// x = 20 — это поле окна 12 плюс внутреннее поле панели 8: кнопки встают ровно
+/// на левый край строк сайдбара, а не «примерно рядом» с ними.
+const TRAFFIC_LIGHT_X: f64 = 20.0;
+/// y — НЕ отступ кружка от верха окна, хотя название и позиция в API намекают именно
+/// на это. В tao (0.35.3, macos/view.rs:1152 `inset_traffic_lights`) по y меняется
+/// только высота контейнера титлбара — `close.height + y`, — а сами кнопки внутри него
+/// по вертикали не двигаются. Верх кружка получается примерно `y - 9`.
+///
+/// 20 подобрано замером на macOS 26: кружок занимает ~11–24.5, то есть его центр
+/// встаёт на середину полосы в 36 px. Ставили 12 «по смыслу отступа» — кружок уезжал
+/// на 3–16.5 и почти липнул к краю окна.
+const TRAFFIC_LIGHT_Y: f64 = 20.0;
+
+/// Высота собственной полосы светофора: 12 (поле сверху) + 12 (кнопки) + 12 (зазор).
+/// Кружки macOS чуть крупнее номинальных 12 (по замеру ~13.5) и стоят по центру полосы.
+/// Веб берёт её как `padding-top: var(--kopirka-titlebar-inset, var(--shell-pad))` —
+/// панели оболочки, настроек и онбординга начинаются под кнопками, а не за ними.
+const TITLEBAR_STRIP_PX: u32 = 36;
 
 /// Скрипт инициализации главного окна.
 ///
@@ -21,24 +39,15 @@ const TITLEBAR_INSET_PX: u32 = 28;
 /// десктопная особенность не должна протекать в браузерную сборку.
 const INIT_SCRIPT: &str = r#"
 (function () {
-  var INSET = __INSET__;
+  var STRIP = __STRIP__;
 
-  // Токены приходят вместе с CSS-бандлом, то есть позже старта скрипта.
-  // Ждём появления --size-topbar и сдвигаем шапку ровно один раз.
-  var tries = 0;
-  var timer = setInterval(function () {
-    var root = document.documentElement;
-    if (root.dataset.kopirkaInset) { clearInterval(timer); return; }
-    var base = getComputedStyle(root).getPropertyValue('--size-topbar').trim();
-    if (base) {
-      root.dataset.kopirkaInset = String(INSET);
-      root.style.setProperty('--kopirka-titlebar-inset', INSET + 'px');
-      root.style.setProperty('--size-topbar', 'calc(' + base + ' + ' + INSET + 'px)');
-      clearInterval(timer);
-    } else if (++tries > 200) {
-      clearInterval(timer);
-    }
-  }, 25);
+  // Синхронно, до первого кадра и без ожиданий: переменную на :root читает CSS веба,
+  // а не мы. Она спокойно дожидается своего бандла — тот подставит её сам, когда
+  // приедет. Ждать CSS понадобилось бы, только если считать от чужого значения:
+  // так и было со старым хаком, который прибавлял 28 px к --size-topbar.
+  // Атрибут data-* — сигнал вебу «мы внутри оболочки», а не в браузере.
+  document.documentElement.style.setProperty('--kopirka-titlebar-inset', STRIP + 'px');
+  document.documentElement.dataset.kopirkaInset = String(STRIP);
 
   // Пункт трея «Не разобрано» открывает соответствующий раздел. Стора наружу нет,
   // поэтому жмём ту же кнопку сайдбара, что и пользователь.
@@ -59,7 +68,7 @@ const INIT_SCRIPT: &str = r#"
 "#;
 
 fn init_script() -> String {
-    INIT_SCRIPT.replace("__INSET__", &TITLEBAR_INSET_PX.to_string())
+    INIT_SCRIPT.replace("__STRIP__", &TITLEBAR_STRIP_PX.to_string())
 }
 
 /// Свой ли это адрес: интерфейс с локального сервера или собственная схема окна ошибки.
@@ -121,7 +130,14 @@ pub fn open_main(app: &AppHandle, port: u16) -> tauri::Result<WebviewWindow<Wry>
     {
         builder = builder
             .title_bar_style(tauri::TitleBarStyle::Overlay)
-            .hidden_title(true);
+            .hidden_title(true)
+            // Своя полоса вместо наезда на сайдбар: кнопки встают по нашим координатам,
+            // а веб отступает от них на TITLEBAR_STRIP_PX. Требует Overlay и включённых
+            // decorations — оба условия здесь выполнены. Про смысл y — у константы.
+            .traffic_light_position(tauri::LogicalPosition::new(
+                TRAFFIC_LIGHT_X,
+                TRAFFIC_LIGHT_Y,
+            ));
     }
 
     builder.build()

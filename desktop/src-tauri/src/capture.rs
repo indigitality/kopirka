@@ -8,10 +8,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use tauri::AppHandle;
-use tauri_plugin_notification::NotificationExt;
-
-use crate::{backend, http};
+use crate::{backend, http, notify};
 
 #[cfg(target_os = "macos")]
 #[link(name = "CoreGraphics", kind = "framework")]
@@ -20,8 +17,10 @@ extern "C" {
     fn CGRequestScreenCaptureAccess() -> bool;
 }
 
-fn notify(app: &AppHandle, body: &str) {
-    let _ = app.notification().builder().title("Копирка").body(body).show();
+/// Уведомления по этому пути — только про неудачу: нет доступа к записи экрана,
+/// сервер не ответил. Об удачном снимке говорит общий опрос ленты (events.rs).
+fn announce(body: &str) {
+    notify::show("Копирка", body);
 }
 
 fn temp_file() -> PathBuf {
@@ -31,19 +30,18 @@ fn temp_file() -> PathBuf {
 
 /// Запускает съёмку в отдельном потоке: `screencapture` блокирующий, а вызывают его
 /// из обработчика хоткея и из меню трея — обоим нельзя вставать колом.
-pub fn start(app: AppHandle) {
-    std::thread::spawn(move || run(&app));
+pub fn start() {
+    std::thread::spawn(run);
 }
 
-fn run(app: &AppHandle) {
+fn run() {
     #[cfg(target_os = "macos")]
     unsafe {
         if !CGPreflightScreenCaptureAccess() {
             // Первый вызов покажет системный запрос; повторные — уже нет,
             // поэтому объясняем словами, куда идти.
             CGRequestScreenCaptureAccess();
-            notify(
-                app,
+            announce(
                 "Нет доступа к записи экрана. Разрешите его в «Системные настройки → Конфиденциальность и безопасность → Запись экрана» и перезапустите Копирку.",
             );
             return;
@@ -56,7 +54,7 @@ fn run(app: &AppHandle) {
     match status {
         Ok(_) => {}
         Err(error) => {
-            notify(app, &format!("Не удалось запустить снимок экрана: {error}"));
+            announce(&format!("Не удалось запустить снимок экрана: {error}"));
             return;
         }
     }
@@ -82,11 +80,11 @@ fn run(app: &AppHandle) {
         // одно на все пути импорта. Иначе о снимке сказали бы дважды.
         Ok(response) if response.status == 200 => {
             if let Some(problem) = problem(&response.body) {
-                notify(app, &problem);
+                announce(&problem);
             }
         }
-        Ok(response) => notify(app, &format!("Сервер не принял снимок (HTTP {})", response.status)),
-        Err(error) => notify(app, &format!("Сервер «Копирки» не ответил: {error}")),
+        Ok(response) => announce(&format!("Сервер не принял снимок (HTTP {})", response.status)),
+        Err(error) => announce(&format!("Сервер «Копирки» не ответил: {error}")),
     }
 }
 

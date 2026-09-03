@@ -19,7 +19,7 @@ import type {
   FileListQuery,
   FileRecord,
   FolderRecord,
-  SourceType,
+  LibraryEvent,
   StatsResponse,
   TagRecord,
 } from '@shared/api';
@@ -35,16 +35,25 @@ const QUERY_DEBOUNCE_MS = 250;
 const EVENTS_POLL_MS = 3000;
 
 /**
- * Пути импорта, которые окно не инициировало: только они требуют перечитать срез.
- * Перетаскивание и ⌘V обновляют список сами — ответом на собственный запрос,
- * и повторная загрузка после них была бы лишней.
+ * Приехал ли файл, которого окно ещё не показывает. `known` — идентификаторы карточек
+ * текущего среза.
+ *
+ * Решаем по `fileId`, а не по `sourceType`. Раньше здесь стоял список «внешних»
+ * источников, и быстрая команда Finder «Добавить в Копирку» в него не попадала: она
+ * шлёт `drag_drop`, тот же источник, что и перетаскивание в окно. Карточка после неё
+ * не появлялась до перезагрузки страницы.
+ *
+ * Собственные перетаскивание и ⌘V от проверки не страдают: их файлы кладёт в список
+ * ответ на тот же запрос импорта — задолго до того, как событие дойдёт опросом ленты.
+ *
+ * В ленте лежат ещё дубли (`duplicate`) и сообщения для системного уведомления
+ * (`notice`): дубль в библиотеку не попал, а уведомление вообще не про файлы.
  */
-const EXTERNAL_SOURCES: ReadonlySet<SourceType> = new Set<SourceType>([
-  'folder_watch',
-  'context_menu',
-  'tab_screenshot',
-  'area_screenshot',
-]);
+function bringsNewFile(event: LibraryEvent, known: ReadonlySet<number>): boolean {
+  if (event.kind !== 'import') return false;
+  if (event.outcome !== 'added' && event.outcome !== 'added_similar') return false;
+  return !known.has(event.fileId);
+}
 
 const EMPTY_STATS: StatsResponse = { library: 0, untagged: 0, trash: 0, similar: 0 };
 
@@ -243,10 +252,15 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     reloadRef.current = reload;
   }, [reload]);
+  // По той же причине — показанный список: опрос сверяет с ним номера приехавших файлов.
+  const filesRef = useRef(files);
+  useEffect(() => {
+    filesRef.current = files;
+  }, [files]);
 
-  // Файл мог приехать снаружи: из расширения, быстрой команды или автоимпорта папки.
-  // Спрашиваем сервер, не появилось ли нового, и перечитываем срез — но только пока
-  // вкладка видима: смотреть на скрытую всё равно некому.
+  // Файл мог приехать снаружи: из расширения, быстрой команды Finder или автоимпорта
+  // папки. Спрашиваем сервер, не появилось ли нового, и перечитываем срез — но только
+  // пока вкладка видима: смотреть на скрытую всё равно некому.
   useEffect(() => {
     let stopped = false;
     let busy = false;
@@ -262,7 +276,10 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         // Первый опрос только запоминает точку отсчёта: всё, что было до открытия
         // окна, уже показано обычной загрузкой списка.
         if (seen === null) return;
-        if (response.events.some((event) => EXTERNAL_SOURCES.has(event.sourceType))) {
+        // Каждое событие приходит ровно один раз (курсор сдвинут выше), поэтому файл,
+        // не попавший в текущий срез, не заставит перезагружаться на каждом тике.
+        const known = new Set(filesRef.current.map((file) => file.id));
+        if (response.events.some((event) => bringsNewFile(event, known))) {
           await reloadRef.current();
         }
       } catch {

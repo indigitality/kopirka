@@ -18,7 +18,10 @@ import type {
   FileListResponse,
   FileRecord,
   FolderRecord,
+  ImportEvent,
   ImportResponse,
+  NoticeEvent,
+  NotifyResponse,
   SettingsResponse,
   SettingsUpdateResponse,
   StatsResponse,
@@ -72,6 +75,10 @@ async function upload(
 }
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** Лента разнородная — сужаем до записей об импорте. */
+const importEvents = (response: EventsResponse): ImportEvent[] =>
+  response.events.filter((event): event is ImportEvent => event.kind === 'import');
 
 function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -649,7 +656,8 @@ async function main(): Promise<void> {
 
     const fresh = await api<EventsResponse>('GET', `/api/events?after=${start.last}`);
     assert(fresh.events.length === 1, `новых событий ${fresh.events.length} вместо 1`);
-    const event = fresh.events[0];
+    const event = importEvents(fresh)[0];
+    assert(event?.kind === 'import', `kind=${fresh.events[0]?.kind} вместо import`);
     assert(event?.seq === start.last + 1, `seq=${event?.seq} вместо ${start.last + 1}`);
     assert(event?.fileId === fileId, 'в событии не тот файл');
     assert(event?.outcome === 'added' && event.sourceType === 'drag_drop', 'событие описано неверно');
@@ -667,9 +675,10 @@ async function main(): Promise<void> {
     ]);
     assert(watched.items[0]?.outcome === 'added', `watch outcome=${watched.items[0]?.outcome}`);
     const tail = await api<EventsResponse>('GET', `/api/events?after=${again.last}`);
-    assert(tail.events[0]?.sourceType === 'folder_watch', `sourceType=${tail.events[0]?.sourceType}`);
+    const watchedEvent = importEvents(tail)[0];
+    assert(watchedEvent?.sourceType === 'folder_watch', `sourceType=${watchedEvent?.sourceType}`);
     assert(
-      tail.events[0]?.folderId === null && tail.events[0].folderName === null,
+      watchedEvent?.folderId === null && watchedEvent.folderName === null,
       'у файла без папки в событии оказалась папка',
     );
 
@@ -678,6 +687,81 @@ async function main(): Promise<void> {
     await api<{ deleted: number }>('POST', '/api/files/delete', { fileIds: ids });
     await api<{ purged: number }>('POST', '/api/files/purge', { fileIds: ids });
     await api<{ ok: boolean }>('DELETE', `/api/folders/${box.id}`);
+  });
+
+  // Дополнительно: точный дубль тоже событие. Без него приложение молчит там, где
+  // человек нажал «Добавить в Копирку» и вправе услышать «это уже есть».
+  await check('GET /api/events: повторный импорт того же файла → событие duplicate', async () => {
+    const before = await api<EventsResponse>('GET', '/api/events');
+    const payload = await plasma(21).png().toBuffer();
+
+    const first = await upload('/api/import', [{ name: 'events-dupe.png', buffer: payload }], {
+      sourceType: 'drag_drop',
+    });
+    assert(first.items[0]?.outcome === 'added', `первый импорт: ${first.items[0]?.outcome}`);
+    const fileId = first.items[0]?.file?.id ?? 0;
+
+    // Тот же байт-в-байт файл другим путём: sourceType в событии должен быть путём
+    // текущей попытки, а не тем, которым файл попал в библиотеку в первый раз.
+    const repeat = await upload('/api/import/watch', [
+      { name: 'events-dupe.png', buffer: payload },
+    ]);
+    assert(repeat.items[0]?.outcome === 'duplicate', `повтор: ${repeat.items[0]?.outcome}`);
+
+    const events = importEvents(await api<EventsResponse>('GET', `/api/events?after=${before.last}`));
+    assert(events.length === 2, `событий ${events.length} вместо 2 (added + duplicate)`);
+    const dupe = events[1];
+    assert(dupe?.outcome === 'duplicate', `второе событие: ${dupe?.outcome}`);
+    assert(dupe?.fileId === fileId, 'в событии дубля не тот файл, который уже лежит в библиотеке');
+    assert(dupe?.sourceType === 'folder_watch', `sourceType дубля: ${dupe?.sourceType}`);
+
+    await api<{ deleted: number }>('POST', '/api/files/delete', { fileIds: [fileId] });
+    await api<{ purged: number }>('POST', '/api/files/purge', { fileIds: [fileId] });
+  });
+
+  // Дополнительно: POST /api/notify — им говорит обработчик быстрой команды Finder,
+  // чтобы уведомление пришло с иконкой «Копирки», а не Script Editor.
+  await check('POST /api/notify: сообщение ложится в ленту, мусор отбивается', async () => {
+    const before = await api<EventsResponse>('GET', '/api/events');
+    const sent = await api<NotifyResponse>('POST', '/api/notify', { body: 'Копирка не отвечает' });
+    assert(sent.ok && sent.seq === before.last + 1, `ответ notify: ${JSON.stringify(sent)}`);
+
+    const fresh = await api<EventsResponse>('GET', `/api/events?after=${before.last}`);
+    const notice = fresh.events.find((item): item is NoticeEvent => item.kind === 'notice');
+    assert(notice !== undefined, 'событие-уведомление в ленту не попало');
+    assert(notice?.body === 'Копирка не отвечает', `body=${notice?.body}`);
+    assert(notice?.title === null, 'без title в ленте должен лежать null — заголовок ставит оболочка');
+
+    const titled = await api<NotifyResponse>('POST', '/api/notify', {
+      body: 'Не удалось добавить: 2',
+      title: 'Быстрая команда',
+    });
+    const withTitle = await api<EventsResponse>('GET', `/api/events?after=${titled.seq - 1}`);
+    const second = withTitle.events.find((item): item is NoticeEvent => item.kind === 'notice');
+    assert(second?.title === 'Быстрая команда', `title=${second?.title}`);
+
+    const empty = await fetch(`${base}/api/notify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ body: '   ' }),
+    });
+    assert(empty.status === 400, `пустой текст приняли со статусом ${empty.status}`);
+
+    const long = await fetch(`${base}/api/notify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ body: 'я'.repeat(5000) }),
+    });
+    assert(long.status === 400, `простыню на 5000 знаков приняли со статусом ${long.status}`);
+
+    // Тот же замок, что у остальных эндпоинтов: сказать уведомление может только
+    // локальный скрипт, а не сайт, открытый в браузере рядом.
+    const evil = await fetch(`${base}/api/notify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: 'https://evil.example' },
+      body: JSON.stringify({ body: 'Введите пароль на evil.example' }),
+    });
+    assert(evil.status === 403, `сторонний origin получил ${evil.status}`);
   });
 
   // Дополнительно: SVC-06 — занятый порт нельзя записать в настройки, иначе после

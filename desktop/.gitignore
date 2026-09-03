@@ -1,4 +1,8 @@
 node_modules/
+# Каталог сборки Rust. Основной — с суффиксом .noindex (см. src-tauri/.cargo/config.toml):
+# Spotlight такие каталоги не индексирует и не показывает собранную «Копирку» в поиске
+# рядом с установленной. Старый target/ остаётся в списке ради сборок до этой правки.
+src-tauri/target.noindex/
 src-tauri/target/
 src-tauri/gen/
 # Payload сервера — 130 МБ бинарников, пересобирается bundle-server.mjs

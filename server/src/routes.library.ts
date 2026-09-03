@@ -2,14 +2,24 @@
 import fs from 'node:fs';
 import net from 'node:net';
 import type { Hono } from 'hono';
-import { SCHEMA_VERSION, type EventsResponse, type SettingsResponse } from '../../shared/api.js';
+import {
+  SCHEMA_VERSION,
+  type EventsResponse,
+  type NotifyResponse,
+  type SettingsResponse,
+} from '../../shared/api.js';
 import { expandHome } from './config.js';
 import { badRequest } from './errors.js';
 import { createFolder, deleteFolder, listFolders, updateFolder } from './folders.js';
 import { parseId, parseJsonBody } from './http.js';
 import { log } from './logger.js';
 import { directorySize } from './paths.js';
-import { folderCreateSchema, folderUpdateSchema, settingsPatchSchema } from './schemas.js';
+import {
+  folderCreateSchema,
+  folderUpdateSchema,
+  notifySchema,
+  settingsPatchSchema,
+} from './schemas.js';
 import type { AppState } from './state.js';
 import { listTags } from './tags.js';
 
@@ -57,7 +67,7 @@ export function registerLibraryRoutes(app: Hono, state: AppState): void {
   );
 
   /**
-   * Лента успешных импортов. Без `after` отдаём только номер последнего события:
+   * Лента событий. Без `after` отдаём только номер последнего:
    * так новый клиент запоминает точку отсчёта и не получает залпом всё накопившееся.
    */
   app.get('/api/events', (c) => {
@@ -67,6 +77,26 @@ export function registerLibraryRoutes(app: Hono, state: AppState): void {
       events: after !== null && Number.isInteger(after) && after >= 0 ? state.events.since(after) : [],
       last: state.events.last,
     };
+    return c.json(payload);
+  });
+
+  /**
+   * Сказать уведомлением от имени приложения. Сервер сам ничего не показывает — он
+   * кладёт запись в ту же ленту, а системное уведомление рисует оболочка: только у неё
+   * есть иконка «Копирки». Так обработчик быстрой команды Finder перестаёт звать
+   * `osascript` и приносить пользователю иконку Script Editor.
+   *
+   * Доступ — как у всех: сервер слушает 127.0.0.1, а сторонний origin отсекает общий
+   * middleware в app.ts. Скрипт с локальной машины ходит без Origin либо со своим.
+   */
+  app.post('/api/notify', async (c) => {
+    const body = await parseJsonBody(c, notifySchema);
+    const stored = state.events.push({
+      kind: 'notice',
+      title: body.title ?? null,
+      body: body.body,
+    });
+    const payload: NotifyResponse = { ok: true, seq: stored.seq };
     return c.json(payload);
   });
 

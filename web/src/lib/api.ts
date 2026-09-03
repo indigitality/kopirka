@@ -117,8 +117,8 @@ export const getHealth = () => request<{ ok: boolean; version?: string }>('/heal
 export const getStats = () => request<StatsResponse>('/stats');
 
 /**
- * Лента успешных импортов. `after` — последний увиденный `seq`; без него сервер
- * отдаёт только `last`, то есть точку отсчёта, а историю не присылает.
+ * Лента событий (импорты и сообщения-уведомления). `after` — последний увиденный
+ * `seq`; без него сервер отдаёт только `last`, то есть точку отсчёта, а историю нет.
  */
 export const getEvents = (after?: number) =>
   request<EventsResponse>(`/events${after === undefined ? '' : `?after=${after}`}`);

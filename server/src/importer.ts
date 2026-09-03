@@ -164,20 +164,35 @@ async function persist(state: AppState, input: PersistInput): Promise<FileRecord
 }
 
 /**
- * Отметить успешный импорт в журнале — это единственный сигнал для оболочки и окна.
- * Зовётся на всех путях, где файл действительно оказался в библиотеке, включая возврат
- * из корзины и досохранение после модалки «Похоже, уже есть».
+ * Отметить исход импорта в ленте — это единственный сигнал для оболочки и окна.
+ * Зовётся на всех путях конвейера, включая возврат из корзины и досохранение после
+ * модалки «Похоже, уже есть».
+ *
+ * `duplicate` попадает сюда наравне с успехами: пользователю, который позвал импорт
+ * мимо окна (быстрая команда Finder, автоимпорт папки), «это уже было» — такой же
+ * ответ на его действие, как «добавлено». Без записи в ленте приложение молчало бы,
+ * а сказать вместо него мог бы только сторонний скрипт — с чужой иконкой.
+ * В событии дубля лежит существующий файл: `fileId` в ленте всегда указывает на
+ * файл, который в библиотеке действительно есть.
  */
-function noteImported(
+function noteImport(
   state: AppState,
   file: FileRecord,
-  outcome: 'added' | 'added_similar',
+  outcome: 'added' | 'added_similar' | 'duplicate',
+  /**
+   * Путь текущей попытки, а не поле файла: у дубля и у возвращённого из корзины
+   * в строке БД записан источник самого первого импорта. Оболочка решает по этому
+   * полю, показывать ли уведомление, — и решать она должна по тому, что человек
+   * сделал сейчас.
+   */
+  sourceType: SourceType,
 ): void {
   const folderName =
     file.folderId === null ? null : (getFolderFlat(state.db, file.folderId)?.name ?? null);
   state.events.push({
+    kind: 'import',
     fileId: file.id,
-    sourceType: file.sourceType,
+    sourceType,
     folderId: file.folderId,
     folderName,
     outcome,
@@ -209,11 +224,12 @@ export async function importOne(state: AppState, input: ImportInput): Promise<Im
     // 1. Точный дубль блокирует импорт на всех путях.
     const exact = findActiveBySha(state.db, sha256);
     if (exact) {
-      return {
-        originalFilename: filename,
-        outcome: 'duplicate',
-        existingFile: mapFileRow(exact, tagsForFiles(state.db, [exact.id]).get(exact.id) ?? []),
-      };
+      const existingFile = mapFileRow(
+        exact,
+        tagsForFiles(state.db, [exact.id]).get(exact.id) ?? [],
+      );
+      noteImport(state, existingFile, 'duplicate', input.sourceType);
+      return { originalFilename: filename, outcome: 'duplicate', existingFile };
     }
     // Тот же файл лежит в корзине: sha256 уникален, поэтому возвращаем его в библиотеку.
     const inTrash = findAnyBySha(state.db, sha256);
@@ -221,7 +237,7 @@ export async function importOne(state: AppState, input: ImportInput): Promise<Im
       state.db.prepare(`UPDATE files SET deleted_at = NULL WHERE id = ?`).run(inTrash.id);
       const restored = recordFor(state.db, inTrash.id);
       if (restored) {
-        noteImported(state, restored, 'added');
+        noteImport(state, restored, 'added', input.sourceType);
         return { originalFilename: filename, outcome: 'added', file: restored };
       }
     }
@@ -265,7 +281,7 @@ export async function importOne(state: AppState, input: ImportInput): Promise<Im
     });
 
     if (similar !== null) {
-      noteImported(state, file, 'added_similar');
+      noteImport(state, file, 'added_similar', input.sourceType);
       return {
         originalFilename: filename,
         outcome: 'added_similar',
@@ -273,7 +289,7 @@ export async function importOne(state: AppState, input: ImportInput): Promise<Im
         existingFile: recordFor(state.db, similar.fileId),
       };
     }
-    noteImported(state, file, 'added');
+    noteImport(state, file, 'added', input.sourceType);
     return { originalFilename: filename, outcome: 'added', file };
   } catch (error) {
     log.error(`импорт «${rawName}» упал`, error);
@@ -311,11 +327,9 @@ export async function confirmPending(state: AppState, token: string): Promise<Im
   // Пока пользователь думал, точный дубль мог появиться другим путём.
   const exact = findActiveBySha(state.db, meta.sha256);
   if (exact) {
-    return {
-      originalFilename: meta.filename,
-      outcome: 'duplicate',
-      existingFile: mapFileRow(exact, tagsForFiles(state.db, [exact.id]).get(exact.id) ?? []),
-    };
+    const existingFile = mapFileRow(exact, tagsForFiles(state.db, [exact.id]).get(exact.id) ?? []);
+    noteImport(state, existingFile, 'duplicate', meta.sourceType);
+    return { originalFilename: meta.filename, outcome: 'duplicate', existingFile };
   }
   try {
     const file = await persist(state, {
@@ -332,7 +346,7 @@ export async function confirmPending(state: AppState, token: string): Promise<Im
       // Пока пользователь думал, папку могли удалить — тогда файл ложится без папки.
       folderId: meta.folderId !== null && folderExists(state.db, meta.folderId) ? meta.folderId : null,
     });
-    noteImported(state, file, 'added');
+    noteImport(state, file, 'added', meta.sourceType);
     return { originalFilename: meta.filename, outcome: 'added', file };
   } catch (error) {
     log.error(`подтверждённый импорт «${meta.filename}» упал`, error);

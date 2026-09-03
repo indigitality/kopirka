@@ -8,6 +8,8 @@ mod capture;
 mod events;
 mod http;
 mod menu;
+mod notify;
+mod quickaction;
 mod tray;
 mod windows;
 
@@ -29,7 +31,6 @@ fn main() {
     tauri::Builder::default()
         // Диалог выбора папки библиотеки: настройки и онбординг зовут его из интерфейса.
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_notification::init())
         .manage(backend::BackendState::default())
         // Аварийное окно живёт на собственной схеме: у него нет ни сервера, ни IPC,
         // а кнопки — обычные ссылки, которые ловит этот же обработчик.
@@ -160,6 +161,12 @@ fn start_ui(app: &AppHandle, port: u16) -> tauri::Result<()> {
     windows::open_main(app, port)?;
     tray::setup(app)?;
     register_hotkey(app)?;
+    // Пункт Finder «Добавить в Копирку» — в фоне и после окна: он никому не нужен
+    // раньше, чем приложение видно, а его отсутствие — не повод не запускаться.
+    quickaction::ensure_installed();
+    // Разрешение на баннеры: система спросит один раз за установку. Без запроса
+    // UNUserNotificationCenter молча выбрасывает всё, что мы ему отдадим.
+    notify::request_authorization();
     Ok(())
 }
 
@@ -168,9 +175,9 @@ fn register_hotkey(app: &AppHandle) -> tauri::Result<()> {
     let hotkey = Shortcut::new(Some(Modifiers::ALT | Modifiers::SUPER), Code::KeyC);
     app.plugin(
         tauri_plugin_global_shortcut::Builder::new()
-            .with_handler(move |app, shortcut, event| {
+            .with_handler(move |_app, shortcut, event| {
                 if event.state() == ShortcutState::Pressed && shortcut == &hotkey {
-                    capture::start(app.clone());
+                    capture::start();
                 }
             })
             .build(),

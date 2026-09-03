@@ -1,6 +1,6 @@
 [package]
 name = "kopirka-desktop"
-version = "0.1.0"
+version = "0.2.0"
 description = "Десктопная оболочка «Копирки»"
 edition = "2021"
 rust-version = "1.82"
@@ -17,8 +17,16 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-global-shortcut = "2"
-tauri-plugin-notification = "2"
 serde_json = "1"
+
+# Уведомления показываем сами через UNUserNotificationCenter — см. src/notify.rs.
+# tauri-plugin-notification снят: на macOS он ходит в устаревший
+# NSUserNotificationCenter, который на macOS 26 молча ничего не показывает.
+# Эти три крейта уже есть в дереве ради tao и wry, новых зависимостей не появляется.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = { version = "0.6", features = ["exception"] }
+objc2-foundation = { version = "0.3", features = ["NSString", "NSError"] }
+block2 = "0.6"
 
 [profile.release]
 codegen-units = 1

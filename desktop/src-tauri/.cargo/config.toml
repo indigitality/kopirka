@@ -1,0 +1,6 @@
+# Каталог сборки с суффиксом .noindex: Spotlight такие каталоги не индексирует,
+# и собранная «Копирка» из target/release/bundle перестаёт всплывать в поиске
+# рядом с установленной. Tauri CLI берёт путь из `cargo metadata`, поэтому бандл
+# ложится сюда же — target.noindex/release/bundle/.
+[build]
+target-dir = "target.noindex"

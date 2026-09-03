@@ -42,7 +42,7 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
         .show_menu_on_left_click(true)
         .on_menu_event(|app, event| match event.id().as_ref() {
             "show" => windows::focus_main(app, false),
-            "capture" => capture::start(app.clone()),
+            "capture" => capture::start(),
             "untagged" => windows::focus_main(app, true),
             "quit" => crate::quit(app),
             _ => {}

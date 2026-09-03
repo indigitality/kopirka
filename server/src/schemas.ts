@@ -1,6 +1,6 @@
 /** Схемы входных данных. Всё, что приходит снаружи, проходит через zod. */
 import { z } from 'zod';
-import { ACCEPTED_EXTS } from '../../shared/api.js';
+import { ACCEPTED_EXTS, NOTIFY_MAX_BODY, NOTIFY_MAX_TITLE } from '../../shared/api.js';
 
 const positiveId = z.number().int().positive();
 
@@ -55,6 +55,15 @@ export const importWatchSchema = z.object({
 
 export const importConfirmSchema = z.object({
   pendingToken: z.string().min(1),
+});
+
+/**
+ * POST /api/notify — текст уходит в системное уведомление, поэтому длину режем здесь:
+ * macOS всё равно обрежет, а через ленту это ещё и попало бы в кольцо на 500 записей.
+ */
+export const notifySchema = z.object({
+  body: z.string().trim().min(1, 'текст уведомления обязателен').max(NOTIFY_MAX_BODY),
+  title: z.string().trim().min(1).max(NOTIFY_MAX_TITLE).optional(),
 });
 
 export const settingsPatchSchema = z.object({
