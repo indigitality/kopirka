@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Быстрый вопрос
+    url: https://t.me/orshaks
+    about: Для короткого вопроса, который не тянет на issue, — Telegram
