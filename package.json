@@ -9,6 +9,8 @@
     "build": "npm run build --workspace=web && npm run build --workspace=server",
     "start": "npm run start --workspace=server",
     "app:dev": "cd desktop && npm install --no-audit --no-fund --silent && npm run dev",
-    "app:build": "cd desktop && npm install --no-audit --no-fund --silent && npm run build"
+    "app:build": "cd desktop && npm install --no-audit --no-fund --silent && npm run build",
+    "test:ui": "node tests/ui/run.mjs",
+    "test:ui:webkit": "node tests/ui/webkit/run.mjs"
   }
 }

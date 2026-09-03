@@ -23,3 +23,7 @@ web/tsconfig.ds.json
 # Генерируемые декларации и кэш tsc
 shared/api.d.ts
 *.tsbuildinfo
+
+# Скриншоты регрессионного UI-прогона (tests/ui) — пересоздаются каждым запуском
+tests/ui/.out/
+tests/ui/webkit/.out/

@@ -1,0 +1,13 @@
+{
+  "name": "@kopirka/tests-ui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Регрессионный UI-прогон «Копирки»: puppeteer-core + headless Chrome по временной песочнице (см. README.md).",
+  "scripts": {
+    "test": "node run.mjs"
+  },
+  "dependencies": {
+    "puppeteer-core": "^25.10.0"
+  }
+}
