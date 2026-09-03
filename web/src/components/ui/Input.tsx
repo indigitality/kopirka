@@ -1,3 +1,12 @@
+/**
+ * Поле ввода. Канон — R10 · «Путь библиотеки», R11 · онбординг и R14 ·
+ * «Добавить тег»: высота 34, заливка `control`, радиус `--radius-md`,
+ * поля 10, текст 14/18, плейсхолдер `ink-faint`.
+ *
+ * Обводки в покое нет — она появляется по фокусу и всегда лаймовая, как у
+ * активного поля поиска (R05). Держим её на `box-shadow`, а не на `border`:
+ * рамка на границе меняла бы внутренние размеры и текст дёргался бы на 1 px.
+ */
 import { forwardRef, type InputHTMLAttributes } from 'react';
 import { cn } from '@/lib/cn';
 
@@ -12,12 +21,11 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
       ref={ref}
       type={type ?? 'text'}
       className={cn(
-        'h-[var(--size-row)] w-full rounded-md border border-line-strong bg-surface-raised px-3',
-        'text-base text-ink placeholder:text-ink-faint',
-        'transition-colors duration-[var(--dur-fast)] ease-out',
-        // Фокус-кольцо как у всех: глушить его у одного поля — расхождение (аудит 4.32).
-        'hover:border-ink-faint/60 focus:border-accent/70',
-        'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent-ring',
+        'h-[var(--size-field)] w-full rounded-md bg-control px-2.5',
+        'text-md leading-[18px] text-ink placeholder:text-ink-faint',
+        'transition-[background-color,box-shadow] duration-[var(--dur-fast)] ease-out',
+        'hover:bg-control-hover',
+        'focus:bg-control focus:shadow-[inset_0_0_0_1px_var(--color-brand)] focus:outline-none',
         'disabled:pointer-events-none disabled:opacity-40',
         className,
       )}

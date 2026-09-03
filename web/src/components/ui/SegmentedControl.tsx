@@ -1,9 +1,10 @@
 /**
  * Сегментный контрол — единственный тип переключателя в «Копирке» (дизайн-аудит §8.1).
+ * Канон редизайна — R13 · «Верхняя панель», узел «размер карточек · средние».
  *
- * Подложка `--color-surface-raised`, радиус `--radius-md`, внутренний паддинг 2,
- * высота `--size-row`; сегмент — `--radius-sm`, активный — плашка
- * `--color-surface-active` + `--color-ink` + вес 500, неактивный — `--color-ink-muted`.
+ * Подложка `--color-control`, радиус `--radius-md`, внутренний паддинг 2,
+ * высота `--size-row`; сегмент — 32×28, радиус `--radius-sm`, активный — плашка
+ * `--color-control-hover` + иконка `--color-ink`, неактивный — `--color-ink-faint`.
  * Плашка не перекрашивается, а переезжает: `layoutId`, `--dur-fast`, `--ease-out`.
  *
  * Доступность: `role="radiogroup"` + `role="radio"`, roving tabindex (в группу
@@ -69,7 +70,7 @@ export function SegmentedControl<T extends string>({
       role="radiogroup"
       aria-label={label}
       className={cn(
-        'inline-flex h-[var(--size-row)] shrink-0 items-center gap-0.5 rounded-md bg-surface-raised p-0.5',
+        'inline-flex h-[var(--size-row)] shrink-0 items-center gap-0.5 rounded-md bg-control p-0.5',
         className,
       )}
       onKeyDown={(event) => {
@@ -97,9 +98,10 @@ export function SegmentedControl<T extends string>({
             onClick={() => onValueChange(option.value)}
             className={cn(
               'relative flex h-7 items-center justify-center rounded-sm whitespace-nowrap',
-              'text-base transition-colors duration-[var(--dur-fast)] ease-out',
-              segmentWidth === undefined && 'px-2.5',
-              active ? 'font-medium text-ink' : 'text-ink-muted hover:text-ink',
+              'text-md leading-[18px] font-medium transition-colors duration-[var(--dur-fast)] ease-out',
+              /* Иконочный сегмент в макете 32 px шириной; текстовый живёт по содержимому. */
+              segmentWidth === undefined && (option.icon ? 'w-8' : 'px-2.5'),
+              active ? 'text-ink' : 'text-ink-faint hover:text-ink',
             )}
             style={segmentWidth === undefined ? undefined : { width: segmentWidth }}
           >
@@ -108,7 +110,7 @@ export function SegmentedControl<T extends string>({
                 layoutId={layoutId}
                 aria-hidden
                 transition={reduced ? { duration: 0 } : { duration: DUR_FAST, ease: EASE_OUT }}
-                className="absolute inset-0 rounded-sm bg-surface-active"
+                className="absolute inset-0 rounded-sm bg-control-hover"
               />
             ) : null}
             <span className="relative flex items-center justify-center gap-1.5">

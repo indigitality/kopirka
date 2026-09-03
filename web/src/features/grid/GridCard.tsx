@@ -1,13 +1,24 @@
 /**
- * Карточка сетки — раздел 2 спеки.
+ * Карточка сетки — раздел 2 спеки, редизайн по R13 · «Карточка сетки и чипы»
+ * и экранам R01/R03/R04/R06.
+ *
  * Позиционируется абсолютно: раскладку считает useMasonry, карточка только рисует.
+ *
+ * Что задал макет: радиус `--radius-card`, поле 8, тёмный чип имени папки в левом
+ * верхнем углу, светлые чипы тегов внизу слева — **видны всегда**, «Похоже дубль»
+ * сплошным чипом отдельной строкой над тегами. По наведению в углу папки
+ * появляется круглый чекбокс, а сам чип папки уходит: слот один на двоих.
  */
 import { memo, useEffect, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { motion } from 'motion/react';
 import { ImageOff, Shapes } from 'lucide-react';
 import type { FileRecord, LibraryScope } from '@shared/api';
 import { cn } from '@/lib/cn';
-import { Badge } from '@/components/ui/Badge';
+import { Icon } from '@/lib/icons';
+import { CARD_RING_WIDTH, SPRING_PANEL } from '@/lib/motion';
+import { useReducedMotion } from '@/lib/useReducedMotion';
 import { Checkbox } from '@/components/ui/Checkbox';
+import { Chip } from '@/components/ui/Chip';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -15,7 +26,6 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/components/ui/ContextMenu';
-import { Tooltip } from '@/components/ui/Tooltip';
 import { DRAG_THRESHOLD, fileDrag, useFileDrag } from './dnd';
 
 export interface GridCardProps {
@@ -38,10 +48,9 @@ export interface GridCardProps {
   /** Правый клик по невыделенной карточке: меню должно действовать на неё (02 §4.9). */
   onContextSelect: (file: FileRecord) => void;
   onAddTag: (file: FileRecord) => void;
+  /** «В папку…» из меню карточки — тот же диалог, что у панели выделения (R14). */
+  onMoveToFolder: (file: FileRecord) => void;
 }
-
-/** Сколько тегов помещается на карточке; остальные сворачиваются в «+N» — решение D3. */
-const MAX_CARD_TAGS = 3;
 
 /**
  * Пороги плотности карточки. Считаем по фактической ширине, а не по имени размера:
@@ -49,6 +58,17 @@ const MAX_CARD_TAGS = 3;
  */
 const WIDE_CARD = 480;
 const TIGHT_CARD = 220;
+
+/**
+ * Поле и число чипов по плотности. Средняя карточка — ровно с макета
+ * (R13: поле 8, три тега и «+2»); широкая дышит свободнее, узкая ужимается
+ * до одного тега — геометрия самого чипа при этом не меняется (её держит `Chip`).
+ */
+const DENSITY = {
+  wide: { pad: 12, tags: 6 },
+  normal: { pad: 8, tags: 3 },
+  tight: { pad: 6, tags: 1 },
+} as const;
 
 /** Пропорции карточки. Битый файл размеров не имеет — даём ему спокойный ландшафт. */
 export function cardRatio(file: FileRecord): number {
@@ -62,7 +82,7 @@ function Preview({ file }: { file: FileRecord }) {
   if (file.isBroken) {
     return (
       <div className="flex h-full w-full items-center justify-center text-ink-faint">
-        <ImageOff className="size-6" strokeWidth={1.5} aria-hidden />
+        <Icon icon={ImageOff} size={24} aria-hidden />
       </div>
     );
   }
@@ -71,8 +91,8 @@ function Preview({ file }: { file: FileRecord }) {
   if (file.previewUrl === null || failed) {
     return (
       <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-ink-faint">
-        <Shapes className="size-7" strokeWidth={1.5} aria-hidden />
-        <span className="font-mono text-2xs tracking-label uppercase">{file.ext}</span>
+        <Icon icon={Shapes} size={28} aria-hidden />
+        <span className="label-section">{file.ext}</span>
       </div>
     );
   }
@@ -109,20 +129,25 @@ export const GridCard = memo(function GridCard({
   onReveal,
   onContextSelect,
   onAddTag,
+  onMoveToFolder,
 }: GridCardProps) {
   const inTrash = scope === 'trash';
-  const shownTags = file.tags.slice(0, MAX_CARD_TAGS);
-  const hiddenTags = file.tags.length - shownTags.length;
   const carried = useFileDrag((state) => state.dragging && state.ids.includes(file.id));
+  const reduced = useReducedMotion();
 
   /*
-    Плотность разметки. На широкой карточке подписи мельчат, на узкой — наоборот,
-    съедают картинку: там остаётся только чекбокс и точка «похоже, дубль».
+    Плотность разметки. На широкой карточке чипов помещается больше, на узкой
+    имя папки и лишние теги съели бы картинку — остаются один тег и «+N».
   */
   const wide = box.width >= WIDE_CARD;
   const tight = box.width < TIGHT_CARD;
-  const badgeText = wide ? 'text-xs' : undefined;
-  const checkboxSize = wide ? 'size-6' : tight ? 'size-4 [&>svg]:size-2.5' : undefined;
+  const density = wide ? DENSITY.wide : tight ? DENSITY.tight : DENSITY.normal;
+  const shownTags = file.tags.slice(0, density.tags);
+  const hiddenTags = file.tags.length - shownTags.length;
+  const similar = file.similarToFileId !== null;
+  /* Имя папки показываем только там, где карточка не занята чекбоксом (G3F-0 · наведение). */
+  const showFolderChip = folderName !== null && !tight;
+  const hasFooter = similar || shownTags.length > 0 || file.ext === 'gif';
 
   /*
     Перенос на pointer-событиях: HTML5 drag&drop в окне Tauri не доходит до страницы
@@ -224,9 +249,9 @@ export const GridCard = memo(function GridCard({
           style={{ left: box.x, top: box.y, width: box.width, height: box.height }}
           className={cn(
             'group absolute',
-            // Источник переноса приглушён: груз уехал под курсор.
+            // Источник переноса приглушён: груз уехал под курсор (R07).
             'transition-opacity duration-[var(--dur-fast)] ease-out',
-            carried && 'opacity-50',
+            carried && 'opacity-40',
           )}
           onPointerDown={handlePointerDown}
           onContextMenu={() => {
@@ -250,87 +275,92 @@ export const GridCard = memo(function GridCard({
         >
           <div
             className={cn(
-              'relative h-full w-full overflow-hidden bg-surface-raised',
-              // Узкой карточке макетный радиус великоват — скругление уходит на ступень вниз.
-              tight ? 'rounded-sm' : 'rounded-md',
-              'transition-transform duration-[var(--dur-fast)] ease-out',
-              'group-hover:scale-[1.01]',
-              selected && 'shadow-card-selected',
+              'relative h-full w-full overflow-clip rounded-card bg-raised',
+              'transition-transform duration-[var(--dur-hover)] ease-out',
+              'group-hover:scale-[var(--scale-card-hover)]',
+              /* Корзина: карточки приглушены — R04, opacity 0.55 у каждой. */
+              inTrash && 'opacity-55',
             )}
           >
             <Preview file={file} />
 
-            {/* Верхний ряд: чекбокс и имя папки слева, «похоже, дубль» справа. */}
-            <div
-              className={cn(
-                'pointer-events-none absolute inset-x-0 top-0 flex items-start gap-1.5',
-                tight ? 'p-1.5' : 'p-2',
-              )}
-            >
-              <div className="pointer-events-auto flex min-w-0 items-center gap-1.5">
-                <Checkbox
-                  checked={selected}
-                  onCheckedChange={() => onToggle(file)}
-                  label={selected ? 'Снять выделение' : 'Выделить'}
-                  className={cn(
-                    'transition-opacity duration-[var(--dur-fast)] ease-out',
-                    selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
-                    checkboxSize,
-                  )}
-                />
-                {/* Имя папки на узкой карточке не поместится — прячем целиком. */}
-                {folderName && !tight ? (
-                  <Badge className={cn('min-w-0', badgeText)}>{folderName}</Badge>
-                ) : null}
-              </div>
-              <div className="flex-1" />
-              {file.similarToFileId !== null ? (
-                tight ? (
-                  // Плашка съела бы четверть карточки — от неё остаётся точка с подсказкой.
-                  <Tooltip content="Похоже, дубль" side="left">
-                    <span
-                      role="img"
-                      aria-label="Похоже, дубль"
-                      className="pointer-events-auto mt-1 size-1.5 shrink-0 rounded-pill bg-warning"
-                    />
-                  </Tooltip>
-                ) : (
-                  <Badge className={badgeText}>похоже, дубль</Badge>
-                )
-              ) : null}
-            </div>
-
-            {/* Нижний ряд: «gif» виден всегда, теги — только по наведению (решение D3). */}
-            {file.ext === 'gif' || (shownTags.length > 0 && !tight) ? (
+            {/*
+              Низ карточки: «Похоже дубль» отдельной строкой над тегами, теги —
+              светлыми чипами. Видны всегда, а не по наведению (G3F-0 · покой).
+            */}
+            {hasFooter ? (
               <div
-                className={cn(
-                  'pointer-events-none absolute inset-x-0 bottom-0 flex flex-wrap items-end gap-1',
-                  tight ? 'p-1.5' : 'p-2',
-                )}
+                className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col items-start gap-1"
+                style={{ padding: density.pad }}
               >
-                {file.ext === 'gif' ? <Badge className={badgeText}>gif</Badge> : null}
-                {shownTags.length > 0 && !tight ? (
-                  <span
-                    className={cn(
-                      'flex min-w-0 flex-wrap items-end gap-1',
-                      'transition-opacity duration-[var(--dur-fast)] ease-out',
-                      selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
-                    )}
-                  >
-                    {shownTags.map((tag) => (
-                      <Badge key={tag} className={cn('max-w-[120px]', badgeText)}>
-                        {tag}
-                      </Badge>
-                    ))}
-                    {hiddenTags > 0 ? <Badge className={badgeText}>+{hiddenTags}</Badge> : null}
-                  </span>
-                ) : null}
+                {similar ? <Chip variant="solid">Похоже дубль</Chip> : null}
+                <div className="flex max-w-full flex-wrap items-end gap-1">
+                  {file.ext === 'gif' ? <Chip variant="light">gif</Chip> : null}
+                  {shownTags.map((tag) => (
+                    <Chip key={tag} variant="light" className="max-w-[120px]">
+                      {tag}
+                    </Chip>
+                  ))}
+                  {hiddenTags > 0 ? <Chip variant="light">+{hiddenTags}</Chip> : null}
+                </div>
               </div>
             ) : null}
 
+            {/*
+              Левый верхний угол — один слот на двоих: в покое там имя папки,
+              под курсором и у выбранной карточки его сменяет круглый чекбокс.
+            */}
+            <div
+              className="pointer-events-none absolute"
+              style={{ left: density.pad, top: density.pad }}
+            >
+              {showFolderChip ? (
+                <Chip
+                  variant="dark"
+                  className={cn(
+                    'transition-opacity duration-[var(--dur-fast)] ease-out',
+                    selected ? 'opacity-0' : 'opacity-100 group-hover:opacity-0',
+                  )}
+                >
+                  {folderName}
+                </Chip>
+              ) : null}
+              <Checkbox
+                checked={selected}
+                onCheckedChange={() => onToggle(file)}
+                label={selected ? 'Снять выделение' : 'Выделить'}
+                className={cn(
+                  'pointer-events-auto absolute top-0 left-0',
+                  'transition-opacity duration-[var(--dur-fast)] ease-out',
+                  selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
+                )}
+              />
+            </div>
+
+            {/*
+              Кольцо выбранной карточки: обводка 3 px внутрь (в макете это
+              `border`, а не внешняя тень) и пружина 380/32 на появлении.
+            */}
+            {selected ? (
+              <motion.span
+                aria-hidden
+                initial={reduced ? { opacity: 1, scale: 1 } : { opacity: 0, scale: 1.04 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={reduced ? { duration: 0 } : SPRING_PANEL}
+                style={{ borderWidth: CARD_RING_WIDTH }}
+                className="pointer-events-none absolute inset-0 rounded-card border-brand"
+              />
+            ) : null}
+
+            {/*
+              Битого файла в макете нет — оформляем тем же языком чипов:
+              тёмный чип поверх превью, текст цветом ошибки (допущение).
+            */}
             {file.isBroken ? (
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                <Badge variant="danger">битый файл</Badge>
+                <Chip variant="dark" className="text-danger">
+                  битый файл
+                </Chip>
               </div>
             ) : null}
           </div>
@@ -352,11 +382,13 @@ export const GridCard = memo(function GridCard({
             <ContextMenuItem hotkey="⌘C" onSelect={() => onCopy(file)}>
               Скопировать
             </ContextMenuItem>
+            <ContextMenuItem onSelect={() => onMoveToFolder(file)}>В папку…</ContextMenuItem>
+            {/* «Добавить тег…» в макете R14 нет, но действие есть в коде — оставляем рядом с «В папку…». */}
             <ContextMenuItem onSelect={() => onAddTag(file)}>Добавить тег…</ContextMenuItem>
             <ContextMenuItem onSelect={() => onReveal(file)}>Показать в Finder</ContextMenuItem>
             <ContextMenuSeparator />
             <ContextMenuItem danger hotkey="⌫" onSelect={() => onTrash(file)}>
-              В корзину
+              Удалить
             </ContextMenuItem>
           </>
         )}

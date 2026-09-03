@@ -5,6 +5,12 @@
  *   icons/source-1024.png — исходник для `tauri icon` (из него делаются .icns и .ico)
  *   icons/tray.png / tray@2x.png — шаблонная иконка строки меню (только альфа, цвет macOS
  *   подставляет сам: чёрный в светлой полосе, белый в тёмной)
+ *
+ * Знак — ребрендинг 02.09.2026: два path из web/src/assets/logo-mark.svg (viewBox
+ * "2.913 0 14.659 29", лайм #c5fd63), вписаны по высоте через вложенный <svg> с тем же
+ * viewBox — масштаб и сдвиг считает сам SVG, без ручной матрицы. Фон — сплошной #1c1d1f
+ * (токен --color-panel, web/src/styles/tokens.css), без градиента: прежний мятный
+ * градиент конфликтовал по цвету с новым лаймовым знаком.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -16,29 +22,43 @@ const ICONS = path.resolve(HERE, '..', 'src-tauri', 'icons');
 const require = createRequire(path.resolve(HERE, '..', '..', 'package.json'));
 const sharp = require('sharp');
 
-/** Логотип: скруглённый квадрат с фирменным градиентом и стопкой карточек внутри. */
+// Знак: web/src/assets/logo-mark.svg — оба <path> перенесены дословно, меняется только fill.
+const MARK_VIEWBOX = '2.913 0 14.659 29';
+const MARK_PATHS = `
+    <path d="M9.939 0C9.939 0 2.737 7.196 2.737 7.196 2.737 7.196 2.737 14.538 2.737 14.538 2.737 14.538 10.075 14.538 10.075 14.538 10.075 14.538 17.278 7.341 17.278 7.341 17.278 7.341 17.278 0 17.278 0 17.278 0 9.939 0 9.939 0Z" fill-rule="nonzero" fill="{{COLOR}}"/>
+    <path d="M10.055 14.465C10.055 14.465 2.853 21.661 2.853 21.661 2.853 21.661 2.853 29.003 2.853 29.003 2.853 29.003 10.192 29.003 10.192 29.003 10.192 29.003 17.395 21.806 17.395 21.806 17.395 21.806 17.395 14.465 17.395 14.465 17.395 14.465 10.055 14.465 10.055 14.465Z" fill-rule="nonzero" fill="{{COLOR}}"/>`;
+
+/**
+ * Вписывает знак высотой targetH по центру (cx, cy). Вложенный <svg> со своим viewBox
+ * сам растягивает содержимое — не нужно вручную считать translate/scale.
+ */
+function mark(color, cx, cy, targetH) {
+  const scale = targetH / 29;
+  const targetW = 14.659 * scale;
+  const x = cx - targetW / 2;
+  const y = cy - targetH / 2;
+  const paths = MARK_PATHS.replaceAll('{{COLOR}}', color);
+  return `<svg x="${x}" y="${y}" width="${targetW}" height="${targetH}" viewBox="${MARK_VIEWBOX}">${paths}
+  </svg>`;
+}
+
+// Высота знака — 566px из 1024 (55.3% канвы). Проверено на тёмном фоне живьём: читается
+// уверенно, увеличивать до потолка в 60% не потребовалось.
+const APP_MARK_HEIGHT = 566;
+// Трей — тот же мотив, 33px из 44 (75% канвы), как и до ребрендинга.
+const TRAY_MARK_HEIGHT = 33;
+
+/** Логотип: скруглённый квадрат #1c1d1f с лаймовым знаком по центру. */
 const appIcon = `
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-  <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#3ddbb0"/>
-      <stop offset="1" stop-color="#21c39b"/>
-    </linearGradient>
-  </defs>
-  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#g)"/>
-  <g fill="none" stroke="#04231b" stroke-width="42" stroke-linejoin="round">
-    <rect x="290" y="250" width="330" height="410" rx="52" opacity="0.45"/>
-    <rect x="404" y="364" width="330" height="410" rx="52" fill="#04231b" fill-opacity="0.14"/>
-  </g>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="#1c1d1f"/>
+  ${mark('#c5fd63', 512, 512, APP_MARK_HEIGHT)}
 </svg>`;
 
-/** Иконка строки меню: тот же мотив стопки, но силуэтом — важна только альфа. */
+/** Иконка строки меню: тот же знак силуэтом — важна только альфа. */
 const trayIcon = `
 <svg xmlns="http://www.w3.org/2000/svg" width="44" height="44" viewBox="0 0 44 44">
-  <g fill="none" stroke="#000000" stroke-width="3" stroke-linejoin="round">
-    <rect x="9.5" y="7.5" width="19" height="24" rx="4"/>
-    <rect x="15.5" y="13.5" width="19" height="24" rx="4" fill="#000000" fill-opacity="0.18"/>
-  </g>
+  ${mark('#000000', 22, 22, TRAY_MARK_HEIGHT)}
 </svg>`;
 
 async function write(name, svg, size) {

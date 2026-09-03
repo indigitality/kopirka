@@ -15,9 +15,14 @@ export function isEditableTarget(target: EventTarget | null): boolean {
 }
 
 /**
- * Открыта модалка или поповер — Esc принадлежит им.
+ * Открыта модалка или поповер — Esc и Backspace принадлежат им.
  * Смотрим только на `data-state="open"`: закрытый слой живёт в DOM ещё ~140 мс,
  * пока проигрывается выход, и его присутствие ничего не значит.
+ *
+ * Проверка по DOM опаздывает ровно на Esc: Radix снимает слой из обработчика
+ * в фазе перехвата, атрибут успевает стать `closed`, и наш обработчик в фазе
+ * всплытия видит «слоёв нет» и заодно сбрасывает выделение. Поэтому сетка
+ * дополнительно сообщает про свои слои флагом `layerOpen` (см. ниже).
  */
 export function overlayOpen(): boolean {
   return (
@@ -37,6 +42,12 @@ export interface GridHotkeyHandlers {
   closeDetail: () => void;
   stepDetail: (delta: 1 | -1) => void;
   hasSelection: boolean;
+  /**
+   * Открыт слой самой сетки: модалка массового действия, подтверждение,
+   * переименование папки, меню «⋮». Esc и Backspace в этот момент принадлежат
+   * слою: окно закрывается, выделение остаётся.
+   */
+  layerOpen?: boolean;
   /** D5 — ⌘1 / ⌘2 / ⌘3 переключают размер карточек. */
   setGridSize: (size: GridSize) => void;
 }
@@ -59,7 +70,7 @@ export function useGridHotkeys(handlers: GridHotkeyHandlers): void {
       const meta = event.metaKey || event.ctrlKey;
 
       if (event.key === 'Escape') {
-        if (overlayOpen()) return;
+        if (ref.current.layerOpen || overlayOpen()) return;
         if (ref.current.detailOpen) {
           event.preventDefault();
           ref.current.closeDetail();
@@ -104,7 +115,7 @@ export function useGridHotkeys(handlers: GridHotkeyHandlers): void {
         if (meta) return;
         // Открыт слой — Backspace принадлежит ему: иначе нажатие в модалке
         // (например, в настройках) отправило бы выделенное в корзину.
-        if (overlayOpen()) return;
+        if (ref.current.layerOpen || overlayOpen()) return;
         event.preventDefault();
         ref.current.deleteSelection();
       }

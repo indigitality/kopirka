@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { Button } from './Button';
 import { SelectionBar } from './SelectionBar';
@@ -5,8 +6,9 @@ import { ToastProvider, useToast, type ToastOptions } from './Toast';
 
 /**
  * Тост живёт в портале провайдера и всплывает снизу по центру, поэтому история —
- * это кнопка-триггер, а не сам компонент. Проверять здесь стоит три вещи:
- * крестик закрытия, паузу таймера под курсором и тон `success`.
+ * это кнопка-триггер, а не сам компонент. Канон — R14 · «Тосты»: стеклянная
+ * пилюля 40 px, радиус `--radius-card`, поля 14, без тени. Проверять стоит
+ * стекло на подложке, паузу таймера под курсором и стопку из нескольких тостов.
  */
 function Trigger({ label, options }: { label: string; options: ToastOptions }) {
   const { toast } = useToast();
@@ -39,11 +41,12 @@ export const Обычный: Story = {
   args: { label: 'Показать тост', options: { title: 'Папка создана' } },
 };
 
-/** Тон успеха — «Сохранено», «Скопировано», «Файл вернулся» (дизайн-аудит §5). */
+/** Успех: галка в макете лаймовая (`brand`), а не зелёная. */
 export const Успех: Story = {
   args: { label: 'Показать успех', options: { title: 'Скопировано в буфер', tone: 'success' } },
 };
 
+/** Ошибка: `triangle-alert` и текст цветом `danger`. */
 export const Ошибка: Story = {
   args: {
     label: 'Показать ошибку',
@@ -52,8 +55,9 @@ export const Ошибка: Story = {
 };
 
 /**
- * С действием: снизу идёт полоска остатка времени. Наведите курсор — таймер и
- * полоска встают на паузу, увели — идут дальше (аудит 4.23).
+ * С действием. Полосы обратного отсчёта в редизайне нет — её убрали вслед за
+ * макетом R14; пауза таймера под курсором осталась (аудит 4.23): наведите
+ * курсор, уведите — тост доживёт остаток времени.
  */
 export const СОтменой: Story = {
   name: 'С отменой · пауза под курсором',
@@ -64,6 +68,33 @@ export const СОтменой: Story = {
       action: { label: 'Отменить', onClick: () => {} },
     },
   },
+};
+
+/**
+ * Стопка: новый тост встаёт снизу, каждый следующий сверху уезжает на 8 px
+ * и теряет 20 % непрозрачности (`toastStackMotion`). Нажмите три раза подряд.
+ */
+export const Стопка: Story = {
+  name: 'Стопка · три подряд',
+  render: function СтопкаDemo() {
+    const { toast } = useToast();
+    const count = useRef(0);
+    return (
+      <Button
+        variant="secondary"
+        onClick={() => {
+          count.current += 1;
+          toast({
+            title: `Файл ${count.current} в корзине`,
+            action: { label: 'Отменить', onClick: () => {} },
+          });
+        }}
+      >
+        Добавить тост
+      </Button>
+    );
+  },
+  args: { label: 'Добавить тост', options: {} },
 };
 
 /**

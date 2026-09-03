@@ -1,9 +1,14 @@
 /**
- * Генерирует иконки расширения: мятный квадрат с градиентом акцента —
- * тот же логотип, что в сайдбаре приложения (DESIGN-SPEC §1).
+ * Генерирует иконки расширения: тёмный скруглённый квадрат #1c1d1f (--color-panel,
+ * см. web/src/styles/tokens.css) с лаймовым знаком #c5fd63 по центру — ребрендинг
+ * 02.09.2026, знак взят из web/src/assets/logo-mark.svg (viewBox "2.913 0 14.659 29").
+ * До ребрендинга иконка была просто мятной заливкой без знака — тот же логотип, что
+ * тогда был в сайдбаре приложения (DESIGN-SPEC §1); теперь у знака есть форма, и он
+ * встал в композицию, как в десктопной иконке (desktop/scripts/make-icons.mjs).
  *
  * Запуск: node tools/make-icons.mjs
- * Внешних зависимостей нет: PNG собирается вручную через zlib.
+ * Внешних зависимостей нет: PNG собирается вручную через zlib, знак — через
+ * point-in-polygon (крестовый тест чётности), фон — через SDF скруглённого прямоугольника.
  */
 
 import { deflateSync } from 'node:zlib';
@@ -11,11 +16,21 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const ACCENT = [0x3d, 0xdb, 0xb0]; // --color-accent
-const ACCENT_DEEP = [0x21, 0xc3, 0x9b]; // --color-accent-deep
+const BG = [0x1c, 0x1d, 0x1f]; // --color-panel
+const MARK_COLOR = [0xc5, 0xfd, 0x63]; // знак, web/src/assets/logo-mark.svg
 const RADIUS_RATIO = 0.22;
 const INSET_RATIO = 0.0625; // поля вокруг квадрата, чтобы иконка не липла к краям
+const MARK_HEIGHT_RATIO = 0.6; // высота знака от канвы — потолок, заданный 02.09.2026
 const SUPERSAMPLE = 4;
+
+// Знак: web/src/assets/logo-mark.svg, viewBox "2.913 0 14.659 29". Оба <path> в исходнике
+// используют C-сегменты с вырожденными контрольными точками (совпадают с опорными) —
+// по факту это прямые, поэтому знак сведён к двум 6-вершинным многоугольникам.
+const MARK_VIEWBOX = { minX: 2.913, minY: 0, width: 14.659, height: 29 };
+const MARK_POLYGONS = [
+  [[9.939, 0], [2.737, 7.196], [2.737, 14.538], [10.075, 14.538], [17.278, 7.341], [17.278, 0]],
+  [[10.055, 14.465], [2.853, 21.661], [2.853, 29.003], [10.192, 29.003], [17.395, 21.806], [17.395, 14.465]],
+];
 
 function main() {
   const outputDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'icons');
@@ -25,6 +40,34 @@ function main() {
     writeFileSync(join(outputDir, `icon${size}.png`), encodePng(size, size, renderIcon(size)));
     console.log(`icons/icon${size}.png`);
   }
+}
+
+/**
+ * Знак, вписанный по высоте targetH в центр (cx, cy), в виде многоугольников в пиксельных
+ * координатах канвы — тот же приём, что вложенный <svg viewBox> в десктопном генераторе,
+ * только руками: масштаб от родного viewBox знака, потом сдвиг к центру.
+ */
+function positionedMarkPolygons(cx, cy, targetH) {
+  const scale = targetH / MARK_VIEWBOX.height;
+  const targetW = MARK_VIEWBOX.width * scale;
+  const originX = cx - targetW / 2;
+  const originY = cy - targetH / 2;
+  return MARK_POLYGONS.map((poly) => poly.map(([px, py]) => [
+    originX + (px - MARK_VIEWBOX.minX) * scale,
+    originY + (py - MARK_VIEWBOX.minY) * scale,
+  ]));
+}
+
+/** Крестовый тест чётности (even-odd rule) — стандартный point-in-polygon без зависимостей. */
+function pointInPolygon(x, y, polygon) {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i, i += 1) {
+    const [xi, yi] = polygon[i];
+    const [xj, yj] = polygon[j];
+    const crosses = yi > y !== yj > y;
+    if (crosses && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
 }
 
 /**
@@ -39,28 +82,35 @@ function renderIcon(size) {
   const x1 = size - inset;
   const y1 = size - inset;
   const radius = (x1 - x0) * RADIUS_RATIO;
-  const span = (x1 - x0) + (y1 - y0);
+  const markPolygons = positionedMarkPolygons(size / 2, size / 2, size * MARK_HEIGHT_RATIO);
 
   for (let y = 0; y < size; y += 1) {
     for (let x = 0; x < size; x += 1) {
-      let covered = 0;
+      let coveredBg = 0;
+      let coveredMark = 0;
       for (let sy = 0; sy < SUPERSAMPLE; sy += 1) {
         for (let sx = 0; sx < SUPERSAMPLE; sx += 1) {
           const px = x + (sx + 0.5) / SUPERSAMPLE;
           const py = y + (sy + 0.5) / SUPERSAMPLE;
-          if (insideRoundedRect(px, py, x0, y0, x1, y1, radius)) covered += 1;
+          if (markPolygons.some((poly) => pointInPolygon(px, py, poly))) {
+            coveredMark += 1;
+          } else if (insideRoundedRect(px, py, x0, y0, x1, y1, radius)) {
+            coveredBg += 1;
+          }
         }
       }
 
-      const alpha = covered / (SUPERSAMPLE * SUPERSAMPLE);
-      const t = Math.min(Math.max(((x + 0.5 - x0) + (y + 0.5 - y0)) / span, 0), 1);
+      const total = SUPERSAMPLE * SUPERSAMPLE;
+      const covered = coveredBg + coveredMark;
       const offset = (y * size + x) * 4;
-      for (let channel = 0; channel < 3; channel += 1) {
-        pixels[offset + channel] = Math.round(
-          ACCENT[channel] + (ACCENT_DEEP[channel] - ACCENT[channel]) * t,
-        );
+      if (covered > 0) {
+        for (let channel = 0; channel < 3; channel += 1) {
+          pixels[offset + channel] = Math.round(
+            (BG[channel] * coveredBg + MARK_COLOR[channel] * coveredMark) / covered,
+          );
+        }
       }
-      pixels[offset + 3] = Math.round(alpha * 255);
+      pixels[offset + 3] = Math.round((covered / total) * 255);
     }
   }
 

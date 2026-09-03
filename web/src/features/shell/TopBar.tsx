@@ -1,10 +1,14 @@
-import { AnimatePresence, motion } from 'motion/react';
-import { Grid2x2, Grid3x3, PanelLeftOpen, Square } from 'lucide-react';
-import { IconButton } from '@/components/ui/IconButton';
-import { DUR_BASE, EASE_OUT } from '@/lib/motion';
+/**
+ * Верхняя панель — узел «Верхняя панель» R01 и полка R13.
+ *
+ * Своего фона у панели нет: она лежит на вуали колонки контента (см. `AppShell`).
+ * Слева поле поиска 280 × 32, справа пульт «на одной подложке» — сортировка,
+ * размер, фильтр: у каждого своя заливка `control`, тон один, зазор 8.
+ */
+import { Grid2x2, Grid3x3, Square } from 'lucide-react';
+import { Icon } from '@/lib/icons';
 import { SearchField, type BeamMode } from '@/components/ui/SearchField';
 import { SegmentedControl, type SegmentedOption } from '@/components/ui/SegmentedControl';
-import { Tooltip } from '@/components/ui/Tooltip';
 import { FilterButton } from '@/features/filters/FilterButton';
 import { SortButton } from '@/features/filters/SortButton';
 import { useViewSelector, viewActions, type GridSize } from '@/store/view';
@@ -12,27 +16,12 @@ import { useViewSelector, viewActions, type GridSize } from '@/store/view';
 /**
  * Размер карточек — решение D5 от 02.09.2026. Иконки идут по возрастанию плотности:
  * одна крупная ячейка → четыре → девять. Лучшего ряда в lucide нет: решётки 4×4
- * в наборе не существует, а `LayoutGrid` и `Grid2x2` в 14 px неразличимы.
+ * в наборе не существует. В редизайне они 16 px (узел «размер карточек» R13).
  */
 const GRID_SIZE_OPTIONS: readonly SegmentedOption<GridSize>[] = [
-  {
-    value: 'l',
-    label: 'Большие',
-    hotkey: '⌘1',
-    icon: <Square className="size-3.5" strokeWidth={2} aria-hidden />,
-  },
-  {
-    value: 'm',
-    label: 'Средние',
-    hotkey: '⌘2',
-    icon: <Grid2x2 className="size-3.5" strokeWidth={2} aria-hidden />,
-  },
-  {
-    value: 's',
-    label: 'Маленькие',
-    hotkey: '⌘3',
-    icon: <Grid3x3 className="size-3.5" strokeWidth={2} aria-hidden />,
-  },
+  { value: 'l', label: 'Большие', hotkey: '⌘1', icon: <Icon icon={Square} aria-hidden /> },
+  { value: 'm', label: 'Средние', hotkey: '⌘2', icon: <Icon icon={Grid2x2} aria-hidden /> },
+  { value: 's', label: 'Маленькие', hotkey: '⌘3', icon: <Icon icon={Grid3x3} aria-hidden /> },
 ];
 
 export interface TopBarProps {
@@ -46,11 +35,15 @@ export interface TopBarProps {
   filterOpen?: boolean;
 }
 
-export function TopBar({ beamMode = 'hover', onOpenFilter, filterCount = 0, filterOpen = false }: TopBarProps) {
+export function TopBar({
+  beamMode = 'hover',
+  onOpenFilter,
+  filterCount = 0,
+  filterOpen = false,
+}: TopBarProps) {
   const query = useViewSelector((s) => s.query);
   const sort = useViewSelector((s) => s.sort);
   const gridSize = useViewSelector((s) => s.gridSize);
-  const sidebarCollapsed = useViewSelector((s) => s.sidebarCollapsed);
 
   return (
     /*
@@ -58,58 +51,32 @@ export function TopBar({ beamMode = 'hover', onOpenFilter, filterCount = 0, filt
       и без разметки окно тянулось только за невидимые верхние 28 px (аудит логики §7).
       `deep` разрешает тянуть за фон панели; поле ввода и кнопки внутри
       перетаскивание блокируют сами. В браузере это обычный data-атрибут.
+
+      Высота — `--shell-topbar`, а не `--size-topbar`: десктопная обёртка
+      прибавляет ко второму инсет светофора (28 px), а в редизайне светофор
+      лежит над сайдбаром, и опускать панель контента незачем — инсет
+      отрабатывает сайдбар. `desktop/` при этом не трогаем.
     */
     <header
       data-tauri-drag-region="deep"
-      className="flex h-[var(--size-topbar)] shrink-0 items-center gap-2 bg-surface px-[var(--grid-pad)]"
+      className="flex h-[var(--shell-topbar)] shrink-0 items-center gap-[var(--panel-pad)] px-[var(--panel-pad)]"
     >
-      {/*
-        Развернуть сайдбар. Кнопка живёт в сайдбаре, у логотипа, — но у свёрнутого
-        сайдбара ширина 0, и вернуть его было бы нечем, кроме ⌘\ (дизайн-аудит 4.2).
-        Поэтому только в свёрнутом состоянии она выезжает в левый угол панели, теми
-        же длительностью и кривой, что и сам сайдбар. По вертикали кнопка стоит по
-        центру панели: в окне приложения `--size-topbar` уже включает инсет 28px,
-        и светофор macOS остаётся выше неё.
-      */}
-      <AnimatePresence initial={false}>
-        {sidebarCollapsed ? (
-          <motion.div
-            key="expand-sidebar"
-            /* `marginRight` гасит зазор ряда: он появляется сразу, а ширина растёт 200 мс. */
-            initial={{ width: 0, marginRight: -8, opacity: 0 }}
-            animate={{ width: 28, marginRight: 0, opacity: 1 }}
-            exit={{ width: 0, marginRight: -8, opacity: 0 }}
-            transition={{ duration: DUR_BASE, ease: EASE_OUT }}
-            className="shrink-0 overflow-hidden"
-          >
-            <Tooltip content="Показать сайдбар" hotkey="⌘\" side="bottom">
-              <IconButton
-                size="sm"
-                label="Показать сайдбар"
-                aria-pressed={false}
-                onClick={() => viewActions.toggleSidebar()}
-              >
-                <PanelLeftOpen className="size-4" strokeWidth={2} aria-hidden />
-              </IconButton>
-            </Tooltip>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
-
       <SearchField value={query} onValueChange={viewActions.setQuery} beamMode={beamMode} />
 
       <div className="flex-1" />
 
-      {/* Порядок ряда — дизайн-аудит §3.3: сортировка · размер · фильтр. */}
-      <SortButton value={sort} onValueChange={viewActions.setSort} />
-      <SegmentedControl
-        label="Размер карточек"
-        value={gridSize}
-        onValueChange={viewActions.setGridSize}
-        options={GRID_SIZE_OPTIONS}
-        segmentWidth={32}
-      />
-      <FilterButton count={filterCount} open={filterOpen} onClick={() => onOpenFilter?.()} />
+      {/* Пульт: порядок ряда — сортировка · размер · фильтр, зазор 8 (узел «Пульт» R01). */}
+      <div className="flex shrink-0 items-center gap-2">
+        <SortButton value={sort} onValueChange={viewActions.setSort} />
+        <SegmentedControl
+          label="Размер карточек"
+          value={gridSize}
+          onValueChange={viewActions.setGridSize}
+          options={GRID_SIZE_OPTIONS}
+          segmentWidth={32}
+        />
+        <FilterButton count={filterCount} open={filterOpen} onClick={() => onOpenFilter?.()} />
+      </div>
     </header>
   );
 }

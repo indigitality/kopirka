@@ -27,7 +27,7 @@ const preview: Preview = {
     */
     (Story) => (
       <TooltipProvider>
-        <div className="min-h-[120px] bg-bg p-6 font-sans text-ink antialiased">
+        <div className="min-h-[120px] bg-app p-6 font-sans text-ink antialiased">
           <Story />
         </div>
       </TooltipProvider>

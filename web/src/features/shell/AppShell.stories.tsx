@@ -1,15 +1,17 @@
+import type { CSSProperties } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import type { StatsResponse } from '@shared/api';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { AppShell } from './AppShell';
 import { mockFolders } from './mock';
 
-const stats: StatsResponse = { library: 214, untagged: 17, trash: 9, similar: 3 };
+const stats: StatsResponse = { library: 214, untagged: 8, trash: 12, similar: 3 };
 
 /**
  * Заглушка вместо карточек: настоящая сетка живёт в `GridScreen` и ходит в API
  * через `LibraryProvider`, поэтому в витрине её место занимают плашки тех же
- * пропорций. Проверять здесь нужно оболочку — сайдбар, верхнюю панель и поля.
+ * пропорций. Проверять здесь нужно оболочку — панели, зазоры, радиусы и поля.
+ * Поля блока сетки задаёт сама сетка (`--grid-pad` 16), не оболочка.
  */
 function GridPlaceholder() {
   const columns = [
@@ -19,13 +21,13 @@ function GridPlaceholder() {
     [340, 214, 176],
   ];
   return (
-    <div className="flex gap-[var(--grid-gap)] px-[var(--grid-pad)] pb-[var(--grid-pad)]">
+    <div className="flex gap-[var(--grid-gap)] p-[var(--grid-pad)]">
       {columns.map((column, index) => (
         <div key={index} className="flex flex-1 flex-col gap-[var(--grid-gap)]">
           {column.map((height, cardIndex) => (
             <div
               key={cardIndex}
-              className="rounded-[var(--radius-card)] bg-surface-raised"
+              className="rounded-[var(--radius-card)] bg-control"
               style={{ height }}
             />
           ))}
@@ -41,7 +43,7 @@ const meta = {
   parameters: { layout: 'fullscreen' },
   decorators: [
     (Story) => (
-      <div className="h-screen w-full">
+      <div className="h-screen w-full bg-app">
         <Story />
       </div>
     ),
@@ -71,4 +73,25 @@ export const Пустая: Story = {
       </div>
     ),
   },
+};
+
+/**
+ * Окно macOS: кнопки светофора лежат поверх интерфейса, и оболочка обязана
+ * увести логотип ниже них. Переменную ставит десктопная обёртка
+ * (`desktop/src-tauri/src/windows.rs`, 28 px) — здесь она подставлена руками,
+ * чтобы состояние было видно и в браузере.
+ */
+export const СИнсетомСветофора: Story = {
+  name: 'Инсет светофора macOS (28 px)',
+  args: { children: <GridPlaceholder /> },
+  decorators: [
+    (Story) => (
+      <div
+        className="h-screen w-full bg-app"
+        style={{ '--kopirka-titlebar-inset': '28px' } as CSSProperties}
+      >
+        <Story />
+      </div>
+    ),
+  ],
 };

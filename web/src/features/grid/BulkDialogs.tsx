@@ -1,4 +1,9 @@
-/** Диалоги панели выделения: «В папку» (ORG-03) и «Тег» (ORG-01). */
+/**
+ * Диалоги панели выделения: «В папку» (ORG-03) и «Тег» (ORG-01).
+ * Канон — R14 · «Массовые действия»: та же модалка, что у подтверждений, внутри
+ * один контрол (селект папки или поле тега с подсказками), внизу «Отмена» и
+ * лаймовое действие.
+ */
 import { useEffect, useState } from 'react';
 import { Folder } from 'lucide-react';
 import type { FolderRecord } from '@shared/api';
@@ -7,6 +12,7 @@ import { Modal, ModalContent } from '@/components/ui/Modal';
 import { Select, type SelectOption } from '@/components/ui/Select';
 import { flattenFolders } from '@/lib/folders';
 import { plural } from '@/lib/format';
+import { Icon } from '@/lib/icons';
 import { TagInput } from '@/features/library/TagInput';
 
 /** Значение «пользователь ещё ничего не выбрал» для селекта: такого id у папок нет. */
@@ -19,7 +25,7 @@ function folderOptions(folders: readonly FolderRecord[]): SelectOption<number | 
       value: folder.id,
       label: folder.name,
       depth,
-      icon: <Folder className="size-3.5" strokeWidth={2} aria-hidden />,
+      icon: <Icon icon={Folder} size={16} aria-hidden />,
     })),
   ];
 }
@@ -49,7 +55,7 @@ export function MoveToFolderDialog({
     <Modal open={open} onOpenChange={(next) => (next ? undefined : onCancel())}>
       <ModalContent
         title="Переместить в папку"
-        description={`${count} ${plural(count, 'файл переедет', 'файла переедут', 'файлов переедут')} в выбранную папку. Файл принадлежит одной папке — прежняя связь снимется.`}
+        description={`${count} ${plural(count, 'файл переедет', 'файла переедут', 'файлов переедут')} в выбранную папку. Из текущей ${plural(count, 'он исчезнет', 'они исчезнут', 'они исчезнут')}.`}
         footer={
           <>
             <Button variant="secondary" onClick={onCancel}>
@@ -72,7 +78,7 @@ export function MoveToFolderDialog({
           value={folderId === undefined ? NOTHING_SELECTED : folderId}
           onValueChange={setFolderId}
           options={folderOptions(folders)}
-          icon={<Folder className="size-3.5" strokeWidth={2} aria-hidden />}
+          icon={<Icon icon={Folder} size={16} aria-hidden />}
           placeholder="Выберите папку"
         />
       </ModalContent>
@@ -97,7 +103,7 @@ export function AddTagDialog({
     <Modal open={open} onOpenChange={(next) => (next ? undefined : onCancel())}>
       <ModalContent
         title="Добавить тег"
-        description={`Тег получат ${count} ${plural(count, 'выбранный файл', 'выбранных файла', 'выбранных файлов')}.`}
+        description={`Тег ${plural(count, 'получит', 'получат', 'получат')} все ${count} ${plural(count, 'выбранный файл', 'выбранных файла', 'выбранных файлов')}. Уже проставленные теги останутся.`}
         footer={
           // Первичное действие — «Добавить» у поля; «Готово» просто закрывает (02 §4.25).
           <Button variant="ghost" onClick={onCancel}>

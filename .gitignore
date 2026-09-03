@@ -16,3 +16,10 @@ ds-bundle/
 .design-sync/node_modules
 # декларации для дизайн-системы — генерируются tsconfig.ds.json
 web/dist-types/
+
+# Инструмент design-sync: состояние машины, не код продукта
+.design-sync/
+web/tsconfig.ds.json
+# Генерируемые декларации и кэш tsc
+shared/api.d.ts
+*.tsbuildinfo

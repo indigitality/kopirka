@@ -230,15 +230,18 @@ function Shell({ settings, onSettingsChange }: ShellProps) {
         <GridScreen />
       </AppShell>
 
+      {/*
+        Слои поверх оболочки. Все — после `AppShell` и порталами наружу, поэтому
+        ложатся выше сайдбара и панели контента, каждый со своим скримом:
+        детальный просмотр (R09), затем настройки (R10 — панель во всё окно) и
+        подтверждения (R14). Оболочка при этом остаётся на месте: вместе с ней
+        остаётся и зона перетаскивания окна.
+      */}
       <DetailView />
 
       {/* Груз под курсором. Портал в body: сетка скроллится, призрак — нет. */}
       <DragGhost />
 
-      {/*
-        Модалка поверх оболочки, а не подмена экрана: сетка, сайдбар и шапка
-        остаются на месте — вместе с ними остаётся и зона перетаскивания окна.
-      */}
       <SettingsModal
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
@@ -304,14 +307,14 @@ function Bootstrap() {
 
   if (error !== null) {
     return (
-      <div className="flex h-full items-center justify-center px-8">
+      <div className="flex h-full items-center justify-center bg-app px-8">
         <div className="max-w-sm text-center">
           <p className="text-lg font-medium text-ink">Сервер «Копирки» не отвечает</p>
           <p className="mt-2 text-md text-ink-muted">{error}</p>
           <button
             type="button"
             onClick={load}
-            className="mt-5 h-[var(--size-row)] rounded-md bg-surface-raised px-3 text-md text-ink hover:bg-surface-active"
+            className="mt-5 h-[var(--size-row)] rounded-[var(--radius-md)] bg-control px-3 text-md font-medium text-ink hover:bg-control-hover"
           >
             Повторить
           </button>
@@ -320,7 +323,7 @@ function Bootstrap() {
     );
   }
 
-  if (settings === null) return <div className="h-full bg-bg" />;
+  if (settings === null) return <div className="h-full bg-app" />;
 
   if (!settings.firstRunCompleted) {
     return (

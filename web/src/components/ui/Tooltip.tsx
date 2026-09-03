@@ -1,3 +1,10 @@
+/**
+ * Тултип. Канон — R14 · «Тултипы»: маленькое стекло 24 px, радиус
+ * `--radius-sm`, поля 8, зазор 6; текст 11/14 · 500 `ink`, хоткей 10/12
+ * приглушённый. Тени у тултипа нет вовсе — только стекло и край.
+ *
+ * Появление — `glassLayerMotion` по стороне, куда его поставил Radix.
+ */
 import {
   createContext,
   forwardRef,
@@ -12,7 +19,7 @@ import * as TooltipPrimitive from '@radix-ui/react-tooltip';
 import { AnimatePresence, motion } from 'motion/react';
 import { cn } from '@/lib/cn';
 import { useReducedMotion } from '@/lib/useReducedMotion';
-import { tooltipMotion } from './motion-presets';
+import { glassLayerMotion, sideToFrom } from './motion-presets';
 
 export const TooltipProvider = ({ children, ...rest }: ComponentPropsWithoutRef<typeof TooltipPrimitive.Provider>) => (
   <TooltipPrimitive.Provider delayDuration={400} skipDelayDuration={200} {...rest}>
@@ -49,7 +56,7 @@ export const TooltipTrigger = TooltipPrimitive.Trigger;
 export const TooltipContent = forwardRef<
   ElementRef<typeof TooltipPrimitive.Content>,
   ComponentPropsWithoutRef<typeof TooltipPrimitive.Content>
->(function TooltipContent({ className, sideOffset = 6, children, ...rest }, ref) {
+>(function TooltipContent({ className, side = 'bottom', sideOffset = 6, children, ...rest }, ref) {
   const open = useContext(OpenContext);
   const reduced = useReducedMotion();
 
@@ -57,12 +64,19 @@ export const TooltipContent = forwardRef<
     <AnimatePresence>
       {open ? (
         <TooltipPrimitive.Portal forceMount key="tooltip">
-          <TooltipPrimitive.Content ref={ref} forceMount sideOffset={sideOffset} asChild {...rest}>
+          <TooltipPrimitive.Content
+            ref={ref}
+            forceMount
+            side={side}
+            sideOffset={sideOffset}
+            asChild
+            {...rest}
+          >
             <motion.div
-              {...tooltipMotion(reduced)}
+              {...glassLayerMotion({ from: sideToFrom(side), reduced })}
               className={cn(
-                'z-50 rounded-sm bg-surface-overlay px-2 py-1 text-sm text-ink shadow-popover',
-                'select-none whitespace-nowrap',
+                'glass z-50 flex h-[var(--size-tooltip)] items-center gap-1.5 rounded-sm px-2',
+                'text-xs leading-[14px] font-medium text-ink select-none whitespace-nowrap',
                 className,
               )}
             >
@@ -79,7 +93,7 @@ export interface TooltipProps {
   content: ReactNode;
   children: ReactNode;
   side?: ComponentPropsWithoutRef<typeof TooltipPrimitive.Content>['side'];
-  /** Хоткей справа от текста — моно, приглушённый. */
+  /** Хоткей справа от текста — 10 px, приглушённый. */
   hotkey?: string;
 }
 
@@ -89,10 +103,10 @@ export function Tooltip({ content, children, side = 'bottom', hotkey }: TooltipP
     <TooltipRoot>
       <TooltipTrigger asChild>{children}</TooltipTrigger>
       <TooltipContent side={side}>
-        <span className="flex items-center gap-2">
-          {content}
-          {hotkey ? <span className="font-mono text-2xs text-ink-faint">{hotkey}</span> : null}
-        </span>
+        {content}
+        {hotkey ? (
+          <span className="text-2xs leading-3 font-normal text-ink-faint">{hotkey}</span>
+        ) : null}
       </TooltipContent>
     </TooltipRoot>
   );

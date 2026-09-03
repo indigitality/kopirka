@@ -88,7 +88,11 @@ export interface LibraryValue {
   deleteFolder: (id: number) => Promise<void>;
 }
 
-const LibraryContext = createContext<LibraryValue | null>(null);
+/**
+ * Экспортирован ради витрины: истории Storybook подставляют готовое значение
+ * без сервера. В приложении контекст по-прежнему наполняет только `LibraryProvider`.
+ */
+export const LibraryContext = createContext<LibraryValue | null>(null);
 
 export function useLibrary(): LibraryValue {
   const value = useContext(LibraryContext);

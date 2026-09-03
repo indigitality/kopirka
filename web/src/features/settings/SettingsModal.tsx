@@ -1,22 +1,29 @@
 /**
  * Настройки — SET-01, SET-02, SET-03, SET-05 и служебный блок SVC-04.
  *
- * Модалка поверх оболочки, а не отдельный экран (замечание Сергея 02.09.2026):
- * подменяя оболочку целиком, настройки уносили с собой шапку с зоной
- * перетаскивания — и окно приложения переставало двигаться.
+ * Редизайн 02.09.2026, артборд R10: не диалог на 640, а панель на всё окно
+ * поверх оболочки — поле `--shell-pad` по краям, радиус `--radius-panel`, фон
+ * `--color-panel`. Оболочка при этом остаётся смонтированной: панель — слой
+ * (`Modal size="panel"`), а не подмена экрана. Так окно продолжает тянуться
+ * (зона перетаскивания переехала в шапку панели), а закрытие возвращает ровно
+ * то, что было под ней.
  *
- * Состоянием формы владеет модалка, данными — вызывающая сторона: `settings`
+ * Колонка контента — 720 по центру, разделы разделены зазором 32. Внутри
+ * раздела заголовок и тело стоят на 12, поле и подпись — на 8 (узлы R10).
+ *
+ * Состоянием формы владеет панель, данными — вызывающая сторона: `settings`
  * приходит сверху, изменения уходят в `onSave`. Ошибки валидации показываются
  * у поля, тостами не дублируются (требование раздела «Настройки» задания).
  */
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { AlertTriangle, ChevronRight, FolderOpen, RefreshCw } from 'lucide-react';
+import { ChevronRight, Folder, RefreshCw, TriangleAlert, type LucideIcon } from 'lucide-react';
 import type { AppConfig, SettingsResponse } from '@shared/api';
 import { DEFAULT_PORT } from '@shared/api';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal, ModalContent } from '@/components/ui/Modal';
 import { cn } from '@/lib/cn';
+import { Icon } from '@/lib/icons';
 import { isTauri, pickDirectory } from '@/lib/tauri';
 import { formatBytes, truncateMiddle } from './format';
 
@@ -34,20 +41,25 @@ export interface SettingsModalProps {
   onOpenChange: (open: boolean) => void;
   /** null — данные ещё не пришли. */
   settings: SettingsResponse | null;
-  /** Уходит только изменённое. Ошибку бросать исключением — модалка её покажет. */
+  /** Уходит только изменённое. Ошибку бросать исключением — панель её покажет. */
   onSave: (patch: Partial<AppConfig>) => Promise<SettingsSaveResult | void>;
   className?: string;
 }
 
+/*
+  Путь на диске в R10 набран мельче тела — 12/16 вместо 14/18 примитива:
+  строка длинная, и на 14 она в колонку 720 не помещается. Держим здесь, а не
+  в `Input`: во всех остальных полях редизайна (тег, порт) размер примитивный.
+*/
+const PATH_INPUT = 'text-sm leading-4';
+
 // ── Раскладка ────────────────────────────────────────────────────────────────
 
+/** Раздел колонки: заголовок 10/12 · 500 · uppercase и тело под ним (R10). */
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="mt-9 first:mt-0">
-      <div className="mb-4 flex items-center gap-3">
-        <span className="label-section shrink-0">{title}</span>
-        <span className="h-px flex-1 bg-line-strong" aria-hidden />
-      </div>
+    <section className="flex flex-col gap-3">
+      <h3 className="label-section">{title}</h3>
       {children}
     </section>
   );
@@ -57,6 +69,9 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
  * Свёрнутый блок — D16. Порт нужен раз в жизни и только когда 43117 занят,
  * а на экране настроек он стоял вторым сверху и читался как обязательное поле.
  * Состояние живёт в памяти экрана: запоминать раскрытость между сеансами незачем.
+ *
+ * В R10 строка собрана как шеврон 14 + заголовок раздела + линия до правого
+ * края: заголовок и разделитель разделов — один и тот же элемент.
  */
 function Disclosure({
   title,
@@ -70,29 +85,31 @@ function Disclosure({
   children: ReactNode;
 }) {
   return (
-    <section className="mt-9 first:mt-0">
+    <section className="flex flex-col gap-3">
       <button
         type="button"
         onClick={onToggle}
         aria-expanded={open}
         className="group flex w-full items-center gap-2 text-left"
       >
-        <ChevronRight
+        <Icon
+          icon={ChevronRight}
+          size={14}
           className={cn(
-            'size-3.5 shrink-0 text-ink-faint transition-transform duration-[var(--dur-fast)] ease-out',
+            'shrink-0 text-ink-muted transition-transform duration-[var(--dur-fast)] ease-out',
             open && 'rotate-90',
           )}
-          strokeWidth={2}
           aria-hidden
         />
         <span className="label-section shrink-0 transition-colors group-hover:text-ink">{title}</span>
         <span className="h-px flex-1 bg-line-strong" aria-hidden />
       </button>
-      {open ? <div className="mt-4">{children}</div> : null}
+      {open ? children : null}
     </section>
   );
 }
 
+/** Поле с подписью: метка 14/18 · 500, контрол, подсказка или ошибка 12/18. */
 function Field({
   label,
   htmlFor,
@@ -107,37 +124,73 @@ function Field({
   children: ReactNode;
 }) {
   return (
-    <div>
-      <label htmlFor={htmlFor} className="block text-base text-ink">
+    <div className="flex flex-col gap-2">
+      <label htmlFor={htmlFor} className="text-md leading-[18px] font-medium text-ink">
         {label}
       </label>
-      <div className="mt-2">{children}</div>
+      {children}
       {error ? (
-        <p role="alert" className="mt-1.5 text-sm text-danger">
+        <p role="alert" className="text-sm leading-[18px] text-danger">
           {error}
         </p>
       ) : hint ? (
-        <p className="mt-1.5 text-sm text-ink-muted">{hint}</p>
+        <p className="text-sm leading-[18px] text-ink-faint">{hint}</p>
       ) : null}
     </div>
   );
 }
 
-function InfoRow({ label, value, title, mono }: { label: string; value: string; title?: string; mono?: boolean }) {
+/**
+ * Полоса-предупреждение: заливка тинтом, иконка того же цвета, что и первая
+ * строка. R10 — «Смена пути не переносит файлы», далее теми же средствами
+ * собраны служебные сообщения о перезапуске.
+ */
+const NOTICE_TONE = {
+  warning: { box: 'bg-warning-tint', ink: 'text-warning' },
+  brand: { box: 'bg-brand-tint', ink: 'text-brand' },
+  danger: { box: 'bg-danger-tint', ink: 'text-danger' },
+} as const;
+
+function Notice({
+  tone,
+  icon,
+  title,
+  children,
+}: {
+  tone: keyof typeof NOTICE_TONE;
+  icon: LucideIcon;
+  title: string;
+  children: ReactNode;
+}) {
+  const style = NOTICE_TONE[tone];
+
   return (
-    <div className="flex items-baseline gap-4 border-b border-line-strong py-2.5 last:border-b-0">
-      <span className="w-[164px] shrink-0 text-base text-ink-muted">{label}</span>
-      <span
-        title={title ?? value}
-        className={cn('min-w-0 flex-1 text-ink', mono ? 'font-mono text-xs' : 'text-base')}
-      >
+    <div className={cn('flex gap-2.5 rounded-card p-3.5', style.box)}>
+      {/* Пиксель сверху ставит иконку на оптическую линию первой строки. */}
+      <span className="shrink-0 pt-px">
+        <Icon icon={icon} className={style.ink} aria-hidden />
+      </span>
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <p className={cn('text-md leading-[18px] font-medium', style.ink)}>{title}</p>
+        <p className="text-base leading-[19px] text-ink-muted">{children}</p>
+      </div>
+    </div>
+  );
+}
+
+/** Строка таблицы «О программе»: 40 в высоту, метка на 200, разделитель `line`. */
+function InfoRow({ label, value, title }: { label: string; value: string; title?: string }) {
+  return (
+    <div className="flex h-10 items-center border-b border-line px-3.5 last:border-b-0">
+      <span className="w-[200px] shrink-0 text-base leading-4 text-ink-muted">{label}</span>
+      <span title={title ?? value} className="min-w-0 flex-1 truncate text-sm leading-4 text-ink">
         {value}
       </span>
     </div>
   );
 }
 
-// ── Модалка ──────────────────────────────────────────────────────────────────
+// ── Панель ───────────────────────────────────────────────────────────────────
 
 export function SettingsModal({ open, onOpenChange, settings, onSave, className }: SettingsModalProps) {
   const [libraryPath, setLibraryPath] = useState('');
@@ -160,7 +213,7 @@ export function SettingsModal({ open, onOpenChange, settings, onSave, className 
 
   /*
     Черновик начинается заново, когда пришли новые данные с сервера и когда
-    модалку открыли: закрытие по Esc, скриму или крестику правки не сохраняет —
+    панель открыли: закрытие по Esc, скриму или крестику правки не сохраняет —
     ровно как кнопка «Отменить». Компонент при этом остаётся смонтированным,
     поэтому состояние приходится сбрасывать руками.
   */
@@ -190,8 +243,8 @@ export function SettingsModal({ open, onOpenChange, settings, onSave, className 
   if (!settings) {
     return (
       <Modal open={open} onOpenChange={onOpenChange}>
-        <ModalContent title="Настройки" size="lg" className={cn('max-h-[85vh]', className)}>
-          <p className="py-6 text-center text-technical">Загружаем настройки…</p>
+        <ModalContent title="Настройки" size="panel" className={className}>
+          <p className="pt-10 text-center text-technical">Загружаем настройки…</p>
         </ModalContent>
       </Modal>
     );
@@ -278,14 +331,15 @@ export function SettingsModal({ open, onOpenChange, settings, onSave, className 
     <Modal open={open} onOpenChange={onOpenChange}>
       <ModalContent
         title="Настройки"
-        size="lg"
-        className={cn('max-h-[85vh]', className)}
-        bodyClassName="pb-1"
+        size="panel"
+        className={className}
+        /* Тело центрирует колонку 720 по горизонтали; вертикально — от верха. */
+        bodyClassName="flex flex-col items-center"
         footer={
           <>
             <p
               className={cn(
-                'min-w-0 flex-1 truncate text-sm',
+                'min-w-0 flex-1 truncate text-base leading-4',
                 formError ? 'text-danger' : 'text-ink-faint',
               )}
             >
@@ -300,7 +354,7 @@ export function SettingsModal({ open, onOpenChange, settings, onSave, className 
           </>
         }
       >
-        <div>
+        <div className="flex w-full max-w-[720px] shrink-0 flex-col gap-8">
           {/* SET-01, SET-02 */}
           <Section title="Библиотека">
             <Field
@@ -309,7 +363,7 @@ export function SettingsModal({ open, onOpenChange, settings, onSave, className 
               error={showPathError}
               hint="По умолчанию ~/Pictures/Копирка. Внутри — library.db, originals и previews."
             >
-              <div className="flex gap-2">
+              <div className="flex items-center gap-2">
                 <Input
                   id="settings-library-path"
                   value={libraryPath}
@@ -317,7 +371,11 @@ export function SettingsModal({ open, onOpenChange, settings, onSave, className 
                   autoComplete="off"
                   aria-invalid={Boolean(showPathError)}
                   onChange={(event) => setLibraryPath(event.target.value)}
-                  className={cn('min-w-0 flex-1 font-mono text-xs', showPathError && 'border-danger')}
+                  className={cn(
+                    'min-w-0 flex-1',
+                    PATH_INPUT,
+                    showPathError && 'shadow-[inset_0_0_0_1px_var(--color-danger)]',
+                  )}
                 />
                 {/* В браузере кнопки нет: JS не отдаёт абсолютный путь, а поле — отдаёт. */}
                 {inTauri ? (
@@ -325,87 +383,87 @@ export function SettingsModal({ open, onOpenChange, settings, onSave, className 
                     variant="secondary"
                     disabled={picking || saving}
                     onClick={() => void chooseFolder()}
-                    icon={<FolderOpen className="size-4" strokeWidth={2} aria-hidden />}
+                    icon={<Icon icon={Folder} aria-hidden />}
                   >
                     Выбрать папку…
                   </Button>
                 ) : null}
               </div>
             </Field>
-
-            {/* PRD §7.2 — формулировка намеренно прямая, без смягчения. */}
-            <div className="mt-3 flex gap-2.5 rounded-md bg-warning-soft px-3 py-2.5">
-              <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-warning" strokeWidth={2} aria-hidden />
-              <p className="text-sm text-ink-muted">
-                <span className="text-ink">Смена пути не переносит файлы.</span> Приложение просто начнёт
-                работать с новой директорией — пустой или ранее существовавшей. Перенести библиотеку нужно
-                вручную в Finder при закрытом приложении.
-              </p>
-            </div>
           </Section>
+
+          {/* PRD §7.2 — формулировка намеренно прямая, без смягчения. */}
+          <Notice tone="warning" icon={TriangleAlert} title="Смена пути не переносит файлы.">
+            Приложение просто начнёт работать с новой директорией — пустой или ранее
+            существовавшей. Перенести библиотеку нужно вручную в Finder при закрытом приложении.
+          </Notice>
 
           {/* SET-03, спрятан в «Дополнительно» — D16. */}
           <Disclosure
             title="Дополнительно"
             open={advancedOpen}
-            onToggle={() => setAdvancedOpen((open) => !open)}
+            onToggle={() => setAdvancedOpen((value) => !value)}
           >
-            <p className="mb-4 text-sm text-ink-muted">
-              Адрес, по которому приложение слушает расширение Chrome. Менять нужно, только если порт{' '}
-              <span className="font-mono text-xs text-ink">{DEFAULT_PORT}</span> занят другой программой.
-              После смены поменяйте адрес в расширении и перезапустите приложение.
-            </p>
-            <Field
-              label="Порт"
-              htmlFor="settings-port"
-              error={showPortError}
-              hint={`По умолчанию ${DEFAULT_PORT}.`}
-            >
-              <Input
-                id="settings-port"
-                value={serverPort}
-                inputMode="numeric"
-                autoComplete="off"
-                aria-invalid={Boolean(showPortError)}
-                onChange={(event) => setServerPort(event.target.value.replace(/[^\d]/g, ''))}
-                className={cn('w-[140px] font-mono text-xs', showPortError && 'border-danger')}
-              />
-            </Field>
+            <div className="flex flex-col gap-3">
+              <p className="text-base leading-[19px] text-ink-muted">
+                Адрес, по которому приложение слушает расширение Chrome. Менять нужно, только если
+                порт <span className="text-ink tabular-nums">{DEFAULT_PORT}</span> занят другой
+                программой. После смены поменяйте адрес в расширении и перезапустите приложение.
+              </p>
+              <Field
+                label="Порт"
+                htmlFor="settings-port"
+                error={showPortError}
+                hint={`По умолчанию ${DEFAULT_PORT}.`}
+              >
+                <Input
+                  id="settings-port"
+                  value={serverPort}
+                  inputMode="numeric"
+                  autoComplete="off"
+                  aria-invalid={Boolean(showPortError)}
+                  onChange={(event) => setServerPort(event.target.value.replace(/[^\d]/g, ''))}
+                  className={cn(
+                    'w-[140px] tabular-nums',
+                    showPortError && 'shadow-[inset_0_0_0_1px_var(--color-danger)]',
+                  )}
+                />
+              </Field>
 
-            {restartFrom !== null ? (
-              <div className="mt-3 flex gap-2.5 rounded-md bg-accent-soft px-3 py-2.5">
-                <RefreshCw className="mt-0.5 size-3.5 shrink-0 text-accent" strokeWidth={2} aria-hidden />
-                <p className="text-sm text-ink-muted">
-                  <span className="text-ink">Порт изменится после перезапуска.</span> Пока приложение
-                  не перезапущено, сервер продолжает слушать{' '}
-                  <span className="font-mono text-xs text-ink">{restartFrom}</span>. Не забудьте поменять
+              {restartFrom !== null ? (
+                <Notice tone="brand" icon={RefreshCw} title="Порт изменится после перезапуска.">
+                  Пока приложение не перезапущено, сервер продолжает слушать{' '}
+                  <span className="text-ink tabular-nums">{restartFrom}</span>. Не забудьте поменять
                   адрес в настройках расширения.
-                </p>
-              </div>
-            ) : null}
+                </Notice>
+              ) : null}
+            </div>
           </Disclosure>
 
           {/* SET-05 в редакции 02.09.2026 (решение Сергея D1): «не разобрано» = нет папки. */}
-          <Section title="«Не разобрано»">
-            <p className="text-base text-ink">Сюда попадают файлы без папки.</p>
-            <p className="mt-2 text-base text-ink-muted">
-              Положил в папку — файл ушёл из раздела. Теги на это не влияют.
-            </p>
-            <p className="mt-2 text-sm text-ink-faint">
-              Файлы из корзины в разделе не показываются. Правило в этой версии не настраивается.
-            </p>
+          <Section title="Не разобрано">
+            <div className="flex flex-col gap-1.5">
+              <p className="text-md leading-[18px] font-medium text-ink">
+                Сюда попадают файлы без папки.
+              </p>
+              <p className="text-base leading-[19px] text-ink-muted">
+                Положил в папку — файл ушёл из раздела. Теги на это не влияют.
+              </p>
+              <p className="text-base leading-[19px] text-ink-faint">
+                Файлы из корзины в разделе не показываются. Правило в этой версии не настраивается.
+              </p>
+            </div>
           </Section>
 
           <Section title="О программе">
-            <div className="rounded-md bg-surface-raised px-3 py-1">
-              <InfoRow label="Версия приложения" value={settings.appVersion} mono />
-              <InfoRow label="Версия схемы БД" value={String(settings.schemaVersion)} mono />
-              <InfoRow label="Размер библиотеки" value={formatBytes(settings.librarySizeBytes)} mono />
+            <div className="overflow-hidden rounded-card bg-control">
+              <InfoRow label="Версия приложения" value={settings.appVersion} />
+              <InfoRow label="Версия схемы БД" value={String(settings.schemaVersion)} />
+              <InfoRow label="Размер библиотеки" value={formatBytes(settings.librarySizeBytes)} />
               <InfoRow
                 label="Файл лога"
                 value={truncateMiddle(settings.logPath)}
                 title={settings.logPath}
-                mono
               />
             </div>
           </Section>

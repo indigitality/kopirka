@@ -20,16 +20,16 @@ const folder = firstFolder();
 const noop = () => {};
 
 interface TokenArgs {
-  accent: string;
-  accentDeep: string;
-  accentInk: string;
-  surfaceRaised: string;
-  surfaceRow: string;
+  brand: string;
+  brandDeep: string;
+  brandInk: string;
+  control: string;
+  controlHover: string;
   ink: string;
   inkMuted: string;
   lineStrong: string;
   radiusMd: number;
-  radiusLg: number;
+  radiusCard: number;
   sizeRow: number;
 }
 
@@ -43,16 +43,16 @@ interface TokenArgs {
  */
 function Playground(args: TokenArgs) {
   const style = {
-    '--color-accent': args.accent,
-    '--color-accent-deep': args.accentDeep,
-    '--color-accent-ink': args.accentInk,
-    '--color-surface-raised': args.surfaceRaised,
-    '--color-surface-row': args.surfaceRow,
+    '--color-brand': args.brand,
+    '--color-brand-deep': args.brandDeep,
+    '--color-brand-ink': args.brandInk,
+    '--color-control': args.control,
+    '--color-control-hover': args.controlHover,
     '--color-ink': args.ink,
     '--color-ink-muted': args.inkMuted,
     '--color-line-strong': args.lineStrong,
     '--radius-md': `${args.radiusMd}px`,
-    '--radius-lg': `${args.radiusLg}px`,
+    '--radius-card': `${args.radiusCard}px`,
     '--size-row': `${args.sizeRow}px`,
   } as CSSProperties;
 
@@ -96,29 +96,29 @@ const meta = {
   title: 'Токены/Песочница',
   render: (args: TokenArgs) => <Playground {...args} />,
   args: {
-    accent: '#3ddbb0',
-    accentDeep: '#21c39b',
-    accentInk: '#04231b',
-    surfaceRaised: '#131317',
-    surfaceRow: 'rgb(242 242 242 / 0.14)',
+    brand: '#c5fd63',
+    brandDeep: '#a9e340',
+    brandInk: '#17210a',
+    control: 'rgb(186 186 193 / 0.10)',
+    controlHover: 'rgb(186 186 193 / 0.15)',
     ink: '#f2f2f2',
     inkMuted: '#9a9aa2',
     lineStrong: '#33333c',
     radiusMd: 8,
-    radiusLg: 10,
+    radiusCard: 12,
     sizeRow: 32,
   },
   argTypes: {
-    accent: { control: 'color', name: 'Акцент' },
-    accentDeep: { control: 'color', name: 'Акцент — дальний край' },
-    accentInk: { control: 'color', name: 'Текст на акценте' },
-    surfaceRaised: { control: 'color', name: 'Приподнятая поверхность' },
-    surfaceRow: { control: 'text', name: 'Подсветка строки' },
+    brand: { control: 'color', name: 'Бренд — лайм' },
+    brandDeep: { control: 'color', name: 'Бренд — нажатие' },
+    brandInk: { control: 'color', name: 'Текст на лайме' },
+    control: { control: 'text', name: 'Контрол — покой' },
+    controlHover: { control: 'text', name: 'Контрол — выбран' },
     ink: { control: 'color', name: 'Текст основной' },
     inkMuted: { control: 'color', name: 'Текст вторичный' },
     lineStrong: { control: 'color', name: 'Граница' },
     radiusMd: { control: { type: 'range', min: 0, max: 20, step: 1 }, name: 'Радиус md' },
-    radiusLg: { control: { type: 'range', min: 0, max: 24, step: 1 }, name: 'Радиус lg' },
+    radiusCard: { control: { type: 'range', min: 0, max: 24, step: 1 }, name: 'Радиус карточки' },
     sizeRow: { control: { type: 'range', min: 24, max: 48, step: 1 }, name: 'Высота строки' },
   },
 } satisfies Meta<TokenArgs>;

@@ -5,6 +5,7 @@
  */
 import { useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/Button';
+import { Chip } from '@/components/ui/Chip';
 import { Input } from '@/components/ui/Input';
 import { cn } from '@/lib/cn';
 
@@ -60,8 +61,9 @@ export function TagInput({
   };
 
   return (
-    <div className={cn('flex w-full flex-col gap-2', className)}>
+    <div className={cn('flex w-full flex-col gap-2.5', className)}>
       <div className="flex items-center gap-2">
+        {/* Поле — примитив редизайна: подложка контрола, высота 34, лаймовая обводка по фокусу. */}
         <Input
           ref={inputRef}
           className="min-w-0 flex-1"
@@ -91,19 +93,18 @@ export function TagInput({
         ) : null}
       </div>
       {suggestions.length > 0 ? (
+        /* Подсказки — те же пилюли 26 px, что и теги файла (узел «Теги», R09). */
         <div className="flex flex-wrap gap-1.5">
           {suggestions.map((tag) => (
-            <button
+            <Chip
               key={tag}
-              type="button"
+              as="button"
+              variant="control"
               onClick={() => submit(tag)}
-              className={cn(
-                'inline-flex h-6 max-w-full items-center rounded-pill bg-surface-active px-2.5 text-sm',
-                'text-ink-muted transition-colors duration-[var(--dur-fast)] ease-out hover:text-ink',
-              )}
+              className="text-ink-muted hover:text-ink"
             >
-              <span className="truncate">{tag}</span>
-            </button>
+              {tag}
+            </Chip>
           ))}
         </div>
       ) : null}

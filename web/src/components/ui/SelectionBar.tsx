@@ -1,8 +1,20 @@
+/**
+ * Плавающая панель массового выделения. Канон — R06 · «Панель выделения»
+ * и R13 · «Стекло и движение».
+ *
+ * Стекло `.glass`, высота 44, радиус `--radius-card`, тень `--shadow-glass`,
+ * поля 16, зазор 12. Слева счётчик 14/18 · 500 `ink`, дальше разделители
+ * 1×20 цветом обводки, призрачные кнопки 32 px (иконка 16 + текст `ink-muted`),
+ * корзина — квадрат 28 `danger-tint`.
+ *
+ * Панель стоит у нижнего края экрана — приезжает снизу (`from="bottom"`).
+ */
 import { motion } from 'motion/react';
-import { FolderInput, Tag as TagIcon, Trash2 } from 'lucide-react';
+import { Folder, Tag as TagIcon, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/cn';
-import { EASE_OUT, DUR_BASE } from '@/lib/motion';
-import { Button } from './Button';
+import { Icon } from '@/lib/icons';
+import { useReducedMotion } from '@/lib/useReducedMotion';
+import { glassLayerMotion } from './motion-presets';
 import { IconButton } from './IconButton';
 
 export interface SelectionBarProps {
@@ -16,7 +28,14 @@ export interface SelectionBarProps {
 
 const Divider = () => <span className="h-5 w-px shrink-0 bg-line-strong" aria-hidden />;
 
-/** ORG-04 — плавающая панель массового выделения, раздел 2 спеки. */
+/** Сегмент панели: призрачная кнопка 32 px с полями 12 и зазором 6. */
+const SEGMENT = cn(
+  'flex h-[var(--size-row)] shrink-0 items-center gap-1.5 rounded-md px-3',
+  'text-md leading-[18px] font-medium text-ink-muted select-none',
+  'transition-colors duration-[var(--dur-fast)] ease-out hover:bg-control hover:text-ink',
+);
+
+/** ORG-04 — плавающая панель массового выделения. */
 export function SelectionBar({
   count,
   onMoveToFolder,
@@ -25,36 +44,37 @@ export function SelectionBar({
   onCancel,
   className,
 }: SelectionBarProps) {
+  const reduced = useReducedMotion();
+
   return (
     <motion.div
-      initial={{ opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: 16 }}
-      transition={{ duration: DUR_BASE, ease: EASE_OUT }}
+      {...glassLayerMotion({ from: 'bottom', reduced })}
       role="toolbar"
       aria-label="Действия над выделенными файлами"
       className={cn(
-        'flex h-11 items-center gap-2 rounded-md bg-surface-overlay px-4 shadow-float',
+        'flex h-[var(--size-bar)] items-center gap-3 rounded-card px-4 shadow-glass glass',
         className,
       )}
     >
-      <span className="shrink-0 text-base text-ink-muted">
-        <span className="font-mono">{count}</span> выбрано
+      <span className="shrink-0 text-md leading-[18px] font-medium text-ink">
+        <span className="tabular-nums">{count}</span> выбрано
       </span>
       <Divider />
-      <Button variant="ghost" icon={<FolderInput className="size-4" strokeWidth={2} />} onClick={onMoveToFolder}>
+      <button type="button" className={SEGMENT} onClick={onMoveToFolder}>
+        <Icon icon={Folder} size={16} aria-hidden />
         В папку
-      </Button>
-      <Button variant="ghost" icon={<TagIcon className="size-4" strokeWidth={2} />} onClick={onTag}>
+      </button>
+      <button type="button" className={SEGMENT} onClick={onTag}>
+        <Icon icon={TagIcon} size={16} aria-hidden />
         Тег
-      </Button>
-      <IconButton label="Удалить" variant="danger" onClick={onDelete}>
-        <Trash2 className="size-4" strokeWidth={2} aria-hidden />
+      </button>
+      <IconButton label="Удалить" variant="danger" size="sm" onClick={onDelete}>
+        <Icon icon={Trash2} size={16} aria-hidden />
       </IconButton>
       <Divider />
-      <Button variant="ghost" onClick={onCancel}>
+      <button type="button" className={SEGMENT} onClick={onCancel}>
         Отменить
-      </Button>
+      </button>
     </motion.div>
   );
 }

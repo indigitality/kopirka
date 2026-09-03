@@ -7,6 +7,8 @@ export interface GridMetrics {
   columnWidth: number;
   gap: number;
   pad: number;
+  /** Зазор «заголовок контента → первая карточка» (R02): меньше бокового поля. */
+  headerGap: number;
   /** Клемп снизу: сколько колонок держим, даже если целевая ширина не помещается. */
   minColumns: number;
 }
@@ -18,7 +20,7 @@ const TOKEN: Record<GridSize, string> = {
   s: '--grid-col-s',
 };
 
-const FALLBACK_COLUMN: Record<GridSize, number> = { l: 560, m: 275, s: 180 };
+const FALLBACK_COLUMN: Record<GridSize, number> = { l: 560, m: 274, s: 180 };
 
 /**
  * Без клемпа на 900 px «большой» и «средний» дают одинаковые две колонки,
@@ -26,7 +28,8 @@ const FALLBACK_COLUMN: Record<GridSize, number> = { l: 560, m: 275, s: 180 };
  */
 export const MIN_COLUMNS: Record<GridSize, number> = { l: 2, m: 3, s: 4 };
 
-const FALLBACK = { gap: 14, pad: 30 };
+/* Запасные значения повторяют токены редизайна: поле блока сетки 16 (R01 · «Блок сетки»). */
+const FALLBACK = { gap: 14, pad: 16, headerGap: 12 };
 
 function readPx(name: string, fallback: number): number {
   if (typeof window === 'undefined') return fallback;
@@ -39,9 +42,15 @@ interface Tokens {
   columns: Record<GridSize, number>;
   gap: number;
   pad: number;
+  headerGap: number;
 }
 
-const FALLBACK_TOKENS: Tokens = { columns: FALLBACK_COLUMN, gap: FALLBACK.gap, pad: FALLBACK.pad };
+const FALLBACK_TOKENS: Tokens = {
+  columns: FALLBACK_COLUMN,
+  gap: FALLBACK.gap,
+  pad: FALLBACK.pad,
+  headerGap: FALLBACK.headerGap,
+};
 
 /** Значения читаются один раз после монтирования: шрифты и токены к этому моменту применены. */
 export function useGridMetrics(size: GridSize): GridMetrics {
@@ -56,6 +65,7 @@ export function useGridMetrics(size: GridSize): GridMetrics {
       },
       gap: readPx('--grid-gap', FALLBACK.gap),
       pad: readPx('--grid-pad', FALLBACK.pad),
+      headerGap: readPx('--grid-header-gap', FALLBACK.headerGap),
     });
   }, []);
 
@@ -64,6 +74,7 @@ export function useGridMetrics(size: GridSize): GridMetrics {
       columnWidth: tokens.columns[size],
       gap: tokens.gap,
       pad: tokens.pad,
+      headerGap: tokens.headerGap,
       minColumns: MIN_COLUMNS[size],
     }),
     [tokens, size],

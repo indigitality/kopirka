@@ -1,83 +1,131 @@
 /**
- * Дизайн-токены «Копирки».
- * Сняты с фреймов в Paper: «Копирка · Сетка v3 — на языке beUI» и
- * «Копирка · Детальный просмотр v3 — на языке beUI» (файл Scratchpad).
+ * Дизайн-токены «Копирки» — v2, редизайн.
  *
- * Тема — только тёмная (решение Сергея, 30.08.2026). Значения намеренно
- * разложены по ролям, а не по цветам: чтобы добавить светлую тему позже,
- * достаточно переопределить блок ролей, не трогая компоненты.
+ * Канон: файл Scratchpad в Paper, страница «Редизайн», фрейм «Для правок»
+ * (артборды R01–R14) и полка элементов R13 «Полка · элементы редизайна».
+ * Снято 02.09.2026. Имена токенов совпадают с именами в Paper один в один —
+ * поэтому классы из `get_jsx` (`bg-panel`, `text-brand`, `rounded-card`,
+ * `border-line-strong`) переносятся в код без перевода.
+ *
+ * Тема — только тёмная (решение Сергея, 30.08.2026). Значения разложены по
+ * ролям, а не по цветам: чтобы добавить светлую тему позже, достаточно
+ * переопределить блок ролей, не трогая компоненты.
+ *
+ * Старые имена (`--color-bg`, `--color-surface*`, `--color-accent*`, `--font-mono`
+ * и прочие) НЕ удалены: внизу `@theme` они переведены в алиасы на роли редизайна,
+ * чтобы немигрированные экраны продолжали собираться и рендериться в новой
+ * палитре. Блок помечен «УСТАРЕЛО» и подлежит удалению после миграции.
  */
 
 @import 'tailwindcss';
-@import '@fontsource-variable/geist';
-@import '@fontsource-variable/geist-mono';
+/* Единственное семейство интерфейса. Geist и Geist Mono из редизайна убраны. */
+@import '@fontsource-variable/inter-tight';
 
 @theme {
   /* ── Шрифты ───────────────────────────────────────────────────────────── */
-  --font-sans: 'Geist Variable', ui-sans-serif, system-ui, -apple-system, sans-serif;
-  --font-mono: 'Geist Mono Variable', ui-monospace, 'SF Mono', Menlo, monospace;
+  /*
+    Inter Tight по всему интерфейсу, включая счётчики, хоткеи и пути на диске:
+    моноширинного в редизайне нет вовсе, «техническое» набирается тем же
+    шрифтом с табличными цифрами (`font-variant-numeric: tabular-nums`).
+  */
+  --font-ui: 'Inter Tight Variable', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-sans: var(--font-ui);
 
-  /* ── Поверхности ──────────────────────────────────────────────────────── */
+  /* ── Поверхности оболочки ─────────────────────────────────────────────── */
   /*
-    Оболочка — единый чёрный: фон, сайдбар и верхняя панель совпадают.
-    Разделения на тона тут быть не должно — интерфейс отступает, работают картинки.
-    (Артборд 2-0 нарисован на #151515, но решение Сергея 30.08.2026 — оставить единый чёрный.)
-    Приподнято только то, что и правда лежит выше: поля, поповеры, модалки.
+    Три уровня вместо прежнего единого чёрного (артборд R01):
+      app    — фон окна, виден только в зазорах между панелями;
+      panel  — сайдбар и блок сетки, радиус 24;
+      raised — то, что и правда лежит выше: модалки, поповеры, тосты.
+    Колонка контента лежит на вуали `panel-veil` (панель на 30 %), чтобы
+    верхняя панель читалась как часть блока, но не спорила с сеткой.
   */
-  --color-bg: #000000; /* фон приложения */
-  --color-surface: #000000; /* сайдбар, верхняя панель — тот же чёрный */
+  --color-app: #121315; /* фон окна, R01 (padding --shell-pad, gap --shell-gap) */
+  --color-panel: #1c1d1f; /* сайдбар, блок сетки, панель деталей */
+  --color-panel-veil: #1c1d1f4d; /* колонка контента под верхней панелью, 30 % */
+  --color-panel-hover-solid: #2c2d2f; /* непрозрачный эквивалент panel + control, для масок затухания */
+  --color-raised: #26272a; /* модалка, тело плавающего слоя */
+  --color-raised-hover: #303136;
+  --color-raised-glass: #26272ad9; /* стекло плавающих панелей: 85 % + blur 20 */
+
+  /* ── Контролы: полупрозрачное «бельё» поверх панели ───────────────────── */
   /*
-    Строка сайдбара. Ховер и выбор — разные роли (решение D9, 02.09.2026):
-    раньше заливка была одна, и наведение на «Корзину» выглядело как выбор.
+    Кнопки, поле поиска, строки сайдбара, сегменты. Полупрозрачность, а не
+    сплошной тон: один и тот же контрол ложится и на panel, и на raised.
   */
-  --color-surface-row: rgb(242 242 242 / 0.14); /* активная строка — #222222 на чёрном */
-  --color-surface-row-hover: rgb(242 242 242 / 0.08); /* наведение — вдвое легче */
-  --color-surface-raised: #131317; /* поле поиска, чипы, подложка карточки */
-  --color-surface-overlay: #1a1a1f; /* поповеры, модалки, панель выделения */
-  --color-surface-hover: #101014; /* ховер приподнятой поверхности — светлее покоя */
-  --color-surface-active: #24242b;
-  --color-surface-chip: #1c1c22; /* плашка внутри поля: бейдж ⌘K */
+  --color-control: #babac11a; /* покой / наведение строки — «бел. 10 %» на полке */
+  --color-control-hover: #babac126; /* выбранная строка, активный сегмент — 15 % */
+  --color-control-active: #babac133; /* нажатие — 20 % */
 
   /* ── Границы ──────────────────────────────────────────────────────────── */
   --color-line: #1c1c20; /* обычный разделитель */
-  --color-line-strong: #33333c; /* граница интерактивного элемента */
+  --color-line-strong: #33333c; /* граница интерактивного элемента и край стекла */
   --color-line-control: #666672; /* рамка невыбранного контрола: чекбокс, пунктир «+ тег» */
 
   /* ── Текст ────────────────────────────────────────────────────────────── */
   --color-ink: #f2f2f2; /* основной */
-  --color-ink-muted: #9a9aa2; /* вторичный: имена папок, разделы, счётчики */
-  --color-ink-faint: #80808a; /* третичный: секции, плейсхолдеры */
+  --color-ink-muted: #9a9aa2; /* вторичный: имена папок, заголовки секций, счётчики */
+  --color-ink-faint: #80808a; /* третичный: подписи, плейсхолдеры, хоткеи */
 
-  /* ── Акцент: мятно-бирюзовый ──────────────────────────────────────────── */
-  --color-accent: #3ddbb0;
-  --color-accent-hover: #55e5c0;
-  --color-accent-deep: #21c39b; /* дальний край градиента логотипа и кнопки */
-  --color-accent-ink: #04231b; /* текст поверх акцента */
-  --color-accent-soft: #12261f; /* мягкая подложка */
-  --color-accent-ring: #3ddbb0;
+  /* ── Акцент: лайм ─────────────────────────────────────────────────────── */
+  /* Мятный `--color-accent` в редизайне не используется нигде (см. алиасы ниже). */
+  --color-brand: #c5fd63;
+  --color-brand-hover: #d6ff8f;
+  --color-brand-deep: #a9e340;
+  --color-brand-ink: #17210a; /* текст и галка поверх лайма */
+  --color-brand-soft: #212b12; /* мягкая непрозрачная подложка */
+  --color-brand-tint: #c5fd6329; /* лайм 16 %: цель перетаскивания, подсветка */
 
   /* ── Семантика ────────────────────────────────────────────────────────── */
+  /*
+    Полупрозрачные подложки `-tint` (16 %) вместо прежних непрозрачных `-soft`:
+    одна и та же плашка ложится и на panel, и на картинку.
+  */
   --color-danger: #f06a6a;
-  --color-danger-soft: #2a1618;
-  --color-danger-ink: #2a0d0d; /* текст поверх сплошного danger — вариант danger-solid */
+  --color-danger-tint: #f06a6a29;
+  --color-danger-ink: #2a0d0d; /* текст поверх сплошного danger */
   --color-warning: #e0b64a;
-  --color-warning-soft: #2a2214;
+  --color-warning-tint: #e0b64a29;
   --color-success: #4ade80; /* «Сохранено», «Скопировано», «Файл вернулся» */
-  --color-success-soft: #10261a;
+  --color-success-tint: #4ade8029; /* допущение: в палитре редизайна success нет, тон выведен по правилу 16 % */
 
-  /* ── Затемнения (дописано при сборке кода: спека §2 и §3 задаёт их численно) ─ */
-  --color-scrim: rgb(0 0 0 / 0.72); /* скрим детального просмотра и модалки */
+  /* ── Чипы поверх превью ───────────────────────────────────────────────── */
+  --color-chip-dark: #10120dcc; /* тёмный чип на светлой картинке, blur 12 */
+  --color-chip-light: #ffffffb3; /* белый 70 %: теги на карточке */
+  --color-chip-solid: #fffffff2; /* белый 95 %: «Похоже дубль» */
+  --color-chip-ink: #0e0f11; /* текст на светлом чипе */
+  --color-chip-edge: #0000001a; /* обводка светлого чипа */
+
+  /* ── Затемнения ───────────────────────────────────────────────────────── */
+  --color-scrim: rgb(0 0 0 / 0.72); /* скрим модалки и детального просмотра — 72 % (R13 · движение) */
   --color-scrim-badge: rgb(0 0 0 / 0.55); /* плашка бейджа поверх картинки */
 
   /* ── Радиусы ──────────────────────────────────────────────────────────── */
+  /* Редизайн работает четырьмя: 6 / 8 / 12 / 24. Остальные — наследие. */
   --radius-xs: 4px;
-  --radius-sm: 6px;
-  --radius-md: 8px; /* карточка, кнопка, строка сайдбара */
-  --radius-lg: 10px; /* поле поиска */
-  --radius-xl: 14px; /* панель детального просмотра, модалка */
+  --radius-sm: 6px; /* чип, пункт меню, сегмент */
+  --radius-md: 8px; /* строка сайдбара, кнопка, поле */
+  --radius-card: 12px; /* карточка сетки, плавающая панель, тост */
+  --radius-panel: 24px; /* сайдбар, блок сетки, панель деталей, модалка */
+  --radius-lg: 10px;
+  --radius-xl: 14px;
   --radius-pill: 999px;
 
   /* ── Типографика ──────────────────────────────────────────────────────── */
+  /*
+    Шкала размеров совпала со старой один в один (проверено по узлам R01/R09/R13).
+    Ролевая раскладка редизайна — размер / интерлиньяж / вес:
+      строка сайдбара, кнопка, пункт меню   14 / 21 (кнопка 18) / 500
+      счётчик у строки, ⌘K, чип на карточке 10 / 15 / 500 + tracking-label
+      заголовок секции «ПАПКИ», «ТЕГИ»      10 / 12 / 500 + tracking-label + uppercase
+      подпись под полем и на полке          10 / 14 / 400
+      заголовок контента, заголовок модалки 20 / 24 (модалка 26) / 500 + tracking-tight
+      счётчик рядом с заголовком контента   12 / 18 / 400
+      тело модалки                          14 / 20 / 400
+      строка «свойство → значение»          13 / 16 / 400
+      техническое (размер файла, путь)      11 / 14 / 400 + tabular-nums
+    Обычный текст — вес 400; Paper ставит 500 адресно, у элементов управления.
+  */
   --text-2xs: 10px;
   --text-xs: 11px;
   --text-sm: 12px;
@@ -87,63 +135,186 @@
   --text-xl: 20px;
   --text-2xl: 28px;
 
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+
   --tracking-label: 0.055em; /* ЗАГОЛОВКИ СЕКЦИЙ И СЧЁТЧИКИ, 0.55px при 10px */
-  --tracking-tight: -0.01em;
+  --tracking-tight: -0.01em; /* заголовки 20px */
 
   --leading-tight: 1.25;
   --leading-normal: 1.5;
 
-  /* ── Тени ─────────────────────────────────────────────────────────────── */
-  --shadow-popover: 0 12px 32px -8px rgb(0 0 0 / 0.7), 0 0 0 1px rgb(255 255 255 / 0.06);
-  --shadow-float: 0 16px 40px -12px rgb(0 0 0 / 0.8), 0 0 0 1px rgb(255 255 255 / 0.07);
-  /* Тёмная отбивка под кольцом: на светлом превью мятный контур иначе сливается. */
-  --shadow-card-selected: 0 0 0 1px rgb(0 0 0 / 0.5), 0 0 0 3px var(--color-accent-ring);
+  /* ── Стекло ───────────────────────────────────────────────────────────── */
+  /*
+    Плавающие панели, поповеры, тосты и тултипы — одно и то же стекло:
+    `--color-raised-glass` + размытие 20 и край `--color-line-strong`
+    (узлы: панель выделения R06, поповер сортировки, тосты и тултипы R14).
+    Готовая утилита — `.glass` в `@layer components`.
+  */
+  --blur-glass: 20px;
+  --blur-chip: 12px; /* тёмный чип поверх превью (R13 · карточка) */
 
-  /* ── Метрики оболочки (канон — фрейм «Сетка v3») ──────────────────────── */
+  /* ── Тени ─────────────────────────────────────────────────────────────── */
+  /* Сняты с узлов: панель выделения R06, поповер сортировки, модалка R14. */
+  --shadow-glass: 0 16px 40px #0000008c; /* плавающая панель на стекле */
+  --shadow-popover: 0 24px 48px #00000080; /* поповер и меню */
+  --shadow-modal: 0 32px 64px #0000008c; /* модалка на `--color-raised` */
+  /* Кольцо выделения карточки: в Paper это обводка 3px лаймом (R13 · карточка). */
+  --shadow-card-selected: 0 0 0 3px var(--color-brand);
+  /* Тост и тултип тени не имеют вовсе — только стекло и край (проверено по узлам R14). */
+
+  /* ── Метрики оболочки (канон — R01) ───────────────────────────────────── */
+  --shell-pad: 12px; /* поле окна вокруг панелей */
+  --shell-gap: 8px; /* зазор сайдбар ↔ контент */
+  --panel-pad: 16px; /* внутреннее поле блока сетки и верхней панели */
   --size-sidebar: 240px;
   --size-topbar: 60px;
+  --size-content-header: 44px; /* заголовок контента внутри блока */
   --size-row: 32px; /* строка сайдбара, кнопка верхней панели */
+  --size-detail-panel: 348px; /* правая колонка детального просмотра */
 
-  /* Сайдбар — артборд 2-0 (все значения сняты с фрейма) */
-  --sidebar-pad-x: 16px; /* поля сайдбара */
-  --sidebar-pad-y: 24px;
-  --sidebar-row-pad-x: 12px; /* поля строки внутри сайдбара */
+  /* Сайдбар (R01 · сайдбар, R13 · строки сайдбара) */
+  --sidebar-pad-x: 8px; /* поля панели сайдбара */
+  --sidebar-pad-y: 24px; /* сверху 24, снизу 12 — см. `.sidebar-shell` */
+  --sidebar-pad-bottom: 12px;
+  --sidebar-gap: 28px; /* между группами: логотип · разделы · папки · подвал */
+  --sidebar-row-pad-x: 12px; /* поля строки */
   --sidebar-row-pad-y: 6px;
   --sidebar-row-gap: 8px; /* иконка → имя */
   --sidebar-indent: 12px; /* отступ одного уровня вложенности */
   --sidebar-icon: 16px; /* слот иконки папки и шеврона */
-  --sidebar-logo-gap: 12px; /* знак → слово «Копирка» */
-  --sidebar-action: 12px; /* иконки «+» и «⋮» в строке */
-  --sidebar-fade-width: 40px; /* ширина затухания у правого края строки */
-  --sidebar-marquee-speed: 80; /* px в секунду при прокрутке длинного имени */
-  --sidebar-marquee-delay: 200ms; /* пауза перед стартом прокрутки */
+  --sidebar-logo-gap: 10px; /* знак → слово «Копирка» (узел «Логотип» R01) */
+  --sidebar-logo-pad-x: 12px; /* поле слева у логотипа */
+  --sidebar-action: 14px; /* иконки «+» и «⋮» в строке */
+  /* Бегущее имя (R13 · движение): пауза 400 мс, 40 px/с, затухания 24 слева и 40 справа. */
+  --sidebar-fade-width: 40px; /* затухание у правого края */
+  --sidebar-fade-lead: 24px; /* затухание у левого края, пока имя едет */
+  --sidebar-marquee-speed: 40; /* px в секунду */
+  --sidebar-marquee-delay: 400ms; /* пауза перед стартом */
   --sidebar-marquee-back: 260ms; /* возврат имени и иконки на место */
-  --size-detail-panel: 348px; /* правая колонка детального просмотра */
 
   /*
     ── Сетка карточек ──────────────────────────────────────────────────────
     Три целевые ширины колонки — решение D5 от 02.09.2026. При 1440 они дают
     2 / 4 / 6 колонок; расчёт и клемп минимума живут в `useMasonry.ts`.
-    L было 380 — на 1440 это давало три колонки, то есть почти «средний».
   */
   --grid-gap: 14px;
-  --grid-pad: 30px;
+  --grid-pad: 16px; /* было 30; в редизайне поле блока сетки равно --panel-pad */
   --grid-col-s: 180px;
-  --grid-col-m: 275px; /* по фрейму */
+  /* 274 — фактическая колонка R01: (1168 − 32 поля − 3 × 14) / 4 = 273,5. */
+  --grid-col-m: 274px;
   --grid-col-l: 560px;
+  /* Зазор между заголовком контента и сеткой внутри панели (R02 · «Блок сетки»). */
+  --grid-header-gap: 12px;
 
   /*
     ── Движение ────────────────────────────────────────────────────────────
-    Две кривые с ролями: вход — `--ease-out`, выход — `--ease-in`, и выход
-    всегда короче входа (200 → 140). Раньше выход шёл той же ease-out,
-    и слой «прилипал» к экрану.
+    Кривые с ролями: вход — `--ease-out`, выход — `--ease-in`, и выход всегда
+    короче входа. Пружина редизайна (380/32) числами не выражается — она
+    живёт в `lib/motion.ts` (`SPRING_PANEL`) и в пресетах motion.
   */
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-in: cubic-bezier(0.4, 0, 1, 1);
-  --dur-fast: 120ms;
+  --dur-fast: 120ms; /* фон ховера строки, кроссфейд иконка ↔ шеврон */
+  --dur-hover: 140ms; /* ховер карточки scale 1.01 */
+  --dur-scrim: 160ms; /* скрим модалки 0 → 72 % */
   --dur-base: 200ms;
-  --dur-exit: 140ms; /* уход слоя: модалка, поповер, меню, тултип */
+  --dur-exit: 140ms; /* уход слоя без пружины */
   --dur-slow: 320ms;
+
+  /*
+    ── УСТАРЕЛО · алиасы на время миграции, удалить после ───────────────────
+    Старые роли не удалены, а переведены на роли редизайна — по смыслу, а не
+    по цвету. Всё немигрированное продолжает собираться и сразу выглядит в
+    новой палитре. Таблица соответствия:
+
+      --color-bg               → --color-app          фон окна
+      --color-surface          → --color-panel        сайдбар и верхняя панель стали панелью
+      --color-surface-row      → --color-control-hover выбранная строка сайдбара (15 %)
+      --color-surface-row-hover→ --color-control      наведение на строку (10 %)
+      --color-surface-raised   → --color-control      поле поиска и чипы стали полупрозрачными
+      --color-surface-overlay  → --color-raised       поповер, модалка, панель выделения
+      --color-surface-hover    → --color-raised-hover ховер приподнятой поверхности
+      --color-surface-active   → --color-control-active нажатие
+      --color-surface-chip     → --color-control-hover плашка внутри поля (⌘K)
+      --color-accent           → --color-brand        мятный заменён лаймом
+      --color-accent-hover     → --color-brand-hover
+      --color-accent-deep      → --color-brand-deep
+      --color-accent-ink       → --color-brand-ink
+      --color-accent-soft      → --color-brand-soft
+      --color-accent-ring      → --color-brand
+      --color-danger-soft      → --color-danger-tint  непрозрачная подложка → 16 %
+      --color-warning-soft     → --color-warning-tint
+      --color-success-soft     → --color-success-tint
+      --color-shelf            → --color-app          фон витрины
+      --font-mono              → --font-ui            моно из редизайна убран
+      --shadow-float           → --shadow-glass       плавающая панель
+  */
+  --color-bg: var(--color-app);
+  --color-surface: var(--color-panel);
+  --color-surface-row: var(--color-control-hover);
+  --color-surface-row-hover: var(--color-control);
+  --color-surface-raised: var(--color-control);
+  --color-surface-overlay: var(--color-raised);
+  --color-surface-hover: var(--color-raised-hover);
+  --color-surface-active: var(--color-control-active);
+  --color-surface-chip: var(--color-control-hover);
+  --color-accent: var(--color-brand);
+  --color-accent-hover: var(--color-brand-hover);
+  --color-accent-deep: var(--color-brand-deep);
+  --color-accent-ink: var(--color-brand-ink);
+  --color-accent-soft: var(--color-brand-soft);
+  --color-accent-ring: var(--color-brand);
+  --color-danger-soft: var(--color-danger-tint);
+  --color-warning-soft: var(--color-warning-tint);
+  --color-success-soft: var(--color-success-tint);
+  --color-shelf: var(--color-app);
+  /* Моно из редизайна убран; технические значения — тем же шрифтом, табличными цифрами. */
+  --font-mono: var(--font-ui);
+  --shadow-float: var(--shadow-glass);
+
+  /* ── Добавлено при реализации редизайна (агенты; главная модель разложит по ролям в конце) ── */
+
+  /* A2 · примитивы. Высоты, снятые с полки R13 и модалок R14. */
+  --size-row-lg: 40px; /* большая кнопка онбординга R11, круглая стрелка просмотра R09 */
+  --size-field: 34px; /* поле ввода: R10 «Путь библиотеки», R14 «Добавить тег» */
+  --size-chip: 26px; /* чип-пилюля: теги панели просмотра R09, фильтры R05 */
+  --size-chip-mini: 18px; /* чип поверх превью: тег и папка на карточке R13 */
+  --size-menu-row: 30px; /* строка меню и поповера, R14 */
+  --size-toast: 40px; /* стеклянная пилюля тоста, R14 */
+  --size-tooltip: 24px; /* тултип и счётчик просмотра, R14 / R09 */
+  --size-bar: 44px; /* панель выделения R06 и квадрат иконки пустого состояния R12 */
+  --size-check: 16px; /* квадратный чекбокс фильтров, R05 */
+  --size-check-round: 20px; /* круглый чекбокс карточки, R13 */
+  --color-check-veil: #00000059; /* подложка невыбранного круглого чекбокса поверх превью, R13 */
+
+  /* B · оболочка. */
+  /*
+    Высота верхней панели редизайна. Отдельно от `--size-topbar` нарочно:
+    десктопная обёртка (`desktop/src-tauri/src/windows.rs`) прибавляет к тому
+    инсет светофора 28px, а в редизайне светофор лежит над сайдбаром — панель
+    контента опускать незачем, инсет отрабатывает `.sidebar-shell`.
+  */
+  --shell-topbar: 60px;
+
+  /* C · сетка и импорт. */
+  --scale-card-hover: 1.01; /* наведение на карточку, R13 · движение (CARD_HOVER_SCALE) */
+  --size-import-shelf: 280px; /* ширина полки импорта, R08 */
+  --size-progress: 4px; /* высота полосы прогресса импорта, R08 */
+  --shelf-bottom: 28px; /* отступ полки от низа панели контента, R06 */
+  --size-similar-preview-h: 200px; /* высота кадра сравнения в «Похоже, уже есть», R14 */
+  --shadow-ghost: 0 12px 28px #00000099; /* верхняя карточка стопки призрака, R07 */
+  --shadow-ghost-under: 0 10px 24px #00000080; /* карточки под ней */
+
+  /* D · детальный просмотр и фильтры. */
+  --blur-scrim: 8px; /* размытие сетки под скримом детального просмотра, R09 */
+  --detail-pad: 24px; /* поле оверлея просмотра вокруг картинки и панели, R09 */
+  --detail-arrow-lane: 56px; /* просвет под стрелку у края колонки: 40 стрелки + 16, R09 */
+  --size-filter-panel: 340px; /* панель фильтров, R05 */
+  --size-sort-popover: 200px; /* поповер сортировки, R06 */
+  --size-tag-popover: 260px; /* поповер «+ тег» панели просмотра */
+  /* ── /добавлено ── */
 }
 
 /* Базовая раскладка. Тёмная тема — единственная, задана жёстко. */
@@ -159,57 +330,69 @@
   }
 
   body {
-    background: var(--color-bg);
+    background: var(--color-app);
     color: var(--color-ink);
-    font-family: var(--font-sans);
+    font-family: var(--font-ui);
     font-size: var(--text-base);
+    font-weight: var(--font-weight-regular);
     line-height: var(--leading-normal);
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
     overscroll-behavior: none;
   }
 
-  /* Заголовок секции: «ПАПКИ», «ИСТОЧНИК», «ТЕГИ», «ПОДРОБНОСТИ» */
-  .label-section {
-    font-family: var(--font-mono);
-    font-size: var(--text-2xs);
-    letter-spacing: var(--tracking-label);
-    text-transform: uppercase;
-    color: var(--color-ink-faint);
-  }
-
   /*
-    Сайдбар, артборд 2-0. Заголовок секции «ПАПКИ» и счётчики разделов набраны
-    не моноширинным, а Geist Medium 10/0.55px — отсюда отдельная пара классов.
+    Заголовок секции: «ПАПКИ», «ИСТОЧНИК», «ТЕГИ», «ПОДРОБНОСТИ».
+    В редизайне набран не моноширинным, а Inter Tight Medium 10/12 с
+    трекингом 0.055em и цветом `ink-muted` (узлы R01 «Заголовок ПАПКИ»
+    и R09 «Теги» в панели деталей).
   */
-  .label-sidebar {
+  .label-section {
     font-size: var(--text-2xs);
-    font-weight: 500;
+    font-weight: var(--font-weight-medium);
     line-height: 1.2;
     letter-spacing: var(--tracking-label);
     text-transform: uppercase;
     color: var(--color-ink-muted);
   }
 
+  /*
+    Заголовок группы в сайдбаре. Совпал с `.label-section` один в один —
+    оставлен отдельным именем, чтобы не переписывать разметку сайдбара.
+  */
+  .label-sidebar {
+    font-size: var(--text-2xs);
+    font-weight: var(--font-weight-medium);
+    line-height: 1.2;
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+    color: var(--color-ink-muted);
+  }
+
+  /* Счётчик у строки сайдбара: 10/15 Medium, трекинг тот же, цифры табличные. */
   .label-count {
     font-size: var(--text-2xs);
-    font-weight: 500;
+    font-weight: var(--font-weight-medium);
     line-height: 1.5;
     letter-spacing: var(--tracking-label);
     color: var(--color-ink-muted);
     font-variant-numeric: tabular-nums;
   }
 
-  /* Технические значения: размеры, путь на диске, счётчики, бейджи */
+  /*
+    Технические значения: размеры, путь на диске, счётчики, бейджи.
+    Моно из редизайна убран — тот же Inter Tight 11/14, отличают табличные цифры.
+  */
   .text-technical {
-    font-family: var(--font-mono);
     font-size: var(--text-xs);
+    line-height: 1.273; /* 11/14 */
     color: var(--color-ink-muted);
+    font-variant-numeric: tabular-nums;
   }
 
   ::selection {
-    background: var(--color-accent);
-    color: var(--color-accent-ink);
+    background: var(--color-brand);
+    color: var(--color-brand-ink);
   }
 
   /* Тонкий скроллбар в тон интерфейсу */
@@ -219,8 +402,54 @@
   }
 
   :focus-visible {
-    outline: 2px solid var(--color-accent-ring);
+    outline: 2px solid var(--color-brand);
     outline-offset: 2px;
+  }
+}
+
+/*
+  Стекло и чипы — утилиты, а не компоненты: одно и то же стекло носят панель
+  выделения, поповер, тост и тултип, и различаются они только тенью.
+*/
+@layer components {
+  /*
+    Плавающий слой. Тень не входит: у панели выделения `--shadow-glass`,
+    у поповера `--shadow-popover`, у тоста и тултипа тени нет вовсе.
+    `-webkit-backdrop-filter` обязателен: окно приложения — WebKit.
+  */
+  .glass {
+    background-color: var(--color-raised-glass);
+    -webkit-backdrop-filter: blur(var(--blur-glass));
+    backdrop-filter: blur(var(--blur-glass));
+    border: 1px solid var(--color-line-strong);
+  }
+
+  /* Чип поверх превью. Высота 18, поля 6, радиус `--radius-sm`, текст 10/15 Medium. */
+  .chip-dark {
+    background-color: var(--color-chip-dark);
+    color: var(--color-ink);
+    -webkit-backdrop-filter: blur(var(--blur-chip));
+    backdrop-filter: blur(var(--blur-chip));
+  }
+
+  /*
+    Светлый чип лежит прямо на превью и бывает на светлой картинке — белый 70 %
+    без размытия там растворяется. Paper `backdrop-filter` не рендерит вовсе,
+    поэтому в макете его нет; в коде он обязателен (то же правило, что у стекла).
+  */
+  .chip-light {
+    background-color: var(--color-chip-light);
+    color: var(--color-chip-ink);
+    -webkit-backdrop-filter: blur(var(--blur-chip));
+    backdrop-filter: blur(var(--blur-chip));
+    border: 1px solid var(--color-chip-edge);
+  }
+
+  /* Плашка «Похоже дубль»: та же геометрия, вес 600 и непрозрачный белый. */
+  .chip-solid {
+    background-color: var(--color-chip-solid);
+    color: var(--color-chip-ink);
+    border: 1px solid var(--color-chip-edge);
   }
 }
 
@@ -277,14 +506,21 @@
   }
 
   /*
-    Оболочка сайдбара. Сверху к полю добавляется инсет: в окне macOS кнопки
-    светофора лежат поверх интерфейса (titleBarStyle Overlay) и иначе наезжают
-    на логотип. Переменную ставит десктопная обёртка; в браузере её нет и
-    отступ остаётся макетным.
+    Оболочка сайдбара. Сверху инсет светофора: в окне macOS кнопки лежат поверх
+    интерфейса (titleBarStyle Overlay) и иначе наезжают на логотип. Переменную
+    ставит десктопная обёртка; в браузере её нет.
+
+    В редизайне панель сайдбара уже опущена на `--shell-pad` от края окна, так
+    что до светофора остаётся добрать только разницу — отсюда `max()`: при
+    инсете 28 и поле 12 побеждают макетные 24, и логотип начинается на 36 px от
+    верха окна, ниже кнопок. Поднимут инсет — отступ вырастет сам.
   */
   .sidebar-shell {
-    padding-top: calc(var(--sidebar-pad-y) + var(--kopirka-titlebar-inset, 0px));
-    padding-bottom: var(--sidebar-pad-y);
+    padding-top: max(
+      var(--sidebar-pad-y),
+      calc(var(--kopirka-titlebar-inset, 0px) - var(--shell-pad))
+    );
+    padding-bottom: var(--sidebar-pad-bottom);
     padding-left: var(--sidebar-pad-x);
     padding-right: var(--sidebar-pad-x);
   }
@@ -327,36 +563,61 @@
   }
 
   /*
-    Затухание уводится не изменением градиента, а растягиванием маски: прозрачный
-    хвост уезжает за правый край окна. Так анимация опирается на обычный mask-size,
-    который умеют все движки, включая WebKit в окне приложения.
+    Затуханий два, и они перемножаются (`mask-composite: intersect`):
+
+      · правое, 40 (`--sidebar-fade-width`) — слой во всё окно. Уводится не
+        изменением градиента, а растягиванием маски: прозрачный хвост уезжает
+        за правый край, и к концу проезда имя «доезжает» без затухания
+        (R13 · «длинное имя · доехало»);
+      · левое, 24 (`--sidebar-fade-lead`) — свой слой, шире окна ровно на эти
+        24 и в покое сдвинутый за левый край, поэтому его не видно. Въезжает
+        вместе со стартом прокрутки и не тянется: ширина фиксированная, меняется
+        только `mask-position`.
+
+    Опора на обычные mask-size/mask-position: их умеют все движки, включая
+    WebKit в окне приложения. Не поймёт движок `mask-composite` — затуханий
+    просто не будет, имя останется читаемым.
   */
   .sidebar-name[data-fade] {
-    -webkit-mask-image: linear-gradient(
-      to right,
-      #000 calc(100% - var(--sidebar-fade-width)),
-      transparent 100%
-    );
-    mask-image: linear-gradient(
-      to right,
-      #000 calc(100% - var(--sidebar-fade-width)),
-      transparent 100%
-    );
-    -webkit-mask-size: 100% 100%;
-    mask-size: 100% 100%;
+    -webkit-mask-image:
+      linear-gradient(to right, transparent 0, #000 var(--sidebar-fade-lead)),
+      linear-gradient(to right, #000 calc(100% - var(--sidebar-fade-width)), transparent 100%);
+    mask-image:
+      linear-gradient(to right, transparent 0, #000 var(--sidebar-fade-lead)),
+      linear-gradient(to right, #000 calc(100% - var(--sidebar-fade-width)), transparent 100%);
+    -webkit-mask-size: calc(100% + var(--sidebar-fade-lead)) 100%, 100% 100%;
+    mask-size: calc(100% + var(--sidebar-fade-lead)) 100%, 100% 100%;
+    -webkit-mask-position: calc(-1 * var(--sidebar-fade-lead)) 0, 0 0;
+    mask-position: calc(-1 * var(--sidebar-fade-lead)) 0, 0 0;
     -webkit-mask-repeat: no-repeat;
     mask-repeat: no-repeat;
+    -webkit-mask-composite: source-in;
+    mask-composite: intersect;
+    /*
+      Позиция здесь нарочно без перехода: он есть только в правиле наведения.
+      Иначе левое затухание проезжало бы 260 мс на первом же появлении длинного
+      имени — `data-fade` ставится после замера, то есть уже сменой стиля.
+      На возврате позиция встаёт мгновенно: затухание живёт, «пока имя едет».
+    */
     transition:
       -webkit-mask-size var(--sidebar-marquee-back) var(--ease-out),
       mask-size var(--sidebar-marquee-back) var(--ease-out);
   }
 
   .sidebar-row:hover .sidebar-name[data-fade] {
-    -webkit-mask-size: calc(100% + var(--sidebar-fade-width)) 100%;
-    mask-size: calc(100% + var(--sidebar-fade-width)) 100%;
+    -webkit-mask-size:
+      calc(100% + var(--sidebar-fade-lead)) 100%,
+      calc(100% + var(--sidebar-fade-width)) 100%;
+    mask-size:
+      calc(100% + var(--sidebar-fade-lead)) 100%,
+      calc(100% + var(--sidebar-fade-width)) 100%;
+    -webkit-mask-position: 0 0, 0 0;
+    mask-position: 0 0, 0 0;
     transition:
       -webkit-mask-size var(--marquee-dur, 0ms) linear var(--sidebar-marquee-delay),
-      mask-size var(--marquee-dur, 0ms) linear var(--sidebar-marquee-delay);
+      mask-size var(--marquee-dur, 0ms) linear var(--sidebar-marquee-delay),
+      -webkit-mask-position var(--dur-fast) var(--ease-out) var(--sidebar-marquee-delay),
+      mask-position var(--dur-fast) var(--ease-out) var(--sidebar-marquee-delay);
   }
 
   .sidebar-name__text {
@@ -430,8 +691,9 @@
   }
 
   /*
-    Кнопки «+» и «⋮» по макету 12×12 и стоят в 2px друг от друга — попасть по ним
-    мышью было бы тяжело, поэтому зона нажатия расширена невидимым слоем.
+    Кнопки «+» и «⋮» по макету редизайна 14×14 и стоят в 8 px друг от друга
+    (R13 · строки сайдбара) — цель всё ещё мелкая, поэтому зона нажатия
+    расширена невидимым слоем.
   */
   .sidebar-action {
     position: relative;
@@ -466,9 +728,12 @@
     transform: translateX(0);
   }
 
+  /* Оба слоя маски возвращаются в состояние покоя: правое затухание есть, левого нет. */
   .sidebar-row:hover .sidebar-name[data-fade] {
-    -webkit-mask-size: 100% 100%;
-    mask-size: 100% 100%;
+    -webkit-mask-size: calc(100% + var(--sidebar-fade-lead)) 100%, 100% 100%;
+    mask-size: calc(100% + var(--sidebar-fade-lead)) 100%, 100% 100%;
+    -webkit-mask-position: calc(-1 * var(--sidebar-fade-lead)) 0, 0 0;
+    mask-position: calc(-1 * var(--sidebar-fade-lead)) 0, 0 0;
   }
 
   .sidebar-row:has(.sidebar-name[data-fade]):hover .sidebar-icon {

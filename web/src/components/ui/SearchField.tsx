@@ -1,7 +1,21 @@
+/**
+ * Поле поиска верхней панели. Канон — R01 (покой) и R05 (активное).
+ *
+ * Ширина 280, высота 32, заливка `control`, радиус `--radius-card` (12 —
+ * единственный контрол верхней панели с карточным радиусом), поля 10,
+ * зазор 8. Иконка 16 `ink-faint`, текст 14/18 · 500, плейсхолдер `ink-faint`,
+ * чип «⌘K» — 10/15 · 500 с `tracking-label`, без подложки.
+ * В фокусе поле обводится лаймом на 1 px (R05).
+ *
+ * Бим по периметру — требование Сергея: 3 оборота по наведению или фокусу.
+ * Радиус контура бима задаётся числом, поэтому `FIELD_RADIUS_PX` обязан
+ * совпадать с `--radius-card`.
+ */
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { BorderBeam } from 'border-beam';
 import { Search, X } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { Icon } from '@/lib/icons';
 import { useReducedMotion } from '@/lib/useReducedMotion';
 import { Tooltip } from './Tooltip';
 
@@ -22,8 +36,8 @@ const HOVER_CYCLES = 3;
 const CYCLE_PAUSE_MS = 2000;
 /** Длительность затухания бима в пакете (beam-fade-out 0.5s) — для страховочного таймера. */
 const BEAM_FADE_OUT_MS = 500;
-/** Радиус поля в px — должен совпадать с --radius-lg, бим рисует контур по нему. */
-const FIELD_RADIUS_PX = 10;
+/** Радиус поля в px — должен совпадать с --radius-card, бим рисует контур по нему. */
+const FIELD_RADIUS_PX = 12;
 
 export type BeamMode = 'hover' | 'cycle';
 
@@ -145,11 +159,14 @@ export const SearchField = forwardRef<HTMLInputElement, SearchFieldProps>(functi
     >
       <div
         className={cn(
-          'flex h-[34px] w-full items-center gap-2 rounded-lg bg-surface-raised pr-1.5 pl-2.5',
-          'transition-colors duration-[var(--dur-fast)] ease-out',
+          'flex h-[var(--size-row)] w-full items-center gap-2 rounded-card bg-control px-2.5',
+          'transition-[background-color,box-shadow] duration-[var(--dur-fast)] ease-out',
+          'hover:bg-control-hover',
+          /* R05: активное поле обведено лаймом. Обводка тенью — размеры не едут. */
+          'focus-within:bg-control focus-within:shadow-[inset_0_0_0_1px_var(--color-brand)]',
         )}
       >
-        <Search className="size-3.5 shrink-0 text-ink-faint" strokeWidth={2} aria-hidden />
+        <Icon icon={Search} size={16} className="shrink-0 text-ink-faint" aria-hidden />
         <input
           ref={inputRef}
           type="search"
@@ -159,7 +176,8 @@ export const SearchField = forwardRef<HTMLInputElement, SearchFieldProps>(functi
           placeholder={placeholder}
           aria-label={placeholder}
           className={cn(
-            'min-w-0 flex-1 bg-transparent text-base text-ink placeholder:text-ink-faint',
+            'min-w-0 flex-1 bg-transparent text-md leading-[18px] font-medium text-ink',
+            'placeholder:font-medium placeholder:text-ink-faint',
             'outline-none [&::-webkit-search-cancel-button]:appearance-none',
           )}
         />
@@ -174,19 +192,16 @@ export const SearchField = forwardRef<HTMLInputElement, SearchFieldProps>(functi
                 inputRef.current?.focus();
               }}
               className={cn(
-                'flex size-4 shrink-0 items-center justify-center rounded-xs text-ink-faint',
+                'flex size-4 shrink-0 items-center justify-center text-ink-faint',
                 'transition-colors duration-[var(--dur-fast)] ease-out hover:text-ink',
               )}
             >
-              <X className="size-4" strokeWidth={2} aria-hidden />
+              <Icon icon={X} size={16} aria-hidden />
             </button>
           </Tooltip>
         ) : null}
-        {/*
-          Бейдж ⌘K. Плашка `--color-surface-active` на поле давала 1.06:1 —
-          её просто не было видно (дизайн-аудит 4.6).
-        */}
-        <kbd className="shrink-0 rounded-xs bg-surface-chip px-[5px] py-0.5 font-mono text-2xs text-ink-faint">
+        {/* Хоткей ⌘K. В редизайне это просто подпись, без плашки (R01 / R05). */}
+        <kbd className="shrink-0 text-2xs leading-[15px] font-medium tracking-label text-ink-faint">
           ⌘K
         </kbd>
       </div>

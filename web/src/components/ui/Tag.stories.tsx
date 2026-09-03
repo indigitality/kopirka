@@ -1,6 +1,10 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { Tag } from './Tag';
 
+/**
+ * `Tag` — тонкая обёртка над `Chip` (`control` и `outline`), оставленная ради
+ * совместимости. Полный набор чипов редизайна — в истории «Примитивы/Чип».
+ */
 const meta = {
   title: 'Примитивы/Тег',
   component: Tag,
@@ -24,7 +28,8 @@ export const Пунктирный: Story = {
 export const Ряд: Story = {
   render: () => (
     <div className="flex flex-wrap gap-1.5">
-      <Tag onRemove={() => {}}>дашборд</Tag>
+      <Tag onRemove={() => {}}>прайсинг</Tag>
+      <Tag onRemove={() => {}}>карточки</Tag>
       <Tag onRemove={() => {}}>тёмная тема</Tag>
       <Tag dashed>+ тег</Tag>
     </div>

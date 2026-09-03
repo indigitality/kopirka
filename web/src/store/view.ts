@@ -1,7 +1,11 @@
 /**
- * Состояние вида: что показываем, что выбрано, свёрнут ли сайдбар.
+ * Состояние вида: что показываем и что выбрано.
  * Внешних библиотек нет — обычный снапшот + useSyncExternalStore.
  * Данные (файлы, папки) сюда не кладём: их тянет тот, кто рисует сетку.
+ *
+ * Поля `sidebarCollapsed` больше нет: редизайн (02.09.2026) убрал сворачивание
+ * сайдбара вместе с кнопкой и ⌘\. Старые записи в `localStorage` от этого не
+ * ломаются — разбор игнорирует незнакомые ключи.
  */
 import { useSyncExternalStore } from 'react';
 import type { FileExt, LibraryScope, SortKey } from '@shared/api';
@@ -37,7 +41,6 @@ export interface ViewState {
   sort: SortKey;
   /** D5 — размер карточек сетки. Сохраняется между запусками. */
   gridSize: GridSize;
-  sidebarCollapsed: boolean;
   /** ORG-04 — id выделенных карточек. */
   selectedIds: readonly number[];
   /** Якорь для Shift+клика: последняя карточка, по которой кликнули без Shift. */
@@ -58,7 +61,6 @@ const initialState: ViewState = {
   filters: emptyFilters,
   sort: 'added_desc',
   gridSize: 'm',
-  sidebarCollapsed: false,
   selectedIds: [],
   selectionAnchorId: null,
   openFileId: null,
@@ -67,22 +69,21 @@ const initialState: ViewState = {
 
 /*
   ── Сохранение вида (дизайн-аудит §3.6) ──────────────────────────────────────
-  Сохраняем ровно четыре поля. Фильтры и поиск — нарочно нет: открыть приложение
+  Сохраняем ровно три поля. Фильтры и поиск — нарочно нет: открыть приложение
   и увидеть отфильтрованную библиотеку страшнее, чем заново нажать три чипа.
   В `AppConfig` это не тащим: вид — не настройка приложения, а состояние окна.
   Любое обращение к хранилищу может бросить (приватный режим, запрет на данные
   сайта), поэтому и чтение, и запись — в try/catch.
+
+  Ключ хранилища не менялся: в записи от прошлой версии лежит ещё и
+  `sidebarCollapsed`, но разбор берёт только знакомые поля, а запись затирает
+  лишнее при первом же изменении вида.
 */
 const STORAGE_KEY = 'kopirka.view';
 
-type PersistedKey = 'gridSize' | 'sort' | 'sidebarCollapsed' | 'collapsedFolderIds';
+type PersistedKey = 'gridSize' | 'sort' | 'collapsedFolderIds';
 
-const PERSISTED_KEYS: readonly PersistedKey[] = [
-  'gridSize',
-  'sort',
-  'sidebarCollapsed',
-  'collapsedFolderIds',
-];
+const PERSISTED_KEYS: readonly PersistedKey[] = ['gridSize', 'sort', 'collapsedFolderIds'];
 
 /** Разбор без доверия: в хранилище мог остаться вид от прошлой версии. */
 function readPersisted(): Partial<Pick<ViewState, PersistedKey>> {
@@ -96,7 +97,6 @@ function readPersisted(): Partial<Pick<ViewState, PersistedKey>> {
 
     if (GRID_SIZES.includes(source.gridSize as GridSize)) result.gridSize = source.gridSize as GridSize;
     if (SORT_KEYS.includes(source.sort as SortKey)) result.sort = source.sort as SortKey;
-    if (typeof source.sidebarCollapsed === 'boolean') result.sidebarCollapsed = source.sidebarCollapsed;
     if (Array.isArray(source.collapsedFolderIds)) {
       result.collapsedFolderIds = source.collapsedFolderIds.filter(
         (id): id is number => typeof id === 'number' && Number.isInteger(id),
@@ -115,7 +115,6 @@ function writePersisted(next: ViewState): void {
       JSON.stringify({
         gridSize: next.gridSize,
         sort: next.sort,
-        sidebarCollapsed: next.sidebarCollapsed,
         collapsedFolderIds: next.collapsedFolderIds,
       }),
     );
@@ -205,12 +204,6 @@ export const viewActions = {
   },
   setGridSize(gridSize: GridSize): void {
     setState({ gridSize });
-  },
-  toggleSidebar(): void {
-    setState({ sidebarCollapsed: !state.sidebarCollapsed });
-  },
-  setSidebarCollapsed(sidebarCollapsed: boolean): void {
-    setState({ sidebarCollapsed });
   },
   setSelection(selectedIds: readonly number[], anchorId?: number | null): void {
     setState({

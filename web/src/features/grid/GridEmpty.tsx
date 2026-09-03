@@ -1,9 +1,19 @@
-/** Пустые состояния сетки. У каждого среза свой смысл — общей заглушки быть не должно. */
-import { CheckCheck, FolderOpen, ImageDown, SearchX, ServerCrash, Trash2 } from 'lucide-react';
+/**
+ * Пустые состояния сетки. У каждого среза свой смысл — общей заглушки быть не должно.
+ * Канон — R12 «Пустые состояния»: семь образцов, тексты и кнопки сняты с узлов.
+ */
+import { CheckCheck, FolderOpen, Image, SearchX, ServerCrash, Trash2 } from 'lucide-react';
 import type { LibraryScope, TagRecord } from '@shared/api';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { Icon } from '@/lib/icons';
 import { plural } from '@/lib/format';
+
+/**
+ * Пустое состояние занимает всю свободную высоту панели: сетка живёт в колонке
+ * `flex`, и без `flex-1` заглушка прилипла бы к заголовку контента.
+ */
+const SLOT = 'min-h-0 flex-1';
 
 export interface GridEmptyProps {
   scope: LibraryScope;
@@ -28,11 +38,12 @@ export function GridEmpty({
   onResetSearch,
   onPickFiles,
 }: GridEmptyProps) {
+  // Образцы 1 и 2 R12: поиск ничего не нашёл; второй — когда запрос совпал с именем тега.
   if (filtered) {
     return (
       <EmptyState
-        className="h-full"
-        icon={<SearchX className="size-5" strokeWidth={1.75} />}
+        className={SLOT}
+        icon={<Icon icon={SearchX} size={20} aria-hidden />}
         title="Ничего не нашлось"
         description={
           tagMatch
@@ -41,14 +52,14 @@ export function GridEmpty({
         }
         action={
           tagMatch && onShowTag ? (
-            <div className="flex flex-wrap items-center justify-center gap-2">
+            <>
               <Button variant="primary" onClick={() => onShowTag(tagMatch.name)}>
-                {`Похоже, это тег. Показать ${tagMatch.fileCount} ${plural(tagMatch.fileCount, 'файл', 'файла', 'файлов')} с тегом «${tagMatch.name}»`}
+                {`Показать ${tagMatch.fileCount} ${plural(tagMatch.fileCount, 'файл', 'файла', 'файлов')} с тегом «${tagMatch.name}»`}
               </Button>
               <Button variant="ghost" onClick={onResetSearch}>
                 Сбросить поиск
               </Button>
-            </div>
+            </>
           ) : (
             <Button variant="secondary" onClick={onResetSearch}>
               Сбросить поиск
@@ -59,33 +70,36 @@ export function GridEmpty({
     );
   }
 
+  // Образец 3: срез «Корзина», кнопок нет — здесь нечего делать.
   if (scope === 'trash') {
     return (
       <EmptyState
-        className="h-full"
-        icon={<Trash2 className="size-5" strokeWidth={1.75} />}
+        className={SLOT}
+        icon={<Icon icon={Trash2} size={20} aria-hidden />}
         title="Корзина пуста"
         description="Удалённые файлы лежат здесь 30 дней, а потом стираются с диска сами."
       />
     );
   }
 
+  // Образец 4: срез «Не разобрано» — файлов без папки нет.
   if (scope === 'untagged') {
     return (
       <EmptyState
-        className="h-full"
-        icon={<CheckCheck className="size-5" strokeWidth={1.75} />}
+        className={SLOT}
+        icon={<Icon icon={CheckCheck} size={20} aria-hidden />}
         title="Все файлы разложены по папкам"
         description="Сюда попадают файлы без папки. Новые импорты будут появляться здесь."
       />
     );
   }
 
+  // Образец 5: выбрана папка, в ней пусто.
   if (inFolder) {
     return (
       <EmptyState
-        className="h-full"
-        icon={<FolderOpen className="size-5" strokeWidth={1.75} />}
+        className={SLOT}
+        icon={<Icon icon={FolderOpen} size={20} aria-hidden />}
         title="В папке пусто"
         description="Перетащите сюда карточки из библиотеки или добавьте новые изображения."
         action={
@@ -97,10 +111,11 @@ export function GridEmpty({
     );
   }
 
+  // Образец 6: вся библиотека, файлов нет вовсе — единственная лаймовая кнопка.
   return (
     <EmptyState
-      className="h-full"
-      icon={<ImageDown className="size-5" strokeWidth={1.75} />}
+      className={SLOT}
+      icon={<Icon icon={Image} size={20} aria-hidden />}
       title="Библиотека пуста"
       description="Перетащите изображения в окно, вставьте из буфера через ⌘V или сохраните картинку из браузера через «Сохранить в Копирку»."
       action={
@@ -112,11 +127,13 @@ export function GridEmpty({
   );
 }
 
+/** Образец 7 R12: сервер не ответил. Иконка и заголовок — цветом ошибки. */
 export function GridError({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
     <EmptyState
-      className="h-full"
-      icon={<ServerCrash className="size-5" strokeWidth={1.75} />}
+      className={SLOT}
+      tone="danger"
+      icon={<Icon icon={ServerCrash} size={20} aria-hidden />}
       title="Не удалось загрузить библиотеку"
       description={message}
       action={

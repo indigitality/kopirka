@@ -14,13 +14,19 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'motion/react';
-import { Trash2 } from 'lucide-react';
-import type { FileRecord } from '@shared/api';
+import { EllipsisVertical, Trash2 } from 'lucide-react';
+import type { FileRecord, FolderRecord } from '@shared/api';
 import * as api from '@/lib/api';
+import { flattenFolders } from '@/lib/folders';
 import { plural } from '@/lib/format';
+import { Icon } from '@/lib/icons';
 import { DUR_FAST, EASE_OUT } from '@/lib/motion';
 import { EASE_IN } from '@/components/ui/motion-presets';
 import { Button } from '@/components/ui/Button';
+import { IconButton } from '@/components/ui/IconButton';
+import { Input } from '@/components/ui/Input';
+import { Modal, ModalContent } from '@/components/ui/Modal';
+import { Popover, PopoverContent, PopoverItem, PopoverSeparator, PopoverTrigger } from '@/components/ui/Popover';
 import { SelectionBar } from '@/components/ui/SelectionBar';
 import { useToast } from '@/components/ui/Toast';
 import { useLibrary } from '@/features/library/LibraryProvider';
@@ -42,7 +48,11 @@ const SKELETON = [0.75, 1.3, 0.66, 1, 1.45, 0.8, 1.1, 0.62, 1.35, 0.9, 1.2, 0.7]
   (ratio, index): MasonryInput => ({ id: -1 - index, ratio }),
 );
 
-type PendingConfirm = { kind: 'purge'; ids: readonly number[] } | { kind: 'empty-trash' } | null;
+type PendingConfirm =
+  | { kind: 'purge'; ids: readonly number[] }
+  | { kind: 'empty-trash' }
+  | { kind: 'delete-folder'; folder: FolderRecord }
+  | null;
 
 /**
  * Полка живёт в области контента (`#kopirka-content` из `AppShell`), но принадлежит
@@ -68,9 +78,36 @@ export function GridScreen() {
 
   const metrics = useGridMetrics(gridSize);
 
+  /*
+    Заголовок контента — решение D8 (дизайн-аудит 4.7, 4.30), в редизайне это
+    полоса 44 px внутри панели сетки (R02/R04/R05, полка R13 · `G7C-0`).
+    Считаем его до раскладки: под заголовком у сетки другое верхнее поле — 12,
+    а не 16 (в макете заголовок и сетка разделены `gap: 12`).
+  */
+  const needle = query.trim();
+  const folderName = folderId === null ? null : (library.folderNameById.get(folderId) ?? null);
+  const headerTitle: string | null =
+    needle !== ''
+      ? `Поиск: ${needle}`
+      : folderName !== null
+        ? folderName
+        : scope === 'untagged'
+          ? 'Не разобрано'
+          : scope === 'trash'
+            ? 'Корзина'
+            : null;
+  const masonryOptions = useMemo(
+    () => ({ ...metrics, padTop: headerTitle === null ? metrics.pad : metrics.headerGap }),
+    [metrics, headerTitle],
+  );
+
   const [bulkDialog, setBulkDialog] = useState<'folder' | 'tag' | null>(null);
   const [confirm, setConfirm] = useState<PendingConfirm>(null);
   const [sentinelVisible, setSentinelVisible] = useState(false);
+  /** Открыто меню папки в заголовке контента (R02 · «⋮»). */
+  const [folderMenuOpen, setFolderMenuOpen] = useState(false);
+  /** Папка, которую переименовывают из этого меню: инлайн-правка живёт в сайдбаре. */
+  const [renaming, setRenaming] = useState<{ id: number; name: string } | null>(null);
 
   const { files, loading, loadingMore, hasMore, error, loadMore } = library;
 
@@ -85,7 +122,7 @@ export function GridScreen() {
     () => (showSkeleton ? SKELETON : files.map((file) => ({ id: file.id, ratio: cardRatio(file) }))),
     [files, showSkeleton],
   );
-  const { ref: gridRef, layout } = useMasonry(masonryItems, metrics);
+  const { ref: gridRef, layout } = useMasonry(masonryItems, masonryOptions);
   const boxById = useMemo(() => new Map(layout.boxes.map((box) => [box.id, box])), [layout.boxes]);
 
   // ── Подгрузка курсором ───────────────────────────────────────────────────
@@ -149,6 +186,14 @@ export function GridScreen() {
       viewActions.setSelection([file.id], file.id);
     }
     setBulkDialog('tag');
+  }, []);
+
+  /** «В папку…» из меню карточки (R14) — тот же диалог, что у панели выделения. */
+  const handleMoveToFolder = useCallback((file: FileRecord) => {
+    if (!getViewState().selectedIds.includes(file.id)) {
+      viewActions.setSelection([file.id], file.id);
+    }
+    setBulkDialog('folder');
   }, []);
 
   const handleDragStart = useCallback((file: FileRecord): readonly number[] => {
@@ -247,20 +292,59 @@ export function GridScreen() {
         await library.purgeFiles(pending.ids);
         viewActions.clearSelection();
         toast({ title: 'Удалено навсегда' });
-      } else {
+      } else if (pending.kind === 'empty-trash') {
         await library.emptyTrash();
         viewActions.clearSelection();
         toast({ title: 'Корзина очищена' });
+      } else {
+        // Удаляется всё поддерево — сетка стоит внутри него, поэтому уходим в библиотеку.
+        await library.deleteFolder(pending.folder.id);
+        viewActions.setScope('library');
+        toast({ title: `Папка «${pending.folder.name}» удалена` });
       }
     } catch (cause) {
-      notifyError(cause, 'Не удалось удалить файлы');
+      notifyError(
+        cause,
+        pending.kind === 'delete-folder' ? 'Не удалось удалить папку' : 'Не удалось удалить файлы',
+      );
     }
   }, [confirm, library, toast, notifyError]);
+
+  // ── Папка заголовка (меню «⋮», R02) ──────────────────────────────────────
+  const createSubfolder = useCallback(
+    async (parentFolderId: number) => {
+      try {
+        const created = await library.createFolder('Новая папка', parentFolderId);
+        viewActions.expandFolder(parentFolderId);
+        // Переименование сразу: пустая «Новая папка» без имени бесполезна.
+        setRenaming({ id: created.id, name: created.name });
+      } catch (cause) {
+        notifyError(cause, 'Не удалось создать папку');
+      }
+    },
+    [library, notifyError],
+  );
+
+  const commitRename = useCallback(
+    async (id: number, name: string) => {
+      setRenaming(null);
+      const trimmed = name.trim();
+      if (trimmed === '') return;
+      try {
+        await library.renameFolder(id, trimmed);
+      } catch (cause) {
+        notifyError(cause, 'Не удалось переименовать папку');
+      }
+    },
+    [library, notifyError],
+  );
 
   // ── Хоткеи 6.4 ───────────────────────────────────────────────────────────
   useGridHotkeys({
     detailOpen: openFileId !== null,
     hasSelection: selectedIds.length > 0,
+    /* Слои сетки: пока открыт любой из них, Esc закрывает его, а не выделение. */
+    layerOpen: bulkDialog !== null || confirm !== null || renaming !== null || folderMenuOpen,
     selectAll: () => viewActions.setSelection(filesRef.current.map((file) => file.id)),
     clearSelection: () => viewActions.clearSelection(),
     closeDetail: () => viewActions.openFile(null),
@@ -306,14 +390,20 @@ export function GridScreen() {
     filters.dateFrom !== null ||
     filters.dateTo !== null;
 
-  // Имя папки на карточке — только там, где непонятно, откуда файл (§2 спеки).
-  // Внутри папки это карточки из её подпапок: после D2 они подмешаны в список.
-  const needle = query.trim();
+  /*
+    Имя папки тёмным чипом на карточке — правило редизайна (R01, R03 и макет
+    Сергея «Библиотека — сетка обновлённый дизайн»):
+
+      «Вся библиотека», поиск, корзина — чип у каждого файла, у которого папка есть;
+      внутри папки                     — только у карточек из её подпапок (R02);
+      «Не разобрано»                   — папки нет по определению, значит и чипа нет.
+
+    Одна проверка покрывает все четыре случая: показываем, когда у файла есть
+    папка и это не та папка, в которой мы сейчас стоим.
+  */
   const folderNameFor = (file: FileRecord): string | null => {
     if (file.folderId === null) return null;
-    const unclear =
-      scope === 'untagged' || needle !== '' || (folderId !== null && file.folderId !== folderId);
-    if (!unclear) return null;
+    if (folderId !== null && file.folderId === folderId) return null;
     return library.folderNameById.get(file.folderId) ?? null;
   };
 
@@ -325,24 +415,6 @@ export function GridScreen() {
 
   const empty = !loading && files.length === 0;
 
-  /*
-    Заголовок контента — решение D8 (дизайн-аудит 4.7, 4.30). Раньше, стоя в папке
-    «Сэбач», нельзя было отличить её от всей библиотеки: ни имени, ни счётчика.
-    Сюда же переехала шапка корзины — она была единственным блоком такого рода.
-    Во «Всей библиотеке» без папки и поиска заголовка нет: там он ничего не добавит.
-  */
-  const folderName = folderId === null ? null : (library.folderNameById.get(folderId) ?? null);
-  const headerTitle: string | null =
-    needle !== ''
-      ? `Поиск: ${needle}`
-      : folderName !== null
-        ? folderName
-        : scope === 'untagged'
-          ? 'Не разобрано'
-          : scope === 'trash'
-            ? 'Корзина'
-            : null;
-
   // Счётчик берём из ответа списка, а не из stats: он всегда совпадает с тем, что видно.
   const fileCount = `${library.total} ${plural(library.total, 'файл', 'файла', 'файлов')}`;
   const headerMeta = loading
@@ -351,13 +423,24 @@ export function GridScreen() {
       ? `${fileCount} · ${plural(library.total, 'хранится', 'хранятся', 'хранятся')} 30 дней`
       : fileCount;
 
+  /** Папка, в которой стоит сетка: нужна меню «⋮» и подтверждению удаления. */
+  const currentFolder: FolderRecord | null =
+    folderId === null
+      ? null
+      : (flattenFolders(library.folders).find(({ folder }) => folder.id === folderId)?.folder ??
+        null);
+
+  /*
+    Действие справа в заголовке — по R13 · `G7C-0`: у папки «⋮» с меню, у корзины
+    сплошная опасная кнопка, у поиска — «Сбросить», у среза без папки ничего.
+  */
   const headerActions: ReactNode[] = [];
   if (scope === 'trash' && library.total > 0 && !loading) {
     headerActions.push(
       <Button
         key="empty-trash"
-        variant="danger"
-        icon={<Trash2 className="size-3.5" strokeWidth={2} />}
+        variant="danger-solid"
+        icon={<Icon icon={Trash2} size={16} />}
         onClick={() => setConfirm({ kind: 'empty-trash' })}
       >
         Очистить корзину
@@ -370,10 +453,76 @@ export function GridScreen() {
         Сбросить
       </Button>,
     );
+  } else if (currentFolder !== null) {
+    headerActions.push(
+      <Popover key="folder-menu" open={folderMenuOpen} onOpenChange={setFolderMenuOpen}>
+        <PopoverTrigger asChild>
+          <IconButton label={`Меню папки «${currentFolder.name}»`} variant="secondary">
+            <Icon icon={EllipsisVertical} size={16} aria-hidden />
+          </IconButton>
+        </PopoverTrigger>
+        <PopoverContent align="end">
+          <PopoverItem
+            onClick={() => {
+              setFolderMenuOpen(false);
+              void createSubfolder(currentFolder.id);
+            }}
+          >
+            Новая папка внутри
+          </PopoverItem>
+          <PopoverItem
+            onClick={() => {
+              setFolderMenuOpen(false);
+              setRenaming({ id: currentFolder.id, name: currentFolder.name });
+            }}
+          >
+            Переименовать
+          </PopoverItem>
+          <PopoverSeparator />
+          <PopoverItem
+            danger
+            onClick={() => {
+              setFolderMenuOpen(false);
+              setConfirm({ kind: 'delete-folder', folder: currentFolder });
+            }}
+          >
+            Удалить папку
+          </PopoverItem>
+        </PopoverContent>
+      </Popover>,
+    );
   }
 
+  /** Тексты подтверждений сняты с узлов R14 (порядок: файл, корзина, папка). */
+  const confirmCopy = (() => {
+    if (confirm?.kind === 'empty-trash') {
+      return {
+        title: 'Очистить корзину?',
+        description: `${fileCount} из корзины ${plural(library.total, 'будет стёрт', 'будут стёрты', 'будут стёрты')} с диска. Отменить это действие нельзя.`,
+        confirmLabel: 'Очистить корзину',
+      };
+    }
+    if (confirm?.kind === 'delete-folder') {
+      return {
+        title: `Удалить папку «${confirm.folder.name}»?`,
+        description:
+          'Папка исчезнет вместе с вложенными. Файлы не удаляются — они переедут в «Не разобрано».',
+        confirmLabel: 'Удалить папку',
+      };
+    }
+    const count = confirm?.kind === 'purge' ? confirm.ids.length : 0;
+    return {
+      title: 'Удалить навсегда?',
+      description:
+        count === 1
+          ? 'Файл исчезнет из библиотеки и с диска. Отменить это действие нельзя.'
+          : `${count} ${plural(count, 'файл исчезнет', 'файла исчезнут', 'файлов исчезнут')} из библиотеки и с диска. Отменить это действие нельзя.`,
+      confirmLabel: 'Удалить навсегда',
+    };
+  })();
+
   return (
-    <DropZone className="min-h-full">
+    <DropZone className="flex min-h-full flex-col">
       <AnimatePresence initial={false}>
         {headerTitle !== null ? (
           <motion.div
@@ -381,12 +530,24 @@ export function GridScreen() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1, transition: { duration: DUR_FAST, ease: EASE_OUT } }}
             exit={{ opacity: 0, transition: { duration: DUR_FAST, ease: EASE_IN } }}
-            className="sticky top-0 z-20 flex h-11 items-center gap-3 bg-bg/85 px-[var(--grid-pad)] backdrop-blur-[6px]"
+            /*
+              Заголовок липнет к верху панели и закрашен её цветом: в макете он не
+              скроллится вовсе (лежит рядом с сеткой), а здесь прокручивается вся
+              колонка — иначе договор с оболочкой (`<main>` скроллится) пришлось бы
+              менять. Верхнее поле — поле панели, боковые — поле блока сетки.
+            */
+            className="sticky top-0 z-20 shrink-0 bg-panel px-[var(--grid-pad)] pt-[var(--grid-pad)]"
           >
-            <h2 className="min-w-0 truncate text-lg leading-tight font-medium text-ink">{headerTitle}</h2>
-            {headerMeta !== null ? <span className="text-technical shrink-0">{headerMeta}</span> : null}
-            <div className="flex-1" />
-            {headerActions}
+            <div className="flex h-[var(--size-content-header)] items-center gap-2.5">
+              <h2 className="min-w-0 truncate text-xl leading-6 font-medium tracking-tight text-ink">
+                {headerTitle}
+              </h2>
+              {headerMeta !== null ? (
+                <span className="shrink-0 text-sm leading-[18px] text-ink-muted">{headerMeta}</span>
+              ) : null}
+              <div className="flex-1" />
+              {headerActions}
+            </div>
           </motion.div>
         ) : null}
       </AnimatePresence>
@@ -410,7 +571,7 @@ export function GridScreen() {
         <>
           <div
             ref={gridRef}
-            className="relative w-full"
+            className="relative w-full shrink-0"
             style={{ height: layout.height }}
             onClick={(event) => {
               // Клик по пустому месту снимает выделение.
@@ -422,7 +583,7 @@ export function GridScreen() {
                   <div
                     key={box.id}
                     style={{ left: box.x, top: box.y, width: box.width, height: box.height }}
-                    className="absolute animate-pulse rounded-md bg-surface-raised"
+                    className="absolute animate-pulse rounded-card bg-raised"
                   />
                 ))
               : files.map((file) => {
@@ -442,6 +603,7 @@ export function GridScreen() {
                       onDragStart={handleDragStart}
                       onContextSelect={handleContextSelect}
                       onAddTag={handleAddTag}
+                      onMoveToFolder={handleMoveToFolder}
                       onTrash={(item) => void trashIds([item.id])}
                       onRestore={(item) => void restoreIds([item.id])}
                       onPurge={(item) => setConfirm({ kind: 'purge', ids: [item.id] })}
@@ -452,10 +614,10 @@ export function GridScreen() {
                 })}
           </div>
 
-          <div ref={sentinelRef} aria-hidden className="h-px w-full" />
+          <div ref={sentinelRef} aria-hidden className="h-px w-full shrink-0" />
 
           {loadingMore ? (
-            <div className="flex h-14 items-center justify-center text-technical">
+            <div className="flex h-14 shrink-0 items-center justify-center text-technical">
               Загружаем ещё…
             </div>
           ) : null}
@@ -469,7 +631,7 @@ export function GridScreen() {
       */}
       {shelfPortal(
         contentEl,
-        <div id="kopirka-shelf" className="absolute inset-x-0 bottom-6">
+        <div id="kopirka-shelf" className="absolute inset-x-0 bottom-[var(--shelf-bottom)]">
           {/* ORG-04 — панель массового выделения. */}
           <AnimatePresence>
             {selectedIds.length > 0 && openFileId === null ? (
@@ -525,18 +687,56 @@ export function GridScreen() {
         }}
       />
 
+      {/* Тексты подтверждений — с узлов R14 · «Подтверждение действия». */}
       <ConfirmDialog
         open={confirm !== null}
-        title={confirm?.kind === 'empty-trash' ? 'Очистить корзину?' : 'Удалить навсегда?'}
-        description={
-          confirm?.kind === 'empty-trash'
-            ? 'Все файлы из корзины будут стёрты с диска. Отменить это нельзя.'
-            : 'Файлы будут стёрты с диска вместе с превью. Отменить это нельзя.'
-        }
-        confirmLabel={confirm?.kind === 'empty-trash' ? 'Очистить' : 'Удалить навсегда'}
+        title={confirmCopy.title}
+        description={confirmCopy.description}
+        confirmLabel={confirmCopy.confirmLabel}
         onConfirm={() => void runConfirm()}
         onCancel={() => setConfirm(null)}
       />
+
+      {/*
+        Переименование папки из меню «⋮». В сайдбаре это инлайн-правка строки
+        (зона оболочки), в заголовке контента строки нет — отсюда маленькая модалка.
+      */}
+      <Modal open={renaming !== null} onOpenChange={(next) => (next ? undefined : setRenaming(null))}>
+        <ModalContent
+          title="Переименовать папку"
+          description="Имя видно в сайдбаре и в заголовке контента."
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setRenaming(null)}>
+                Отмена
+              </Button>
+              <Button
+                variant="primary"
+                disabled={(renaming?.name ?? '').trim() === ''}
+                onClick={() => {
+                  if (renaming) void commitRename(renaming.id, renaming.name);
+                }}
+              >
+                Переименовать
+              </Button>
+            </>
+          }
+        >
+          <Input
+            autoFocus
+            value={renaming?.name ?? ''}
+            aria-label="Имя папки"
+            onChange={(event) =>
+              setRenaming((prev) => (prev === null ? prev : { ...prev, name: event.target.value }))
+            }
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter' || !renaming) return;
+              event.preventDefault();
+              void commitRename(renaming.id, renaming.name);
+            }}
+          />
+        </ModalContent>
+      </Modal>
 
       {/* Выбор файлов из пустого состояния — тот же путь импорта, что и drag&drop. */}
       <input

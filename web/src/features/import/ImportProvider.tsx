@@ -8,6 +8,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -287,12 +288,24 @@ export function ImportProvider({ children }: { children: ReactNode }) {
     рендере провайдера её ещё может не быть.
   */
   const [shelf, setShelf] = useState<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    setShelf(document.getElementById('kopirka-shelf'));
+  }, []);
   useEffect(() => {
     if (progress === null) return;
     setShelf(document.getElementById('kopirka-shelf'));
   }, [progress]);
 
   const current = queue[0];
+
+  /*
+    Полка импорта — R08 · «Полка · Импорт»: стекло шириной 280, поля 14 × 12,
+    зазор 8, радиус карточки, тень стекла. Сверху «Импорт» и счётчик «12 из 34»,
+    снизу лаймовая полоса прогресса высотой 4 на подложке `control`.
+  */
+  const done = progress
+    ? Math.min(progress.total, Math.round(progress.ratio * progress.total))
+    : 0;
 
   const panel = progress ? (
     <motion.div
@@ -305,18 +318,21 @@ export function ImportProvider({ children }: { children: ReactNode }) {
         shelf ? 'flex w-full justify-center' : 'fixed bottom-6 left-1/2 z-50 -translate-x-1/2'
       }
     >
-      <div className="flex h-11 w-[280px] flex-col justify-center gap-1.5 rounded-md bg-surface-overlay px-4 shadow-float">
-        <div className="flex items-center justify-between">
-          <span className="text-base text-ink">
+      <div className="glass flex w-[var(--size-import-shelf)] flex-col gap-2 rounded-card px-3.5 py-3 shadow-glass">
+        <div className="flex items-center gap-2">
+          <span className="text-md leading-[18px] font-medium text-ink">
             {progress.phase === 'upload' ? 'Импорт' : 'Обрабатываем'}
           </span>
-          <span className="font-mono text-xs text-ink-faint tabular-nums">
-            {progress.total} {plural(progress.total, 'файл', 'файла', 'файлов')}
+          <span className="flex-1" />
+          <span className="text-xs leading-[15px] text-ink-muted tabular-nums">
+            {progress.phase === 'upload'
+              ? `${done} из ${progress.total}`
+              : `${progress.total} ${plural(progress.total, 'файл', 'файла', 'файлов')}`}
           </span>
         </div>
-        <span className="h-0.5 w-full overflow-hidden rounded-pill bg-surface-active">
+        <span className="h-[var(--size-progress)] w-full overflow-clip rounded-pill bg-control">
           <motion.span
-            className="block h-full origin-left bg-accent"
+            className="block h-full origin-left rounded-pill bg-brand"
             initial={false}
             animate={
               progress.phase === 'upload'

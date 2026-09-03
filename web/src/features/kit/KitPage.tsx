@@ -1,10 +1,12 @@
 import { useState, type ReactNode } from 'react';
 import { Copy, Folder, Grid2x2, Grid3x3, ImageDown, Plus, Square, Trash2 } from 'lucide-react';
+import { iconProps } from '@/lib/icons';
 import { flattenFolders } from '@/lib/folders';
 import { mockFolders } from '@/features/shell/mock';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Checkbox } from '@/components/ui/Checkbox';
+import { Chip } from '@/components/ui/Chip';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -48,9 +50,9 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 
 /** Размер карточек сетки — решение D5, дизайн-аудит §3.3. */
 const GRID_SIZE_OPTIONS: readonly SegmentedOption<string>[] = [
-  { value: 'l', label: 'Большие', hotkey: '⌘1', icon: <Square className="size-3.5" strokeWidth={2} /> },
-  { value: 'm', label: 'Средние', hotkey: '⌘2', icon: <Grid2x2 className="size-3.5" strokeWidth={2} /> },
-  { value: 's', label: 'Маленькие', hotkey: '⌘3', icon: <Grid3x3 className="size-3.5" strokeWidth={2} /> },
+  { value: 'l', label: 'Большие', hotkey: '⌘1', icon: <Square {...iconProps(16)} /> },
+  { value: 'm', label: 'Средние', hotkey: '⌘2', icon: <Grid2x2 {...iconProps(16)} /> },
+  { value: 's', label: 'Маленькие', hotkey: '⌘3', icon: <Grid3x3 {...iconProps(16)} /> },
 ];
 
 const VIEW_OPTIONS: readonly SegmentedOption<string>[] = [
@@ -63,7 +65,7 @@ const folderOptions = flattenFolders(mockFolders).map(({ folder, depth }) => ({
   value: folder.id,
   label: folder.name,
   depth,
-  icon: <Folder className="size-3.5" strokeWidth={2} />,
+  icon: <Folder {...iconProps(16)} />,
 }));
 
 export function KitPage() {
@@ -82,9 +84,58 @@ export function KitPage() {
         <header className="mb-10">
           <h1 className="text-2xl font-medium tracking-tight text-ink">Копирка · дизайн-система</h1>
           <p className="text-technical mt-1.5">
-            тёмная тема · Geist + Geist Mono · все значения из tokens.css
+            тёмная тема · Inter Tight · все значения из tokens.css
           </p>
         </header>
+
+        {/*
+          Что появилось в редизайне и чего не было на старой витрине.
+          Подробный разбор по состояниям — в Storybook, раздел «Примитивы».
+        */}
+        <Section title="Редизайн · новое">
+          <Row label="Чип · поверх превью">
+            <span className="flex items-center gap-1 rounded-card bg-linear-to-br from-[#EDEDE9] to-[#C3C6CD] p-2">
+              <Chip variant="dark">Интерфейсы</Chip>
+              <Chip variant="light">дашборд</Chip>
+              <Chip variant="light">+2</Chip>
+              <Chip variant="solid">Похоже дубль</Chip>
+            </span>
+          </Row>
+          <Row label="Чип · в панели">
+            <Chip variant="control" onRemove={() => {}}>
+              прайсинг
+            </Chip>
+            <Chip variant="brand" as="button">
+              png
+            </Chip>
+            <Chip variant="outline" as="button">
+              + тег
+            </Chip>
+          </Row>
+          <Row label="Кнопка · большая">
+            <Button variant="primary" size="lg">
+              Создать библиотеку
+            </Button>
+          </Row>
+          <Row label="Кнопка-иконка · стекло">
+            <span className="flex items-center gap-2 rounded-card bg-linear-to-br from-[#EDEDE9] to-[#C3C6CD] p-3">
+              <IconButton label="Назад" variant="glass" size="lg" shape="round">
+                <Copy {...iconProps(16)} />
+              </IconButton>
+              <IconButton label="Закрыть" variant="glass">
+                <Plus {...iconProps(16)} />
+              </IconButton>
+            </span>
+          </Row>
+          <Row label="Чекбокс · квадратный">
+            <Checkbox shape="square" checked={checked} onCheckedChange={setChecked} />
+            <Checkbox shape="square" checked onCheckedChange={() => {}} />
+          </Row>
+          <Row label="Бейдж · счётчик">
+            <Badge variant="brand">5</Badge>
+            <Badge variant="count">24</Badge>
+          </Row>
+        </Section>
 
         <Section title="Кнопки">
           <Row label="Первичная">
@@ -92,7 +143,7 @@ export function KitPage() {
             <Button variant="primary" size="sm">
               Скопировать
             </Button>
-            <Button variant="primary" icon={<Copy className="size-3.5" strokeWidth={2} />}>
+            <Button variant="primary" icon={<Copy {...iconProps(16)} />}>
               С иконкой
             </Button>
             <Button variant="primary" hotkey="⌘C">
@@ -107,7 +158,7 @@ export function KitPage() {
             <Button variant="secondary" size="sm">
               В Finder
             </Button>
-            <Button variant="secondary" icon={<Folder className="size-3.5" strokeWidth={2} />}>
+            <Button variant="secondary" icon={<Folder {...iconProps(16)} />}>
               С иконкой
             </Button>
             <Button variant="secondary" hotkey="⌘R">
@@ -122,7 +173,7 @@ export function KitPage() {
             <Button variant="ghost" size="sm">
               Отменить
             </Button>
-            <Button variant="ghost" icon={<Plus className="size-3.5" strokeWidth={2} />}>
+            <Button variant="ghost" icon={<Plus {...iconProps(16)} />}>
               С иконкой
             </Button>
             <Button variant="ghost" hotkey="Esc">
@@ -137,7 +188,7 @@ export function KitPage() {
             <Button variant="danger" size="sm">
               Удалить
             </Button>
-            <Button variant="danger" icon={<Trash2 className="size-3.5" strokeWidth={2} />}>
+            <Button variant="danger" icon={<Trash2 {...iconProps(16)} />}>
               С иконкой
             </Button>
             <Button variant="danger" hotkey="⌫">
@@ -154,7 +205,7 @@ export function KitPage() {
             <Button variant="danger-solid" size="sm">
               Удалить навсегда
             </Button>
-            <Button variant="danger-solid" icon={<Trash2 className="size-3.5" strokeWidth={2} />}>
+            <Button variant="danger-solid" icon={<Trash2 {...iconProps(16)} />}>
               С иконкой
             </Button>
             <Button variant="danger-solid" disabled>
@@ -166,24 +217,24 @@ export function KitPage() {
         <Section title="Кнопки-иконки">
           <Row label="32 × 32">
             <IconButton label="Скопировать">
-              <Copy className="size-4" strokeWidth={2} />
+              <Copy {...iconProps(16)} />
             </IconButton>
             <IconButton label="Папка" variant="secondary">
-              <Folder className="size-4" strokeWidth={2} />
+              <Folder {...iconProps(16)} />
             </IconButton>
             <IconButton label="Удалить" variant="danger">
-              <Trash2 className="size-4" strokeWidth={2} />
+              <Trash2 {...iconProps(16)} />
             </IconButton>
           </Row>
           <Row label="28 × 28">
             <IconButton label="Скопировать" size="sm">
-              <Copy className="size-3.5" strokeWidth={2} />
+              <Copy {...iconProps(16)} />
             </IconButton>
             <IconButton label="Папка" size="sm" variant="secondary">
-              <Folder className="size-3.5" strokeWidth={2} />
+              <Folder {...iconProps(16)} />
             </IconButton>
             <IconButton label="Удалить" size="sm" variant="danger">
-              <Trash2 className="size-3.5" strokeWidth={2} />
+              <Trash2 {...iconProps(16)} />
             </IconButton>
           </Row>
         </Section>
@@ -270,7 +321,7 @@ export function KitPage() {
                 value={folderId}
                 onValueChange={setFolderId}
                 options={folderOptions}
-                icon={<Folder className="size-3.5" strokeWidth={2} />}
+                icon={<Folder {...iconProps(16)} />}
                 placeholder="Без папки"
               />
             </div>
@@ -325,7 +376,7 @@ export function KitPage() {
           <Row label="Тултип">
             <Tooltip content="Скопировать в буфер" hotkey="⌘C">
               <IconButton label="Скопировать" variant="secondary">
-                <Copy className="size-4" strokeWidth={2} />
+                <Copy {...iconProps(16)} />
               </IconButton>
             </Tooltip>
           </Row>
@@ -411,7 +462,7 @@ export function KitPage() {
         <Section title="Пустое состояние">
           <div className="rounded-md bg-surface">
             <EmptyState
-              icon={<ImageDown className="size-5" strokeWidth={1.75} />}
+              icon={<ImageDown {...iconProps(20)} />}
               title="Перетащите изображения сюда"
               description="Или сохраните картинку из браузера через контекстное меню «Сохранить в Копирку»."
               action={

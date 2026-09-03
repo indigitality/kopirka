@@ -1,6 +1,13 @@
-import { useEffect, type ReactNode } from 'react';
+/**
+ * Оболочка окна — артборд R01 редизайна.
+ *
+ * Три поверхности вместо прежней сплошной: фон окна `app` виден только в
+ * зазорах, сайдбар и блок контента — панели радиуса 24 на `panel`. Колонка
+ * контента лежит на вуали `panel-veil`: сплошного фона у верхней панели нет,
+ * она читается как часть блока, но не спорит с сеткой.
+ */
+import type { ReactNode } from 'react';
 import type { FolderRecord, StatsResponse } from '@shared/api';
-import { viewActions } from '@/store/view';
 import { Sidebar, type SidebarProps } from './Sidebar';
 import { TopBar, type TopBarProps } from './TopBar';
 
@@ -29,22 +36,25 @@ export function AppShell({
   filterOpen,
   ...sidebarProps
 }: AppShellProps) {
-  // ⌘\ — свернуть/развернуть сайдбар.
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (!(event.metaKey || event.ctrlKey)) return;
-      if (event.key !== '\\' && event.code !== 'Backslash') return;
-      event.preventDefault();
-      viewActions.toggleSidebar();
-    };
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, []);
-
+  /*
+    Сворачивания сайдбара больше нет (решение редизайна 02.09.2026): вместе с
+    кнопкой ушёл и хоткей ⌘\, который жил здесь.
+  */
   return (
-    <div className="flex h-full w-full overflow-hidden bg-bg">
+    /*
+      Поле окна и зазор между панелями — тоже зона перетаскивания: полосы
+      заголовка нет, а рамка вокруг панелей ровно для этого и годится. Атрибут
+      без `deep` нарочно: тянется только сам фон оболочки, дети (сайдбар,
+      панель контента) остаются обычными.
+    */
+    <div
+      data-tauri-drag-region
+      className="flex h-full w-full overflow-hidden gap-[var(--shell-gap)] bg-app p-[var(--shell-pad)]"
+    >
       <Sidebar folders={folders} stats={stats} {...sidebarProps} />
-      <div className="flex min-w-0 flex-1 flex-col">
+
+      {/* Колонка контента: вуаль под верхней панелью, радиус панели (узел «Контент» R01). */}
+      <div className="flex min-w-0 flex-1 flex-col rounded-[var(--radius-panel)] bg-panel-veil">
         <TopBar onOpenFilter={onOpenFilter} filterCount={filterCount} filterOpen={filterOpen} />
         {/*
           Якорь и скролл разведены нарочно: скроллится внутренний <main>, а
@@ -53,10 +63,16 @@ export function AppShell({
 
           `id` — договор с «полкой» (дизайн-аудит 4.14): плавающие панели
           рисуются порталом сюда, а не в `<body>`, поэтому центрируются по
-          контенту и уезжают вместе со свёрнутым сайдбаром.
+          области контента. Обрезки на нём нарочно нет: панель фильтров и
+          полка выходят за край блока.
+
+          Панель — на `<main>`: фон, радиус и обрезка живут там же, где скролл
+          (узел «Блок сетки» R01). Поля внутри задаёт сама сетка (`--grid-pad`).
         */}
         <div id="kopirka-content" className="relative min-h-0 flex-1">
-          <main className="h-full overflow-y-auto">{children}</main>
+          <main className="h-full overflow-y-auto rounded-[var(--radius-panel)] bg-panel">
+            {children}
+          </main>
           {overlay}
         </div>
       </div>

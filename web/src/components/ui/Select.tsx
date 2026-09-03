@@ -1,7 +1,18 @@
+/**
+ * Выпадающий список. Канон — R14 · «Переместить в папку» (кнопка) и R09 ·
+ * панель деталей, узел «Папка».
+ *
+ * Кнопка: высота 34, заливка `control`, радиус `--radius-md`, поля 10,
+ * зазор 8; иконка папки 16 `ink-muted` слева, имя 14/18 · 500 `ink`,
+ * шеврон 14 `ink-faint` справа.
+ * Список — стеклянный поповер: строки 30 px, полупрозрачная подложка под
+ * курсором, галка `brand` у выбранного (правило Сергея о поповерах).
+ */
 import { useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Check, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/cn';
-import { Popover, PopoverContent, PopoverTrigger } from './Popover';
+import { Icon } from '@/lib/icons';
+import { GLASS_ROW, Popover, PopoverContent, PopoverTrigger } from './Popover';
 
 export type SelectValue = string | number | null;
 
@@ -77,17 +88,17 @@ export function Select<T extends SelectValue>({
         aria-haspopup="listbox"
         aria-expanded={open}
         className={cn(
-          'flex h-[var(--size-row)] w-full items-center rounded-md bg-surface-raised px-2.5',
-          'text-base text-ink transition-colors duration-[var(--dur-fast)] ease-out',
-          'hover:bg-surface-hover disabled:pointer-events-none disabled:opacity-40',
+          'flex h-[var(--size-field)] w-full items-center rounded-md bg-control px-2.5',
+          'text-md leading-[18px] font-medium text-ink transition-colors duration-[var(--dur-fast)] ease-out',
+          'hover:bg-control-hover disabled:pointer-events-none disabled:opacity-40',
           className,
         )}
       >
-        {icon ? <span className="flex size-4 shrink-0 items-center justify-center text-ink-faint">{icon}</span> : null}
+        {icon ? <span className="flex size-4 shrink-0 items-center justify-center text-ink-muted">{icon}</span> : null}
         <span className={cn('min-w-0 flex-1 truncate text-left', icon && 'ml-2', !selected && 'text-ink-faint')}>
           {selected ? selected.label : placeholder}
         </span>
-        <ChevronDown className="ml-2 size-3.5 shrink-0 text-ink-faint" strokeWidth={2} aria-hidden />
+        <Icon icon={ChevronDown} size={14} className="ml-2 shrink-0 text-ink-faint" aria-hidden />
       </PopoverTrigger>
 
       <PopoverContent
@@ -133,20 +144,22 @@ export function Select<T extends SelectValue>({
               }}
               style={{ paddingLeft: 8 + (option.depth ?? 0) * 14 }}
               className={cn(
-                'flex h-[var(--size-row)] w-full shrink-0 items-center rounded-sm pr-2 text-left text-base',
-                'transition-colors duration-[var(--dur-fast)] ease-out hover:bg-surface-hover',
-                'focus-visible:bg-surface-hover focus-visible:outline-none',
-                isSelected ? 'text-ink' : 'text-ink-muted hover:text-ink',
+                GLASS_ROW,
+                'shrink-0 pr-2',
+                'hover:bg-control focus-visible:bg-control focus-visible:outline-none',
+                isSelected && 'bg-control-hover',
               )}
             >
               {option.icon ? (
-                <span className="flex size-4 shrink-0 items-center justify-center text-ink-faint">
+                <span className="flex size-4 shrink-0 items-center justify-center text-ink-muted">
                   {option.icon}
                 </span>
               ) : null}
               <span className={cn('min-w-0 flex-1 truncate', option.icon && 'ml-2')}>{option.label}</span>
-              <span className="flex size-4 shrink-0 items-center justify-center">
-                {isSelected ? <Check className="size-3.5 text-accent" strokeWidth={2.5} aria-hidden /> : null}
+              <span className="flex size-3.5 shrink-0 items-center justify-center">
+                {isSelected ? (
+                  <Icon icon={Check} size={14} className="text-brand" aria-hidden />
+                ) : null}
               </span>
             </button>
           );

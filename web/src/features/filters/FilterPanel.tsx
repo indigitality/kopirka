@@ -7,17 +7,23 @@
  *
  * Состоянием не владеет: снаружи приходит `value`, наружу уходит `onChange`.
  * Изменения применяются сразу, кнопки «Применить» нет.
+ *
+ * Внешний вид — редизайн, артборд R05 «Поиск и фильтры», узел «Панель фильтров»:
+ * стекло 340 px под кнопкой «Фильтр», секции без разделителей, чипы-пилюли,
+ * подвал с линией от края до края.
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Search, X } from 'lucide-react';
 import type { FileExt, FileListQuery, TagRecord } from '@shared/api';
 import { Button } from '@/components/ui/Button';
+import { Chip } from '@/components/ui/Chip';
 import { IconButton } from '@/components/ui/IconButton';
 import { Input } from '@/components/ui/Input';
 import { cn } from '@/lib/cn';
-import { DUR_FAST, EASE_OUT } from '@/lib/motion';
-import { DUR_EXIT_FAST, EASE_IN } from '@/components/ui/motion-presets';
+import { Icon } from '@/lib/icons';
+import { useReducedMotion } from '@/lib/useReducedMotion';
+import { glassLayerMotion } from '@/components/ui/motion-presets';
 import { CheckRow } from './CheckRow';
 import {
   DATE_PRESETS,
@@ -44,47 +50,52 @@ export interface FilterPanelProps {
 
 // ── Мелкие части ─────────────────────────────────────────────────────────────
 
+/**
+ * Секция панели. Разделителей между секциями в редизайне нет — их роль играет
+ * зазор 18 в теле панели (узел «Панель фильтров», R05).
+ */
 function Section({ title, hint, children }: { title: string; hint?: ReactNode; children: ReactNode }) {
   return (
-    <section className="border-t border-line px-4 py-3.5 first:border-t-0">
+    <section className="flex flex-col gap-2.5">
       <div className="flex items-baseline gap-2">
         <span className="label-section">{title}</span>
-        {/* 10 px не моно — прямое нарушение спеки §6, поэтому 12 (аудит 3.1). */}
-        {hint ? <span className="min-w-0 flex-1 truncate text-sm text-ink-faint">{hint}</span> : null}
+        {hint ? <span className="min-w-0 flex-1 truncate text-xs text-ink-faint">{hint}</span> : null}
       </div>
-      <div className="mt-2.5">{children}</div>
+      {children}
     </section>
   );
 }
 
-/** Чип-переключатель: типы файлов и пресеты дат. */
-function Chip({
+/**
+ * Чип-переключатель: типы файлов и пресеты дат. Геометрию и цвета даёт общий
+ * `Chip` (варианты `brand` / `control`); здесь только два отличия узла R05 от
+ * общей пилюли: невыбранный чип фильтра приглушён (`ink-muted`, а не `ink`),
+ * а расширение файла набрано 11 px обычным весом, не 12 px Medium.
+ */
+function FilterChip({
   active,
   onClick,
-  mono,
+  technical,
   children,
 }: {
   active: boolean;
   onClick: () => void;
-  mono?: boolean;
+  technical?: boolean;
   children: ReactNode;
 }) {
   return (
-    <button
-      type="button"
+    <Chip
+      as="button"
+      variant={active ? 'brand' : 'control'}
       aria-pressed={active}
       onClick={onClick}
       className={cn(
-        'h-7 rounded-md border px-2.5 whitespace-nowrap',
-        'transition-colors duration-[var(--dur-fast)] ease-out',
-        mono ? 'font-mono text-xs' : 'text-sm',
-        active
-          ? 'border-accent/50 bg-accent-soft text-accent'
-          : 'border-line-strong bg-surface-raised text-ink-muted hover:text-ink',
+        technical && 'text-xs leading-[14px] font-normal',
+        !active && 'text-ink-muted hover:text-ink',
       )}
     >
       {children}
-    </button>
+    </Chip>
   );
 }
 
@@ -101,6 +112,7 @@ export function FilterPanel({
 }: FilterPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const [tagQuery, setTagQuery] = useState('');
+  const reduced = useReducedMotion();
 
   const selectedTags = useMemo(() => value.tags ?? [], [value.tags]);
   const selectedExts = useMemo(() => value.exts ?? [], [value.exts]);
@@ -188,46 +200,60 @@ export function FilterPanel({
     <AnimatePresence>
       {open ? (
         /*
-          Вход короткий: 200 мс сквозь полупрозрачную панель читаются карточки,
-          и это выглядит как глюк отрисовки (аудит 3.1). Уход — ещё короче и по
-          кривой входа в экран.
+          Панель — стекло: `--color-raised-glass` + размытие 20 + край `line-strong`,
+          радиус 12, тень поповера (узел «Панель фильтров», R05). Paper не рисует
+          `backdrop-filter`, поэтому размытие здесь обязательно — иначе сквозь 85 %
+          подложки читаются карточки.
+
+          Появление — пружинное семейство редизайна: blur 8 → 0, сдвиг 8 px сверху
+          вниз (панель висит под кнопкой «Фильтр», значит `from="top"`).
         */
         <motion.div
           ref={panelRef}
           role="dialog"
           aria-label="Фильтры"
-          initial={{ opacity: 0, scale: 0.98, y: -6 }}
-          animate={{ opacity: 1, scale: 1, y: 0, transition: { duration: DUR_FAST, ease: EASE_OUT } }}
-          exit={{ opacity: 0, scale: 0.98, y: -6, transition: { duration: DUR_EXIT_FAST, ease: EASE_IN } }}
+          {...glassLayerMotion({ from: 'top', reduced })}
           className={cn(
-            // 340 px при контенте 660 (окно 900) занимали больше половины — аудит §3.1.
-            'absolute top-2 right-[var(--grid-pad)] z-30 w-[min(340px,calc(100%-60px))] origin-top-right',
-            'flex max-h-[calc(100%-16px)] flex-col overflow-hidden rounded-xl',
-            'bg-surface-overlay text-ink shadow-float outline-none',
+            /*
+              Ширина 340, правый край вровень с кнопкой «Фильтр». По вертикали
+              панель висит в 8 px под кнопкой, а не под верхней панелью, и потому
+              заходит на неё снизу (в макете верх панели 66 при нижнем крае
+              кнопки 58). Слой рисуется в области контента, отсчёт идёт от её
+              верха: (высота кнопки − высота верхней панели) / 2 + 8.
+            */
+            'glass absolute right-[var(--panel-pad)] z-30 origin-top-right',
+            'top-[calc((var(--size-row)-var(--shell-topbar))/2+8px)]',
+            'w-[var(--size-filter-panel)] max-w-[calc(100%-2*var(--panel-pad))]',
+            'flex max-h-[calc(100%-16px)] flex-col overflow-hidden rounded-card',
+            'text-ink shadow-popover outline-none',
             className,
           )}
         >
-          <header className="flex h-11 shrink-0 items-center gap-2 px-4">
-            <h2 className="text-md font-medium text-ink">Фильтры</h2>
-            {activeCount > 0 ? (
-              <span className="rounded-pill bg-accent-soft px-1.5 py-0.5 font-mono text-2xs text-accent">
-                {activeCount}
-              </span>
-            ) : null}
-            <div className="flex-1" />
-            <IconButton size="sm" label="Закрыть фильтры" onClick={() => onOpenChange(false)} className="-mr-1.5">
-              <X className="size-3.5" strokeWidth={2} aria-hidden />
-            </IconButton>
-          </header>
+          <div className="flex min-h-0 flex-1 flex-col gap-4.5 overflow-y-auto p-4">
+            <header className="flex shrink-0 items-center gap-2">
+              <h2 className="text-md font-medium text-ink">Фильтры</h2>
+              {/* Счётчик — просто лаймовая цифра, плашки под ним в редизайне нет. */}
+              {activeCount > 0 ? <span className="text-2xs text-brand tabular-nums">{activeCount}</span> : null}
+              <div className="flex-1" />
+              <IconButton
+                size="sm"
+                label="Закрыть фильтры"
+                onClick={() => onOpenChange(false)}
+                className="-mr-1.5"
+              >
+                <Icon icon={X} size={16} aria-hidden />
+              </IconButton>
+            </header>
 
-          <div className="min-h-0 flex-1 overflow-y-auto">
             {/* SEARCH-01 — И-логика: файл должен иметь все выбранные теги. */}
             <Section title="Теги" hint={selectedTags.length > 1 ? 'нужны все выбранные' : undefined}>
+              {/* Поиска по тегам в макете нет: он появляется только там, где список длиннее образца. */}
               {tags.length > 6 ? (
-                <div className="relative mb-2">
-                  <Search
-                    className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-ink-faint"
-                    strokeWidth={2}
+                <div className="relative">
+                  <Icon
+                    icon={Search}
+                    size={16}
+                    className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-ink-faint"
                     aria-hidden
                   />
                   <Input
@@ -235,26 +261,26 @@ export function FilterPanel({
                     placeholder="Найти тег"
                     aria-label="Найти тег"
                     onChange={(event) => setTagQuery(event.target.value)}
-                    className="h-7 pl-8 text-sm"
+                    className="pl-9"
                   />
                 </div>
               ) : null}
 
               {tagsLoading ? (
-                <p className="px-1.5 py-1 text-sm text-ink-faint">Загружаем теги…</p>
+                <p className="py-1 text-sm text-ink-faint">Загружаем теги…</p>
               ) : tags.length === 0 ? (
-                <p className="px-1.5 py-1 text-sm text-ink-faint">Тегов пока нет</p>
+                <p className="py-1 text-sm text-ink-faint">Тегов пока нет</p>
               ) : visibleTags.length === 0 ? (
-                <p className="px-1.5 py-1 text-sm text-ink-faint">Ничего не найдено</p>
+                <p className="py-1 text-sm text-ink-faint">Ничего не найдено</p>
               ) : (
-                <div className="-mx-1.5 max-h-[182px] overflow-y-auto px-1.5">
-                  {/* 182px — 6,5 строки: срез посередине строки виден как «список длиннее». */}
+                /* 182px — 6,5 строки: срез посередине строки виден как «список длиннее». */
+                <div className="flex max-h-[182px] flex-col overflow-y-auto">
                   {visibleTags.map((tag) => (
                     <CheckRow
                       key={tag.id}
                       checked={selectedTags.includes(tag.name)}
                       onCheckedChange={(checked) => toggleTag(tag.name, checked)}
-                      trailing={<span className="font-mono text-2xs text-ink-faint">{tag.fileCount}</span>}
+                      trailing={tag.fileCount}
                     >
                       {tag.name}
                     </CheckRow>
@@ -267,84 +293,88 @@ export function FilterPanel({
             <Section title="Тип файла">
               <div className="flex flex-wrap gap-1.5">
                 {FILTER_EXTS.map((ext) => (
-                  <Chip key={ext} mono active={selectedExts.includes(ext)} onClick={() => toggleExt(ext)}>
+                  <FilterChip key={ext} technical active={selectedExts.includes(ext)} onClick={() => toggleExt(ext)}>
                     {ext}
-                  </Chip>
+                  </FilterChip>
                 ))}
               </div>
             </Section>
 
             {/* SEARCH-03 */}
             <Section title="Добавлено">
-              <div className="flex flex-wrap gap-1.5">
-                {DATE_PRESETS.map((preset) => (
-                  <Chip
-                    key={preset.value}
-                    active={activePreset === preset.value}
-                    onClick={() => applyPreset(preset.value)}
-                  >
-                    {preset.label}
-                  </Chip>
-                ))}
-                <Chip
-                  active={showCustomRange}
-                  onClick={() => {
-                    if (showCustomRange) patch({ dateFrom: undefined, dateTo: undefined });
-                    setCustomOpen(!showCustomRange);
-                  }}
-                >
-                  Свой период…
-                </Chip>
-              </div>
-
-              {showCustomRange ? (
-                <div className="mt-2.5 grid grid-cols-2 gap-2">
-                  {(
-                    [
-                      { key: 'dateFrom', label: 'от' },
-                      { key: 'dateTo', label: 'до' },
-                    ] as const
-                  ).map(({ key, label }) => (
-                    <div key={key}>
-                      <label htmlFor={`filter-${key}`} className="mb-1 block text-sm text-ink-faint">
-                        {label}
-                      </label>
-                      <Input
-                        id={`filter-${key}`}
-                        type="date"
-                        value={value[key] ?? ''}
-                        max={key === 'dateFrom' ? value.dateTo : undefined}
-                        min={key === 'dateTo' ? value.dateFrom : undefined}
-                        onChange={(event) => patch({ [key]: event.target.value || undefined })}
-                        className={cn(
-                          'h-7 px-2 font-mono text-xs',
-                          '[&::-webkit-calendar-picker-indicator]:cursor-pointer',
-                          '[&::-webkit-calendar-picker-indicator]:opacity-40',
-                          'hover:[&::-webkit-calendar-picker-indicator]:opacity-80',
-                        )}
-                      />
-                    </div>
+              <div className="flex flex-col gap-2.5">
+                <div className="flex flex-wrap gap-1.5">
+                  {DATE_PRESETS.map((preset) => (
+                    <FilterChip
+                      key={preset.value}
+                      active={activePreset === preset.value}
+                      onClick={() => applyPreset(preset.value)}
+                    >
+                      {preset.label}
+                    </FilterChip>
                   ))}
+                  <FilterChip
+                    active={showCustomRange}
+                    onClick={() => {
+                      if (showCustomRange) patch({ dateFrom: undefined, dateTo: undefined });
+                      setCustomOpen(!showCustomRange);
+                    }}
+                  >
+                    Свой период…
+                  </FilterChip>
                 </div>
-              ) : null}
+
+                {showCustomRange ? (
+                  <div className="grid grid-cols-2 gap-2">
+                    {(
+                      [
+                        { key: 'dateFrom', label: 'от' },
+                        { key: 'dateTo', label: 'до' },
+                      ] as const
+                    ).map(({ key, label }) => (
+                      <div key={key}>
+                        <label htmlFor={`filter-${key}`} className="mb-1 block text-2xs text-ink-faint">
+                          {label}
+                        </label>
+                        <Input
+                          id={`filter-${key}`}
+                          type="date"
+                          value={value[key] ?? ''}
+                          max={key === 'dateFrom' ? value.dateTo : undefined}
+                          min={key === 'dateTo' ? value.dateFrom : undefined}
+                          onChange={(event) => patch({ [key]: event.target.value || undefined })}
+                          className={cn(
+                            'text-xs tabular-nums',
+                            '[&::-webkit-calendar-picker-indicator]:cursor-pointer',
+                            '[&::-webkit-calendar-picker-indicator]:opacity-40',
+                            'hover:[&::-webkit-calendar-picker-indicator]:opacity-80',
+                          )}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
             </Section>
           </div>
 
-          <footer className="flex h-11 shrink-0 items-center gap-2 border-t border-line px-4">
+          {/*
+            Разделитель подвала — от края до края панели цветом её обводки
+            (правка Сергея 02.09.2026): поля 16, сверху 14, снизу 16.
+          */}
+          <footer className="flex shrink-0 items-center gap-2 border-t border-line-strong px-4 pt-3.5 pb-4">
             <span className="min-w-0 flex-1 truncate text-sm text-ink-faint">
               {activeCount > 0 ? `Активных фильтров: ${activeCount}` : 'Фильтры не заданы'}
             </span>
             {/* Выключенная кнопка давала ~2.3:1 и читалась как артефакт (аудит §3.1). */}
             {activeCount > 0 ? (
               <Button
-                size="sm"
                 variant="ghost"
                 onClick={() => {
                   setTagQuery('');
                   setCustomOpen(false);
                   onChange(clearFilters(value));
                 }}
-                className="-mr-2"
               >
                 Сбросить
               </Button>

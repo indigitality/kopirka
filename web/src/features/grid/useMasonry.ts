@@ -26,6 +26,11 @@ export interface MasonryOptions {
   columnWidth: number;
   gap: number;
   pad: number;
+  /**
+   * Верхнее поле, когда оно не равно боковому: под заголовком контента в макете
+   * зазор 12, а не 16 (R02 · «Блок сетки» — заголовок и сетка разделены `gap: 12`).
+   */
+  padTop?: number;
   /** Клемп снизу: минимум колонок для выбранного размера. */
   minColumns?: number;
 }
@@ -70,6 +75,7 @@ export function columnCountFor(available: number, options: MasonryOptions): numb
 
 function layout(items: readonly MasonryInput[], width: number, options: MasonryOptions): MasonryLayout {
   const { gap, pad } = options;
+  const padTop = options.padTop ?? pad;
   const available = Math.max(0, width - pad * 2);
   const columnCount = columnCountFor(available, options);
   const actualWidth = (available - gap * (columnCount - 1)) / columnCount;
@@ -87,7 +93,7 @@ function layout(items: readonly MasonryInput[], width: number, options: MasonryO
     boxes.push({
       id: item.id,
       x: pad + column * (actualWidth + gap),
-      y: pad + (heights[column] ?? 0),
+      y: padTop + (heights[column] ?? 0),
       width: actualWidth,
       height,
     });
@@ -97,7 +103,7 @@ function layout(items: readonly MasonryInput[], width: number, options: MasonryO
   const tallest = heights.reduce((max, value) => Math.max(max, value), 0);
   return {
     boxes,
-    height: boxes.length === 0 ? 0 : pad * 2 + Math.max(0, tallest - gap),
+    height: boxes.length === 0 ? 0 : padTop + pad + Math.max(0, tallest - gap),
     columnCount,
     columnWidth: actualWidth,
     measured: width > 0,

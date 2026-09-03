@@ -1,52 +1,39 @@
+/**
+ * Тег — тонкая обёртка над `Chip`, оставленная ради совместимости: на неё
+ * ссылается панель просмотра и витрина.
+ *
+ * В новом коде пишите `Chip` напрямую:
+ *   тег в панели просмотра  → `<Chip variant="control" onRemove={…}>`
+ *   кнопка «+ тег»          → `<Chip variant="outline" as="button">`
+ *   тег на карточке сетки   → `<Chip variant="light">`
+ *   имя папки на карточке   → `<Chip variant="dark">`
+ *
+ * Канон — R09 · «Теги» в панели деталей (высота 26, радиус pill, поля 10,
+ * текст 12/16 · 500) и R13 · «Карточка сетки и чипы».
+ */
 import { forwardRef, type HTMLAttributes } from 'react';
-import { X } from 'lucide-react';
-import { cn } from '@/lib/cn';
+import { Chip } from './Chip';
 
 export interface TagProps extends HTMLAttributes<HTMLSpanElement> {
-  /** Если задан — по наведению справа появляется «×». */
+  /** Если задан — справа появляется «×». */
   onRemove?: () => void;
   /** Пунктирная рамка: вариант кнопки «+ тег». */
   dashed?: boolean;
 }
 
 export const Tag = forwardRef<HTMLSpanElement, TagProps>(function Tag(
-  { onRemove, dashed, className, children, ...rest },
+  { onRemove, dashed, children, ...rest },
   ref,
 ) {
   return (
-    <span
-      ref={ref}
-      className={cn(
-        'group/tag inline-flex h-6 max-w-full items-center rounded-pill px-2.5 text-sm',
-        'transition-colors duration-[var(--dur-fast)] ease-out',
-        dashed
-          ? // Пунктир «+ тег» — рамка контрола, а не разделитель: иначе кнопки не видно.
-            'border border-dashed border-line-control bg-transparent text-ink-faint hover:text-ink-muted'
-          : 'bg-surface-active text-ink-muted hover:text-ink',
-        onRemove && 'pr-1.5',
-        className,
-      )}
+    <Chip
+      ref={ref as never}
+      variant={dashed ? 'outline' : 'control'}
+      onRemove={onRemove}
+      removeLabel="Убрать тег"
       {...rest}
     >
-      <span className="truncate">{children}</span>
-      {onRemove ? (
-        <button
-          type="button"
-          aria-label="Убрать тег"
-          onClick={(event) => {
-            event.stopPropagation();
-            onRemove();
-          }}
-          className={cn(
-            'ml-1 flex size-4 shrink-0 items-center justify-center rounded-pill',
-            'opacity-0 transition-opacity duration-[var(--dur-fast)] ease-out',
-            'group-hover/tag:opacity-100 focus-visible:opacity-100',
-            'text-ink-faint hover:text-ink',
-          )}
-        >
-          <X className="size-3" strokeWidth={2.5} aria-hidden />
-        </button>
-      ) : null}
-    </span>
+      {children}
+    </Chip>
   );
 });

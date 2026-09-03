@@ -1,19 +1,21 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { useState } from 'react';
 import { Grid2x2, Grid3x3, Square } from 'lucide-react';
+import { Icon } from '@/lib/icons';
 import { SegmentedControl, type SegmentedOption } from './SegmentedControl';
 
 /**
- * Единственный тип переключателя в «Копирке» (дизайн-аудит §8.1). Проверять стоит
- * три вещи: переезд плашки (`layoutId`, `--dur-fast`), стрелки ←/→ внутри группы
- * и то, что в группу заходят одним Tab, а не тремя.
+ * Единственный тип переключателя в «Копирке» (дизайн-аудит §8.1), канон
+ * редизайна — R13 · «Верхняя панель». Проверять стоит три вещи: переезд плашки
+ * (`layoutId`, `--dur-fast`), стрелки ←/→ внутри группы и то, что в группу
+ * заходят одним Tab, а не тремя.
  */
 type Density = 'l' | 'm' | 's';
 
 const SIZE_OPTIONS: readonly SegmentedOption<Density>[] = [
-  { value: 'l', label: 'Большие', hotkey: '⌘1', icon: <Square className="size-3.5" strokeWidth={2} /> },
-  { value: 'm', label: 'Средние', hotkey: '⌘2', icon: <Grid2x2 className="size-3.5" strokeWidth={2} /> },
-  { value: 's', label: 'Маленькие', hotkey: '⌘3', icon: <Grid3x3 className="size-3.5" strokeWidth={2} /> },
+  { value: 'l', label: 'Большие', hotkey: '⌘1', icon: <Icon icon={Square} /> },
+  { value: 'm', label: 'Средние', hotkey: '⌘2', icon: <Icon icon={Grid2x2} /> },
+  { value: 's', label: 'Маленькие', hotkey: '⌘3', icon: <Icon icon={Grid3x3} /> },
 ];
 
 const ORIENTATION_OPTIONS: readonly SegmentedOption<string>[] = [

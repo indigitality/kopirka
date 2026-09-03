@@ -1,13 +1,20 @@
 /**
- * Онбординг первого запуска — экран 1 по PRD §6.1.
+ * Онбординг первого запуска — экран 1 по PRD §6.1, редизайн — артборд R11.
  * Показывается, пока `firstRunCompleted === false`. Один экран, не мастер:
  * объяснение в одну фразу, путь библиотеки и кнопка. Всё остальное — потом.
+ *
+ * Оболочка та же, что у всего приложения: фон окна `--color-app`, поле
+ * `--shell-pad`, внутри — одна панель `--color-panel` с радиусом
+ * `--radius-panel`. Колонка 420 стоит по центру панели, элементы разделены
+ * зазором 28 (узлы R11); подзаголовок поджат к заголовку на 14.
  */
 import { useState, type FormEvent, type ReactNode } from 'react';
-import { ClipboardPaste, FolderOpen, ImageDown, Puzzle } from 'lucide-react';
+import { Clipboard, Folder, Image, Puzzle, type LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { Logo } from '@/components/ui/Logo';
 import { cn } from '@/lib/cn';
+import { Icon } from '@/lib/icons';
 import { isTauri, pickDirectory } from '@/lib/tauri';
 
 /** SET-01 — путь библиотеки по умолчанию. */
@@ -23,22 +30,21 @@ export interface OnboardingScreenProps {
   className?: string;
 }
 
-const HINTS: readonly { icon: ReactNode; text: ReactNode }[] = [
-  { icon: <ImageDown className="size-3.5" strokeWidth={2} aria-hidden />, text: 'Перетащите картинки прямо в окно' },
+const HINTS: readonly { icon: LucideIcon; text: ReactNode }[] = [
+  { icon: Image, text: 'Перетащите картинки прямо в окно' },
   {
-    icon: <ClipboardPaste className="size-3.5" strokeWidth={2} aria-hidden />,
+    icon: Clipboard,
     text: (
       <>
         Вставьте из буфера обмена —{' '}
-        {/* 11px, а не 10: строкой ниже 13px чип на 10px превращается в пятно. */}
-        <span className="rounded-xs bg-surface-active px-1.5 py-0.5 font-mono text-xs text-ink">⌘V</span>
+        {/* Чип хоткея: 18 в высоту, поля 6, радиус `--radius-sm`, текст 10/12. */}
+        <span className="ml-0.5 inline-flex h-[18px] items-center rounded-sm bg-control px-1.5 align-middle text-2xs leading-3 text-ink-muted">
+          ⌘V
+        </span>
       </>
     ),
   },
-  {
-    icon: <Puzzle className="size-3.5" strokeWidth={2} aria-hidden />,
-    text: 'Сохраняйте из браузера через расширение «Копирка»',
-  },
+  { icon: Puzzle, text: 'Сохраняйте из браузера через расширение «Копирка»' },
 ];
 
 export function OnboardingScreen({
@@ -104,92 +110,94 @@ export function OnboardingScreen({
   };
 
   return (
-    <div className={cn('relative h-full overflow-y-auto bg-bg', className)}>
-      {/*
-        Полоса перетаскивания окна. Оболочки с шапкой на онбординге нет, и первое
-        окно приложения нечем было двигать (замечание Сергея 02.09.2026). Высота —
-        `--size-topbar`: десктопная обёртка уже прибавила к нему инсет 28px под
-        светофор macOS, так что полоса накрывает и его. Обёртка нулевой высоты и
-        `sticky` — полоса не занимает места в потоке, держится у верха видимой
-        области и никогда не вылезает за пределы экрана онбординга. Лежит поверх
-        содержимого нарочно: иначе нажатие досталось бы блоку с текстом, а
-        интерактивного в этих 60 px ничего нет — только логотип. В браузере это
-        обычный div без поведения.
-      */}
-      <div aria-hidden className="sticky top-0 z-10 h-0">
-        <div data-tauri-drag-region="deep" className="h-[var(--size-topbar)]" />
-      </div>
+    <div className={cn('flex h-full flex-col bg-app p-[var(--shell-pad)]', className)}>
+      <div className="min-h-0 flex-1 overflow-y-auto rounded-[var(--radius-panel)] bg-panel">
+        {/*
+          Полоса перетаскивания окна. Верхней панели оболочки на онбординге нет,
+          и первое окно приложения нечем было двигать (замечание Сергея
+          02.09.2026). Высота — `--size-topbar`, как у верхней панели оболочки.
+          Обёртка нулевой высоты и `sticky`: полоса не занимает места в потоке,
+          держится у верха видимой области и не мешает прокрутке колеса — она
+          лежит внутри прокручиваемого блока. Интерактивного в этих 60 px нет:
+          колонка стоит по центру. В браузере это обычный div без поведения.
+        */}
+        <div aria-hidden className="sticky top-0 z-10 h-0">
+          <div data-tauri-drag-region="deep" className="h-[var(--size-topbar)]" />
+        </div>
 
-      <div className="flex min-h-full items-center justify-center px-6 py-12">
-        <div className="w-full max-w-[420px]">
-          <div className="flex items-center gap-2.5">
-            <span
-              className="size-[22px] shrink-0 rounded-sm bg-linear-to-br from-accent to-accent-deep"
-              aria-hidden
-            />
-            <span className="text-lg font-medium text-ink">Копирка</span>
-          </div>
+        {/* `min-h-full` + центрирование: в низком окне колонка не обрезается сверху. */}
+        <div className="flex min-h-full items-center justify-center px-6 py-12">
+          <div className="flex w-full max-w-[420px] flex-col items-start gap-7">
+            <Logo />
 
-          <h1 className="mt-7 text-2xl leading-tight font-medium tracking-tight text-ink">
-            Соберём библиотеку референсов
-          </h1>
-          <p className="mt-3 text-md text-ink-muted">
-            Скриншоты, картинки и экспорты — в одной плотной сетке, а файлы остаются у вас на диске.
-          </p>
+            <h1 className="text-2xl leading-[34px] font-medium tracking-tight text-ink">
+              Соберём библиотеку референсов
+            </h1>
+            {/* Подзаголовок принадлежит заголовку: −14 гасит половину зазора колонки. */}
+            <p className="-mt-3.5 text-md leading-[21px] text-ink-muted">
+              Скриншоты, картинки и экспорты — в одной плотной сетке, а файлы остаются у вас на диске.
+            </p>
 
-          <form onSubmit={handleSubmit} className="mt-8">
-            <label htmlFor="onboarding-path" className="label-section block">
-              Путь библиотеки
-            </label>
-            <div className="mt-2 flex gap-2">
-              <Input
-                id="onboarding-path"
-                value={path}
-                spellCheck={false}
-                autoComplete="off"
-                autoFocus
-                aria-invalid={Boolean(shown)}
-                onChange={(event) => setPath(event.target.value)}
-                className={cn('min-w-0 flex-1 font-mono text-xs', shown && 'border-danger')}
-              />
-              {inTauri ? (
-                <Button
-                  variant="secondary"
-                  disabled={disabled || picking}
-                  onClick={() => void chooseFolder()}
-                  icon={<FolderOpen className="size-4" strokeWidth={2} aria-hidden />}
-                >
-                  Выбрать папку…
-                </Button>
-              ) : null}
-            </div>
-            {shown ? (
-              <p role="alert" className="mt-1.5 text-sm text-danger">
-                {shown}
-              </p>
-            ) : (
-              <p className="mt-1.5 text-sm text-ink-muted">
-                Папку создадим, если её ещё нет. Путь можно поменять позже в настройках.
-              </p>
-            )}
+            <form onSubmit={handleSubmit} className="flex w-full flex-col gap-2">
+              <label htmlFor="onboarding-path" className="label-section">
+                Путь библиотеки
+              </label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="onboarding-path"
+                  value={path}
+                  spellCheck={false}
+                  autoComplete="off"
+                  autoFocus
+                  aria-invalid={Boolean(shown)}
+                  onChange={(event) => setPath(event.target.value)}
+                  /* Путь набран мельче тела — 12/16, как в R10 и R11. */
+                  className={cn(
+                    'min-w-0 flex-1 text-sm leading-4',
+                    shown && 'shadow-[inset_0_0_0_1px_var(--color-danger)]',
+                  )}
+                />
+                {inTauri ? (
+                  <Button
+                    variant="secondary"
+                    disabled={disabled || picking}
+                    onClick={() => void chooseFolder()}
+                    icon={<Icon icon={Folder} aria-hidden />}
+                  >
+                    Выбрать папку…
+                  </Button>
+                ) : null}
+              </div>
+              {shown ? (
+                <p role="alert" className="text-sm leading-[18px] text-danger">
+                  {shown}
+                </p>
+              ) : (
+                <p className="text-sm leading-[18px] text-ink-faint">
+                  Папку создадим, если её ещё нет. Путь можно поменять позже в настройках.
+                </p>
+              )}
 
-            <Button type="submit" variant="primary" fullWidth disabled={disabled} className="mt-5">
-              {pending ? 'Создаём…' : 'Создать библиотеку'}
-            </Button>
-          </form>
+              {/*
+                Кнопка живёт внутри формы (иначе Enter её не отправит), а стоять
+                должна на зазоре колонки: 8 от `gap-2` формы плюс 20 отступа = 28.
+              */}
+              <Button type="submit" variant="primary" size="lg" fullWidth disabled={disabled} className="mt-5">
+                {pending ? 'Создаём…' : 'Создать библиотеку'}
+              </Button>
+            </form>
 
-          <div className="mt-9 border-t border-line pt-5">
-            <p className="label-section">Как наполнять</p>
-            <ul className="mt-3 space-y-2.5">
+            <div className="h-px w-full shrink-0 bg-line-strong" aria-hidden />
+
+            <div className="flex w-full flex-col">
+              <p className="label-section mb-2">Как наполнять</p>
               {HINTS.map((hint, index) => (
-                <li key={index} className="flex items-center gap-3">
-                  <span className="flex size-4 shrink-0 items-center justify-center text-ink-faint">
-                    {hint.icon}
-                  </span>
-                  <span className="text-base text-ink-muted">{hint.text}</span>
-                </li>
+                <div key={index} className="flex h-7 items-center gap-2.5">
+                  <Icon icon={hint.icon} className="shrink-0 text-ink-faint" aria-hidden />
+                  <span className="text-base leading-4 text-ink-muted">{hint.text}</span>
+                </div>
               ))}
-            </ul>
+            </div>
           </div>
         </div>
       </div>

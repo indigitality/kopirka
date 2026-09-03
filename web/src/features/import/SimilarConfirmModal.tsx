@@ -1,12 +1,21 @@
 /**
- * IMP-01 — «Похоже, уже есть». Синхронный путь импорта: файл ещё не сохранён,
+ * IMP-01 — «Похоже, это уже есть». Синхронный путь импорта: файл ещё не сохранён,
  * ждём решения. Точный дубль сюда не попадает — он только строка в сводном тосте.
+ *
+ * Канон — R14 · «Похоже, уже есть»: модалка 720, два кадра 320 × 200 с зазором 32,
+ * над каждым — подпись заглавными, под каждым — техническая строка; у нового файла
+ * кадр обведён лаймом 2 px. Внизу «Не импортировать» и «Импортировать всё равно».
  */
 import { ImageOff } from 'lucide-react';
 import type { FileRecord, ImportResultItem } from '@shared/api';
+import { cn } from '@/lib/cn';
+import { Icon } from '@/lib/icons';
 import { Button } from '@/components/ui/Button';
 import { Modal, ModalContent } from '@/components/ui/Modal';
-import { formatBytes, formatDate, formatDimensions, plural } from '@/lib/format';
+import { formatBytes, formatDimensions, plural } from '@/lib/format';
+
+/** Ширина модалки «Похоже, это уже есть» — два кадра 320 плюс зазор и поля (R14). */
+const MODAL_WIDTH = 720;
 
 function Frame({
   label,
@@ -24,11 +33,11 @@ function Frame({
       <span className="label-section">{label}</span>
       {/* Кадры сравнивают целиком: object-contain, обрезки быть не должно (02 §4.19). */}
       <div
-        className={
-          accent
-            ? 'flex h-[200px] items-center justify-center overflow-hidden rounded-md bg-surface-raised p-2 shadow-card-selected'
-            : 'flex h-[200px] items-center justify-center overflow-hidden rounded-md bg-surface-raised p-2'
-        }
+        className={cn(
+          'flex h-[var(--size-similar-preview-h)] items-center justify-center overflow-clip rounded-card bg-raised p-2',
+          /* Новый файл обведён лаймом 2 px — так видно, о каком из двух кадров речь. */
+          accent && 'border-2 border-brand',
+        )}
       >
         {url ? (
           <img
@@ -38,17 +47,17 @@ function Frame({
             decoding="async"
           />
         ) : (
-          <ImageOff className="size-5 text-ink-faint" strokeWidth={1.5} aria-hidden />
+          <Icon icon={ImageOff} size={20} className="text-ink-faint" aria-hidden />
         )}
       </div>
-      <span className="text-technical truncate">{caption}</span>
+      <span className="text-xs leading-4 truncate text-ink-muted tabular-nums">{caption}</span>
     </div>
   );
 }
 
 function captionFor(file: FileRecord | undefined): string {
   if (!file) return '—';
-  return `${formatDimensions(file.width, file.height)} · ${formatBytes(file.sizeBytes)} · ${formatDate(file.addedAt)}`;
+  return `${file.originalFilename} · ${formatDimensions(file.width, file.height)} · ${formatBytes(file.sizeBytes)}`;
 }
 
 export interface SimilarConfirmModalProps {
@@ -76,12 +85,12 @@ export function SimilarConfirmModal({
   return (
     <Modal open onOpenChange={(open) => (open ? undefined : onSkip())}>
       <ModalContent
-        width={560}
-        title="Похоже, уже есть"
+        width={MODAL_WIDTH}
+        title="Похоже, это уже есть"
         description={
           remaining > 1
-            ? `«${item.originalFilename}» похож на файл из библиотеки. Ещё ${remaining - 1} ${plural(remaining - 1, 'файл ждёт', 'файла ждут', 'файлов ждут')} решения.`
-            : `«${item.originalFilename}» похож на файл, который уже есть в библиотеке.`
+            ? `«${item.originalFilename}» похож на файл из библиотеки. Сравните и решите, оставлять ли оба. Ещё ${remaining - 1} ${plural(remaining - 1, 'файл ждёт', 'файла ждут', 'файлов ждут')} решения.`
+            : `«${item.originalFilename}» похож на файл, который уже есть в библиотеке. Сравните и решите, оставлять ли оба.`
         }
         footer={
           <>
@@ -95,7 +104,7 @@ export function SimilarConfirmModal({
         }
       >
         <div className="flex flex-col gap-3">
-          <div className="flex gap-4">
+          <div className="flex gap-8">
             <Frame label="Новый файл" caption={item.originalFilename} url={localUrl} accent />
             <Frame
               label="Уже в библиотеке"

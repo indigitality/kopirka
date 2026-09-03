@@ -1,12 +1,17 @@
 /**
- * Панель выделения для корзины. Геометрия и тон — как у примитива SelectionBar (§2 спеки),
- * но действия другие: восстановить и удалить навсегда.
+ * Панель выделения для корзины. Геометрия и тон — как у примитива SelectionBar
+ * (канон R06 · `FIR-0`: стекло, высота 44, поля 16, зазор 12, радиус `--radius-card`,
+ * тень `--shadow-glass`, вертикальные разделители 1×20), но действия другие:
+ * восстановить и удалить навсегда.
  */
 import { motion } from 'motion/react';
 import { RotateCcw, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/cn';
-import { EASE_OUT, DUR_BASE } from '@/lib/motion';
+import { Icon } from '@/lib/icons';
+import { useReducedMotion } from '@/lib/useReducedMotion';
 import { Button } from '@/components/ui/Button';
+import { IconButton } from '@/components/ui/IconButton';
+import { glassLayerMotion } from '@/components/ui/motion-presets';
 
 const Divider = () => <span className="h-5 w-px shrink-0 bg-line-strong" aria-hidden />;
 
@@ -25,29 +30,29 @@ export function TrashSelectionBar({
   onCancel,
   className,
 }: TrashSelectionBarProps) {
+  const reduced = useReducedMotion();
+
   return (
     <motion.div
-      initial={{ opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: 16 }}
-      transition={{ duration: DUR_BASE, ease: EASE_OUT }}
+      {...glassLayerMotion({ from: 'bottom', reduced })}
       role="toolbar"
       aria-label="Действия над выделенными файлами корзины"
       className={cn(
-        'flex h-11 items-center gap-2 rounded-md bg-surface-overlay px-4 shadow-float',
+        'glass mx-auto flex h-[var(--size-bar)] w-max items-center gap-3 rounded-card px-4 shadow-glass',
         className,
       )}
     >
-      <span className="shrink-0 text-base text-ink-muted">
-        <span className="font-mono">{count}</span> выбрано
+      <span className="shrink-0 text-md leading-[18px] font-medium text-ink tabular-nums">
+        {count} выбрано
       </span>
       <Divider />
-      <Button variant="ghost" icon={<RotateCcw className="size-4" strokeWidth={2} />} onClick={onRestore}>
+      <Button variant="ghost" icon={<Icon icon={RotateCcw} size={16} />} onClick={onRestore}>
         Восстановить
       </Button>
-      <Button variant="ghost" icon={<Trash2 className="size-4" strokeWidth={2} />} onClick={onPurge}>
-        Удалить навсегда
-      </Button>
+      {/* Необратимое действие — иконкой в опасном тоне, как «🗑» в R06. */}
+      <IconButton label="Удалить навсегда" variant="danger" size="sm" onClick={onPurge}>
+        <Icon icon={Trash2} size={16} aria-hidden />
+      </IconButton>
       <Divider />
       <Button variant="ghost" onClick={onCancel}>
         Отменить

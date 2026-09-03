@@ -1,3 +1,17 @@
+/**
+ * Тосты. Канон — R14 · «Тосты» и R13 · «Стекло и движение».
+ *
+ * Пилюля: `.glass` (raised-glass + blur 20 + край `line-strong`), высота 40,
+ * радиус `--radius-card`, поля 14, зазор 10, ширина по содержимому.
+ * Тени у тоста нет вовсе — это проверено по узлам R14.
+ * Текст 13/16 · 500: `ink`, у ошибки — `danger`. Иконка слева 16 (лаймовая
+ * галка у успеха, `triangle-alert` у ошибки), крестик справа 14 `ink-muted`,
+ * кнопка действия — призрачная 32 px с полями 8.
+ *
+ * Стопка: новый снизу, каждый следующий сверху уезжает на 8 px и теряет 20 %
+ * непрозрачности (`toastStackMotion`). Полосы обратного отсчёта в редизайне
+ * нет — пауза таймера под курсором осталась.
+ */
 import {
   createContext,
   useCallback,
@@ -7,14 +21,15 @@ import {
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'motion/react';
-import { X } from 'lucide-react';
+import { Check, TriangleAlert, X } from 'lucide-react';
 import { cn } from '@/lib/cn';
-import { EASE_OUT, DUR_BASE } from '@/lib/motion';
+import { Icon } from '@/lib/icons';
+import { useReducedMotion } from '@/lib/useReducedMotion';
+import { glassLayerMotion, toastStackMotion } from './motion-presets';
 import type { ImportResponse } from '@shared/api';
 
 /** Автоскрытие по умолчанию. Совпадает с окном отмены удаления (ORG-05). */
@@ -80,111 +95,110 @@ const STAT_TONE: Record<NonNullable<ToastStat['tone']>, string> = {
 const TITLE_TONE: Record<ToastTone, string> = {
   default: 'text-ink',
   danger: 'text-danger',
-  success: 'text-success',
+  /* Галка успеха в макете лаймовая, а не зелёная: `success` в редизайне не звучит. */
+  success: 'text-ink',
 };
+
+/** Глубже трёх стопка не бледнеет: иначе четвёртый тост стал бы невидимым. */
+const MAX_STACK_DEPTH = 3;
 
 function ToastRow({
   record,
+  depth,
   onDismiss,
   onPause,
   onResume,
 }: {
   record: ToastRecord;
+  /** Сколько тостов пришло после этого: 0 у самого нижнего, свежего. */
+  depth: number;
   onDismiss: () => void;
   onPause: () => void;
   onResume: () => void;
 }) {
+  const reduced = useReducedMotion();
   /* Пауза таймера под курсором: прочитать сводку из шести чисел за 5 секунд нельзя. */
-  const [paused, setPaused] = useState(false);
+  const hold = () => onPause();
+  const release = () => onResume();
 
-  const hold = () => {
-    setPaused(true);
-    onPause();
-  };
-  const release = () => {
-    setPaused(false);
-    onResume();
-  };
+  /*
+    Вход и уход — общий стеклянный пресет (тост стоит у нижнего края, значит
+    приезжает снизу), а конечное положение переопределяет стопка: сдвиг вверх
+    и потеря непрозрачности за каждый следующий тост.
+  */
+  const layer = glassLayerMotion({ from: 'bottom', reduced });
+  const tone = record.tone ?? 'default';
 
   return (
     <motion.div
       layout
-      initial={{ opacity: 0, y: 16, scale: 0.98 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: 8, scale: 0.98 }}
-      transition={{ duration: DUR_BASE, ease: EASE_OUT }}
+      initial={layer.initial}
+      animate={{ ...layer.animate, ...toastStackMotion(Math.min(depth, MAX_STACK_DEPTH), reduced) }}
+      exit={layer.exit}
       role="status"
       onMouseEnter={hold}
       onMouseLeave={release}
       onFocusCapture={hold}
       onBlurCapture={release}
       className={cn(
-        'pointer-events-auto relative flex min-h-10 items-center gap-3 overflow-hidden',
-        'rounded-md bg-surface-overlay py-2 pr-2.5 pl-4 shadow-float',
+        'glass pointer-events-auto flex h-[var(--size-toast)] w-fit items-center gap-2.5',
+        'rounded-card px-3.5',
       )}
     >
+      {tone === 'success' ? <Icon icon={Check} size={16} className="shrink-0 text-brand" aria-hidden /> : null}
+      {tone === 'danger' ? (
+        <Icon icon={TriangleAlert} size={16} className="shrink-0 text-danger" aria-hidden />
+      ) : null}
+
       {record.title ? (
-        <span className={cn('text-base', TITLE_TONE[record.tone ?? 'default'])}>{record.title}</span>
+        <span className={cn('shrink-0 text-base leading-4 font-medium', TITLE_TONE[tone])}>
+          {record.title}
+        </span>
       ) : null}
 
       {record.stats ? (
-        <span className="flex items-center gap-2 text-base">
+        <span className="flex items-center gap-2 text-base leading-4 font-medium">
           {record.stats.map((stat, index) => (
             <span key={stat.label} className="flex items-center gap-2">
               {index > 0 ? <span className="text-ink-faint">·</span> : null}
               <span className={STAT_TONE[stat.tone ?? 'default']}>
-                {stat.label} <span className="font-mono">{stat.value}</span>
+                {stat.label} <span className="tabular-nums">{stat.value}</span>
               </span>
             </span>
           ))}
         </span>
       ) : null}
 
+      {/* Действие — призрачная кнопка 32 px с полями 8 (R14 · «действие с отменой»). */}
       {record.action ? (
-        <>
-          <span className="h-4 w-px shrink-0 bg-line-strong" aria-hidden />
-          <button
-            type="button"
-            onClick={() => {
-              record.action?.onClick();
-              onDismiss();
-            }}
-            className={cn(
-              'shrink-0 text-base font-medium text-accent',
-              'transition-colors duration-[var(--dur-fast)] ease-out hover:text-accent-hover',
-            )}
-          >
-            {record.action.label}
-          </button>
-        </>
-      ) : null}
-
-      {/* Закрыть руками, не дожидаясь пяти секунд (аудит 4.23). */}
-      <button
-        type="button"
-        aria-label="Закрыть уведомление"
-        onClick={onDismiss}
-        className={cn(
-          'flex size-5 shrink-0 items-center justify-center rounded-xs text-ink-faint',
-          'transition-colors duration-[var(--dur-fast)] ease-out hover:text-ink',
-        )}
-      >
-        <X className="size-4" strokeWidth={2} aria-hidden />
-      </button>
-
-      {/* Полоска остатка времени — видно, сколько осталось на «Отменить». */}
-      {record.action && record.duration > 0 ? (
-        <span
-          aria-hidden
-          style={
-            {
-              '--toast-duration': `${record.duration}ms`,
-              animationPlayState: paused ? 'paused' : 'running',
-            } as CSSProperties
-          }
-          className="toast-countdown absolute inset-x-0 bottom-0 h-px bg-accent"
-        />
-      ) : null}
+        <button
+          type="button"
+          onClick={() => {
+            record.action?.onClick();
+            onDismiss();
+          }}
+          className={cn(
+            'flex h-[var(--size-row)] shrink-0 items-center rounded-md px-2',
+            'text-md leading-[18px] font-medium text-ink-muted',
+            'transition-colors duration-[var(--dur-fast)] ease-out hover:bg-control hover:text-ink',
+          )}
+        >
+          {record.action.label}
+        </button>
+      ) : (
+        /* Без действия закрывают крестиком — не дожидаясь пяти секунд. */
+        <button
+          type="button"
+          aria-label="Закрыть уведомление"
+          onClick={onDismiss}
+          className={cn(
+            'flex shrink-0 items-center justify-center text-ink-muted',
+            'transition-colors duration-[var(--dur-fast)] ease-out hover:text-ink',
+          )}
+        >
+          <Icon icon={X} size={14} aria-hidden />
+        </button>
+      )}
     </motion.div>
   );
 }
@@ -280,10 +294,12 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       )}
     >
       <AnimatePresence initial={false}>
-        {items.map((item) => (
+        {items.map((item, index) => (
           <ToastRow
             key={item.id}
             record={item}
+            /* Свежий тост внизу списка: у него глубина 0, у каждого выше — на единицу больше. */
+            depth={items.length - 1 - index}
             onDismiss={() => dismiss(item.id)}
             onPause={() => pause(item.id)}
             onResume={() => resume(item.id)}
