@@ -28,12 +28,12 @@ import {
   type ComponentPropsWithoutRef,
   type ElementRef,
   type ReactNode,
+  type WheelEvent,
 } from 'react';
 import * as PopoverPrimitive from '@radix-ui/react-popover';
 import { AnimatePresence, motion } from 'motion/react';
 import { cn } from '@/lib/cn';
 import { useReducedMotion } from '@/lib/useReducedMotion';
-import { ModalContentContext } from './Modal';
 import { glassLayerMotion, sideToFrom } from './motion-presets';
 
 /**
@@ -85,31 +85,47 @@ export const PopoverContent = forwardRef<
   ElementRef<typeof PopoverPrimitive.Content>,
   PopoverContentProps
 >(function PopoverContent(
-  { className, align = 'start', side = 'bottom', sideOffset = 6, children, ...rest },
+  { className, align = 'start', side = 'bottom', sideOffset = 6, onWheel, children, ...rest },
   ref,
 ) {
   const open = useContext(OpenContext);
   const reduced = useReducedMotion();
+
   /*
-    Внутри модалки поповер порталится в её тело, а не в `<body>`: иначе
-    `react-remove-scroll` вокруг Radix Dialog глушит колесо мыши в списке —
-    цель события оказывается вне замка и вне его `shards` (баг «Переместить в
-    папку», правка Сергея 03.09.2026). Снаружи модалки контекст пуст, `container`
-    равен `undefined`, и Radix порталит как всегда. На стек слоёв (Esc, клик
-    снаружи) переезд не влияет: `DismissableLayer` считает порядок сам, а не по DOM.
+    Колесо мыши внутри модалки. Radix Dialog в модальном режиме оборачивает своё
+    содержимое в `react-remove-scroll`; тот слушает `wheel` на `document` в фазе
+    всплытия и `preventDefault`-ит всё, чего не видел внутри замка. Поповер живёт
+    порталом в `<body>` — то есть вне замка, и список папок переставал крутиться
+    (баг «Переместить в папку», 03.09.2026).
+
+    Гасим всплытие в React-обработчике: React вешает делегата на контейнер
+    портала (`<body>`), а `document` идёт по пути события выше него, поэтому до
+    `react-remove-scroll` колесо просто не доходит. Нативную прокрутку списка это
+    не трогает — `preventDefault` мы не зовём.
+
+    Глушим всегда, а не только внутри модалки: своих слушателей `wheel` на
+    `document` у «Копирки» нет, а «внутри модалки или нет» поповер не знает и
+    знать не должен.
   */
-  const modalContent = useContext(ModalContentContext);
+  const handleWheel = useCallback(
+    (event: WheelEvent<HTMLDivElement>) => {
+      onWheel?.(event);
+      event.stopPropagation();
+    },
+    [onWheel],
+  );
 
   return (
     <AnimatePresence>
       {open ? (
-        <PopoverPrimitive.Portal forceMount key="popover" container={modalContent ?? undefined}>
+        <PopoverPrimitive.Portal forceMount key="popover">
           <PopoverPrimitive.Content
             ref={ref}
             forceMount
             align={align}
             side={side}
             sideOffset={sideOffset}
+            onWheel={handleWheel}
             asChild
             {...rest}
           >
