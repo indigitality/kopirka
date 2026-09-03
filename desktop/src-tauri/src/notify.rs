@@ -76,10 +76,49 @@ mod imp {
 
     /// Спросить разрешение на баннеры. Система показывает запрос один раз за установку,
     /// дальше просто отвечает сохранённым решением, поэтому зовём при каждом старте.
+    ///
+    /// Звать после старта цикла событий — из `RunEvent::Ready`, а не из `setup`: так
+    /// положено по модели AppKit, и синглтон `currentNotificationCenter` гарантированно
+    /// создаётся на главном потоке раньше, чем до него доберётся опрос трея. Сам по себе
+    /// вызов из `setup` отказом не был (проверено 03.09.2026: с переносом в `Ready` ответ
+    /// на сожжённом идентификаторе не изменился) — см. про статусы ниже.
     pub fn request_authorization() {
         let Some(center) = center() else {
             return;
         };
+
+        // Сначала спрашиваем сохранённый статус и только потом — разрешение.
+        // Без этого «уже отказано» и «система не дала спросить» выглядят одинаково:
+        // `requestAuthorization` в обоих случаях отвечает «Notifications are not allowed
+        // for this application», и на этом сообщении легко потерять полдня.
+        let status_handler = RcBlock::new(|settings: *mut AnyObject| {
+            if settings.is_null() {
+                return;
+            }
+            let status: isize = unsafe { msg_send![settings, authorizationStatus] };
+            match status {
+                // notDetermined — единственный статус, при котором система покажет запрос.
+                0 => {}
+                1 => eprintln!(
+                    "уведомления запрещены для этого приложения. Запрос система больше \
+                     не покажет: он выдаётся один раз на идентификатор бандла, и если \
+                     приложение закрыли, не ответив, засчитывается отказ. \
+                     Включается в «Системные настройки → Уведомления → Копирка»"
+                ),
+                2 => eprintln!("уведомления разрешены"),
+                other => eprintln!("статус разрешения на уведомления: {other}"),
+            }
+        });
+        let status_result = objc2::exception::catch(AssertUnwindSafe(|| unsafe {
+            let _: () = msg_send![
+                &*center,
+                getNotificationSettingsWithCompletionHandler: &*status_handler,
+            ];
+        }));
+        if status_result.is_err() {
+            eprintln!("не удалось прочитать статус разрешения на уведомления");
+        }
+
         let handler = RcBlock::new(|granted: Bool, error: *mut NSError| {
             if !granted.as_bool() {
                 eprintln!("разрешение на уведомления не выдано");
@@ -106,6 +145,10 @@ mod imp {
 
     /// Показать баннер. Тихо: звук не ставим — файл, приехавший мимо окна, не повод
     /// перебивать то, чем человек занят.
+    ///
+    /// Зовут из фоновых потоков — опроса трея (`events::poll`) и съёмки области
+    /// (`capture::run`). Это допустимо: `addNotificationRequest:` потокобезопасен,
+    /// а синглтон центра к этому моменту уже создан на главном потоке в `RunEvent::Ready`.
     pub fn show(title: &str, body: &str) {
         let Some(center) = center() else {
             return;
