@@ -7,3 +7,5 @@ src-tauri/target/
 src-tauri/gen/
 # Payload сервера — 130 МБ бинарников, пересобирается bundle-server.mjs
 src-tauri/resources/
+# Кэш Intel-сборки: скачанный x64-бинарник Node и x64-пакеты sharp (build-intel.mjs)
+.cache/

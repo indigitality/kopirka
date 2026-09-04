@@ -8,7 +8,8 @@
     "prepare:payload": "cd .. && npm run build --workspace=web && npm run build --workspace=server && node desktop/scripts/bundle-server.mjs",
     "icons": "node scripts/make-icons.mjs && tauri icon src-tauri/icons/source-1024.png",
     "dev": "tauri dev",
-    "build": "tauri build"
+    "build": "tauri build",
+    "build:intel": "node scripts/build-intel.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.9.2"

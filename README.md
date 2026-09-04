@@ -52,7 +52,8 @@ npm start          # сервер поднимается и сам открыв�
 по умолчанию, отсюда переменная в команде ниже. Из корня репозитория:
 
 ```bash
-PATH="$HOME/.cargo/bin:$PATH" npm run app:build
+PATH="$HOME/.cargo/bin:$PATH" npm run app:build         # под архитектуру машины сборки
+PATH="$HOME/.cargo/bin:$PATH" npm run app:build:intel   # под Intel (x86_64)
 ```
 
 Результат — `.app` и `.dmg`:
@@ -60,6 +61,7 @@ PATH="$HOME/.cargo/bin:$PATH" npm run app:build
 ```
 desktop/src-tauri/target.noindex/release/bundle/macos/Копирка.app
 desktop/src-tauri/target.noindex/release/bundle/dmg/Копирка_0.2.0_aarch64.dmg
+desktop/src-tauri/target.noindex/x86_64-apple-darwin/release/bundle/dmg/Копирка_0.2.0_x64.dmg
 ```
 
 Каталог называется `target.noindex`, а не `target`, — чтобы Spotlight не

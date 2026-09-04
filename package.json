@@ -10,6 +10,7 @@
     "start": "npm run start --workspace=server",
     "app:dev": "cd desktop && npm install --no-audit --no-fund --silent && npm run dev",
     "app:build": "cd desktop && npm install --no-audit --no-fund --silent && npm run build",
+    "app:build:intel": "node desktop/scripts/build-intel.mjs",
     "test:ui": "node tests/ui/run.mjs",
     "test:ui:webkit": "node tests/ui/webkit/run.mjs"
   }

@@ -21,24 +21,28 @@
 | `src-tauri/src/http.rs` | Микро-клиент HTTP к 127.0.0.1 (без зависимостей) |
 | `src-tauri/capabilities/default.json` | Права IPC: доступ с `http://127.0.0.1:*`, перетаскивание окна, диалог выбора папки |
 | `scripts/bundle-server.mjs` | Сборка payload'а сервера в `src-tauri/resources/backend` |
+| `scripts/build-intel.mjs` | Intel-сборка одной командой: rust target, x64-Node, x64-пакеты sharp |
 | `scripts/make-icons.mjs` | Иконка приложения и шаблонная иконка трея |
 
 ## Сборка
 
-Нужны: macOS на Apple Silicon, Node 22+, Rust 1.82+ (`rustup`), Xcode Command Line Tools.
+Нужны: macOS 13+, Node 22, Rust 1.82+ (`rustup`), Xcode Command Line Tools.
 Rust обычно не в `PATH` по умолчанию — тогда `export PATH="$HOME/.cargo/bin:$PATH"`.
+Node именно 22: `bundle-server.mjs` кладёт в бандл тот Node, которым его запустили, и
+падает с подсказкой, если в `PATH` оказался чужой (проверяются архитектура и мажорная версия).
 
 ```bash
 cd app
 npm install
-npm run app:build     # .app и .dmg
-npm run app:dev       # запуск без сборки бандла
+npm run app:build         # .app и .dmg под архитектуру машины сборки
+npm run app:build:intel   # то же под Intel (x86_64), с любой машины
+npm run app:dev           # запуск без сборки бандла
 ```
 
 `app:build` сначала собирает веб (`web/dist`), затем компилирует сервер в JS (`tsc`),
 затем складывает payload и только потом зовёт `tauri build`. Отдельно ничего запускать не нужно.
 
-Результат:
+Результат (Apple Silicon):
 
 ```
 desktop/src-tauri/target.noindex/release/bundle/macos/Копирка.app          135 МБ
@@ -47,6 +51,41 @@ desktop/src-tauri/target.noindex/release/bundle/dmg/Копирка_0.2.0_aarch64
 
 Из них ~104 МБ — бинарник Node. Остальное: libvips для `sharp` (18 МБ), сама оболочка
 (~11 МБ), интерфейс и код сервера (~1,5 МБ).
+
+### Intel-сборка
+
+`npm run app:build:intel` (`desktop/scripts/build-intel.mjs`) собирает тот же бандл под
+`x86_64-apple-darwin`. Одной командой, с машины на Apple Silicon, ручных шагов нет — скрипт
+сам делает всё, что отличает Intel-прогон от обычного:
+
+- ставит rust target `x86_64-apple-darwin`, если его ещё нет;
+- качает с nodejs.org `node-v22.14.0-darwin-x64.tar.gz`, сверяет sha256 с `SHASUMS256.txt`
+  и проверяет, что бинарник — Mach-O x86_64 и отвечает `v22.14.0` под Rosetta;
+- ставит x64-пакеты `@img/sharp-darwin-x64` и `@img/sharp-libvips-darwin-x64` тех же версий,
+  что в корневом `package-lock.json`;
+- зовёт `tauri build --target x86_64-apple-darwin`, передав payload'у `KOPIRKA_TARGET=darwin-x64`,
+  `KOPIRKA_NODE_BINARY` и `KOPIRKA_PLATFORM_MODULES`.
+
+Скачанное и поставленное лежит в `desktop/.cache/` (в git не идёт), поэтому второй прогон
+ничего не качает. Рабочее дерево скрипт не трогает: `app/node_modules` и `package-lock.json`
+остаются под архитектуру машины сборки, x64-пакеты живут отдельным корнем.
+
+```
+desktop/src-tauri/target.noindex/x86_64-apple-darwin/release/bundle/macos/Копирка.app        140 МБ
+desktop/src-tauri/target.noindex/x86_64-apple-darwin/release/bundle/dmg/Копирка_0.2.0_x64.dmg  48 МБ
+```
+
+Проверить Intel-образ на Apple Silicon можно только наполовину. Оболочку — нельзя, а payload
+запускается под Rosetta прямо из бандла:
+
+```bash
+cd ".../bundle/macos/Копирка.app/Contents/Resources/backend"
+KOPIRKA_CONFIG_DIR=/tmp/k/cfg KOPIRKA_LIBRARY_PATH=/tmp/k/lib \
+KOPIRKA_PORT=43125 KOPIRKA_NO_OPEN=1 arch -x86_64 ./node server/src/index.js
+```
+
+Если после этого `/api/health` отвечает и импорт картинки отдаёт превью — значит x64-сборки
+`better-sqlite3`, `sharp` и libvips в бандле рабочие.
 
 Каталог сборки называется `target.noindex`, а не `target` — это задано в
 `src-tauri/.cargo/config.toml`. Spotlight не индексирует каталоги с таким суффиксом,
@@ -368,11 +407,17 @@ rm -rf ~/Library/Services/Добавить\ в\ Копирку.workflow   # пу
 
 ## Известные ограничения
 
-- **Только Apple Silicon.** Сборка — `aarch64`. Под Intel нужен второй прогон с другим
-  target и другим бинарником Node.
+- **Два образа, оба собираются здесь.** `Копирка_0.2.0_aarch64.dmg` — Apple Silicon,
+  `Копирка_0.2.0_x64.dmg` — Intel (`npm run app:build:intel`). Universal-бандла нет и не
+  планируется: внутри целый Node, склейка удвоила бы вес ради машин, которых у клуба почти нет.
+- **Intel-сборку живьём на Intel-Mac никто не проверял.** 04.09.2026 проверен только payload:
+  сервер из готового бандла поднят под Rosetta на этой же машине — `/api/health`, импорт
+  картинки и превью проходят, то есть x64-сборки `better-sqlite3`, `sharp` и libvips рабочие.
+  Оболочка, трей, хоткей ⌥⌘C и уведомления на Intel не проверены.
 - **Только macOS.** Windows-сборки нет. Структура к ней готова: `bundle-server.mjs`
-  принимает `KOPIRKA_NODE_BINARY` (другой бинарник Node) и `KOPIRKA_TARGET`
-  (другая платформа для prebuild'ов `better-sqlite3` и пакетов `sharp`).
+  принимает `KOPIRKA_NODE_BINARY` (другой бинарник Node), `KOPIRKA_TARGET` (другая платформа
+  для prebuild'ов `better-sqlite3` и пакетов `sharp`) и `KOPIRKA_PLATFORM_MODULES`
+  (корень с пакетами под целевую платформу, если в рабочем дереве их нет).
 - **Нет подписи, нотаризации и автообновления.** Новая версия — новый `.dmg` руками.
 - **Порт берётся из конфига.** Если сменить `serverPort` в
   `~/Library/Application Support/Kopirka/config.json`, оболочка пойдёт туда же.
@@ -387,7 +432,8 @@ rm -rf ~/Library/Services/Добавить\ в\ Копирку.workflow   # пу
 - **Счётчик в трее и уведомления обновляются раз в 2 секунды** — опросом, а не
   мгновенно после импорта. Без запущенного приложения уведомлений нет вовсе:
   файлы уедут в библиотеку, но сказать об этом будет некому.
-- Размер `.app` — 135 МБ, потому что внутри целый Node. Это цена «поставил и работает».
+- Размер `.app` — 135 МБ (Intel — 140 МБ), потому что внутри целый Node. Это цена
+  «поставил и работает».
 
 ## Переменные окружения
 
