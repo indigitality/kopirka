@@ -10,17 +10,30 @@
  * // вместо 0.1.0 — по факту сборки.
  */
 import { Logo } from './Logo';
-import { DOWNLOAD, GITHUB, GITHUB_PUBLIC, RELEASE, TELEGRAM } from '@/links';
+import { GITHUB, GITHUB_PUBLIC, PLATFORMS, RELEASE, TELEGRAM } from '@/links';
+import { usePlatform, type Platform } from '@/platform';
 
-const LINKS = [
-  // Репозиторий приватный — ссылка появится, когда GITHUB_PUBLIC станет true.
-  ...(GITHUB_PUBLIC ? [{ href: GITHUB, label: 'GitHub' }] : []),
-  { href: TELEGRAM, label: 'Telegram' },
-  { href: DOWNLOAD.guide, label: 'Инструкция по установке' },
-  { href: TELEGRAM, label: 'Сообщить об ошибке' },
-] as const;
+/**
+ * Ссылки подвала. Инструкций с 09.09.2026 две — здесь стоит та, что нужна
+ * системе гостя; обе рядом друг с другом показаны в блоке «Скачать», где
+ * человек выбирает файл.
+ */
+function links(platform: Platform) {
+  return [
+    // Репозиторий приватный — ссылка появится, когда GITHUB_PUBLIC станет true.
+    ...(GITHUB_PUBLIC ? [{ href: GITHUB, label: 'GitHub' }] : []),
+    { href: TELEGRAM, label: 'Telegram' },
+    {
+      href: PLATFORMS[platform === 'windows' ? 'windows' : 'macos'].guide,
+      label: 'Инструкция по установке',
+    },
+    { href: TELEGRAM, label: 'Сообщить об ошибке' },
+  ];
+}
 
 export function Footer() {
+  const platform = usePlatform();
+
   return (
     <footer className="mx-auto max-w-[1200px] px-6 pb-24 md:px-10 xl:px-0">
       <div className="h-px w-full bg-hairline" />
@@ -30,7 +43,7 @@ export function Footer() {
         </a>
 
         <nav className="flex flex-wrap items-center gap-x-7 gap-y-3">
-          {LINKS.map((link) => (
+          {links(platform).map((link) => (
             <a
               key={link.label}
               href={link.href}

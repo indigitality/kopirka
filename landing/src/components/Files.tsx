@@ -6,13 +6,22 @@
  * про радиус 8 касается кнопок; здесь это не кнопки, а неинтерактивные метки —
  * но радиус приведён к тому же 8, чтобы на странице не было двух геометрий.
  * // Расхождение с макетом: радиус чипов 8 вместо 999.
+ *
+ * Путь библиотеки — платформенный: на macOS это `~/Pictures/Копирка`, на
+ * Windows `%USERPROFILE%\Pictures\Копирка` (первоисточник —
+ * `app/server/src/config.ts`). Показываем путь той системы, с которой пришёл
+ * гость; неопознанная система видит macOS-путь, как было до Windows-сборки.
  */
 import { Reveal } from './Reveal';
 import { LIBRARY_PATH } from '@/links';
+import { usePlatform } from '@/platform';
 
 const MARKS = ['без облака', 'без аккаунта', 'без телеметрии'] as const;
 
 export function Files() {
+  const platform = usePlatform();
+  const libraryPath = LIBRARY_PATH[platform === 'windows' ? 'windows' : 'macos'];
+
   return (
     <section className="mx-auto max-w-[1200px] px-6 pb-[140px] md:px-10 xl:px-0">
       <div className="flex flex-col items-start justify-between gap-10 lg:flex-row">
@@ -25,7 +34,7 @@ export function Files() {
               className="mt-7 mb-0 text-display"
               style={{ fontSize: 'clamp(22px, 2.5vw, 36px)', lineHeight: 1.17, letterSpacing: '-0.02em' }}
             >
-              Обычная папка <span className="tabular-nums">{LIBRARY_PATH}</span>. Ничего скрытого:
+              Обычная папка <span className="tabular-nums">{libraryPath}</span>. Ничего скрытого:
               копируется, бэкапится, переносится как угодно. Удалите приложение — файлы останутся.
             </p>
           </Reveal>

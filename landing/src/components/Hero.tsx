@@ -20,6 +20,11 @@
  * // правка Сергея. Версия 0.2.0 и «Apple Silicon и Intel» вместо
  * // «v0.1.0 · Apple Silicon · система определяется автоматически»: обе сборки
  * // существуют (wiki/RELEASE.md), а чип браузер не сообщает.
+ *
+ * С 09.09.2026 сборок две, и первый экран говорит на языке системы гостя
+ * (`usePlatform`): подпись главной кнопки, требования под ней и хоткей вставки
+ * в лиде. Гость с неопознанной системой видит нейтральное «Скачать» и
+ * требования обеих систем — на телефоне обещать ему macOS незачем.
  */
 import { useRef } from 'react';
 import { motion, useScroll, useTransform } from 'motion/react';
@@ -27,16 +32,48 @@ import { Github } from 'lucide-react';
 import { Button } from './Button';
 import { HeroBackdrop } from './HeroBackdrop';
 import type { HeroVariant } from '@/heroVariant';
-import { RELEASE } from '@/links';
+import { PLATFORMS, RELEASE } from '@/links';
 import { GITHUB, GITHUB_PUBLIC } from '@/links';
+import { usePlatform, type Platform } from '@/platform';
 import { BLUR_ENTER, REVEAL_SHIFT, SPRING_PANEL, WORD_STAGGER } from '@/lib/motion';
 import { useReducedMotion } from '@/lib/useReducedMotion';
 
 const HEADLINE_LINES = ['Референсы — на своём диске,', 'а не в чужом облаке'] as const;
 
-const LEAD =
-  'Копирка — локальная библиотека визуальных референсов. Плотная сетка, папки, теги, поиск. ' +
-  'Захват из Chrome, drag&drop, ⌘V и автоимпорт скриншотов. Никакого облака и подписки.';
+/**
+ * Лид. Способы захвата в нём перечислены те, что есть на системе гостя:
+ * автоимпорт папки скриншотов — только macOS, вставка на Windows идёт Ctrl+V.
+ */
+function lead(platform: Platform): string {
+  const ways =
+    platform === 'windows'
+      ? 'Захват из Chrome, drag&drop и Ctrl+V.'
+      : 'Захват из Chrome, drag&drop, ⌘V и автоимпорт скриншотов.';
+  return (
+    'Копирка — локальная библиотека визуальных референсов. Плотная сетка, папки, теги, поиск. ' +
+    `${ways} Никакого облака и подписки.`
+  );
+}
+
+/** Подпись главной кнопки. Неопознанная система — нейтральное «Скачать». */
+const CTA: Record<Platform, string> = {
+  macos: 'Скачать для macOS',
+  windows: 'Скачать для Windows',
+  other: 'Скачать',
+};
+
+/**
+ * Строка требований под кнопкой. Для опознанной системы — её версия, вес и
+ * архитектуры; для неопознанной — минимумы обеих систем. Вес Windows-установщика
+ * пока не известен (`[?]` в links.ts) и в строку просто не попадает.
+ */
+function requirements(platform: Platform): string {
+  const parts =
+    platform === 'other'
+      ? [RELEASE.version, PLATFORMS.macos.minOS, PLATFORMS.windows.minOS]
+      : [RELEASE.version, PLATFORMS[platform].size, PLATFORMS[platform].minOS, PLATFORMS[platform].arch];
+  return parts.filter(Boolean).join(' · ');
+}
 
 export interface HeroProps {
   variant?: HeroVariant;
@@ -49,6 +86,7 @@ export interface HeroProps {
 
 export function Hero({ variant = 'shot', showSecondaryButton = false }: HeroProps) {
   const reduced = useReducedMotion();
+  const platform = usePlatform();
   const withGithub = GITHUB_PUBLIC || showSecondaryButton;
 
   let wordIndex = 0;
@@ -66,7 +104,7 @@ export function Hero({ variant = 'shot', showSecondaryButton = false }: HeroProp
         id="hero-content"
         className="relative mx-auto flex max-w-[1300px] flex-col items-center px-6 text-center md:px-10 xl:px-0"
       >
-        <p className="eyebrow m-0">Бесплатно · macOS · файлы у вас на диске</p>
+        <p className="eyebrow m-0">Бесплатно · macOS и Windows · файлы у вас на диске</p>
 
         <h1
           className="mt-9 mb-0 font-medium text-display"
@@ -110,12 +148,12 @@ export function Hero({ variant = 'shot', showSecondaryButton = false }: HeroProp
           className="mx-auto mt-8 mb-0 max-w-[780px] text-lead"
           style={{ fontSize: 'clamp(17px, 1.67vw, 24px)', lineHeight: 1.25 }}
         >
-          {LEAD}
+          {lead(platform)}
         </p>
 
         <div className="mt-11 flex flex-wrap items-center justify-center gap-3">
           <Button href="#download" variant="primary" size="hero">
-            Скачать для macOS
+            {CTA[platform]}
           </Button>
           {/* Репозиторий приватный — на публичной странице кнопки нет. */}
           {withGithub && (
@@ -130,9 +168,7 @@ export function Hero({ variant = 'shot', showSecondaryButton = false }: HeroProp
           )}
         </div>
 
-        <p className="eyebrow mt-7 mb-0">
-          {RELEASE.version} · {RELEASE.size} · {RELEASE.minMacOS} · Apple Silicon и Intel
-        </p>
+        <p className="eyebrow mt-7 mb-0">{requirements(platform)}</p>
       </div>
 
       <HeroShot reduced={reduced} />

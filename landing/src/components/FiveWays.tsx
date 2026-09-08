@@ -15,6 +15,14 @@
  *   • клик по вкладке активирует её и сбрасывает лоадер;
  *   • стрелки ↑↓ переключают вкладки с клавиатуры.
  *
+ * Платформенное (с 09.09.2026): хоткеи и имя файлового менеджера в описаниях
+ * берутся по системе гостя (`usePlatform`), а способ «из строки меню macOS»
+ * помечен «только macOS» — в Windows-сборке захвата области нет вовсе
+ * (`desktop/src-tauri/src/capture.rs`). Метка стоит всегда, а не только для
+ * гостя с Windows: определение системы — догадка по браузеру, и страницу
+ * пересылают. Состав и порядок вкладок при этом не меняются: способ существует
+ * и рассказать про него надо, вопрос только — где он работает.
+ *
  * На узком (до 900 px) — аккордеон: снимок лежит внутри раскрытого шага, а не
  * в общей панели сверху, и вкладки сами не переключаются. Правка Сергея
  * 08.09.2026: в мобильной раскладке общая панель уезжала за верх экрана, и с
@@ -25,6 +33,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { AnimatePresence, motion } from 'motion/react';
 import { MediaSlot, type Media } from './MediaSlot';
 import { Reveal } from './Reveal';
+import { hotkey, platformCopy, usePlatform, type Platform } from '@/platform';
 import { DUR_SLOW, EASE_OUT } from '@/lib/motion';
 import { useCompact } from '@/lib/useCompact';
 import { useInView } from '@/lib/useInView';
@@ -37,7 +46,10 @@ interface Way {
   id: string;
   num: string;
   title: string;
-  text: string;
+  /** Описание шага: хоткеи и имя файлового менеджера зависят от системы. */
+  text: (platform: Platform) => string;
+  /** Способ есть только на macOS — рядом с номером стоит метка. */
+  macOnly?: boolean;
   media: Media;
   alt: string;
 }
@@ -47,7 +59,11 @@ const WAYS: Way[] = [
     id: 'menubar',
     num: '01',
     title: 'Из строки меню macOS',
-    text: 'Хоткей ⌥⌘C в любом приложении: выделяете область экрана — и файл уже в библиотеке. Нужно разрешение на запись экрана.',
+    macOnly: true,
+    text: (platform) =>
+      platform === 'windows'
+        ? 'Хоткей ⌥⌘C в любом приложении: выделяете область экрана — и файл уже в библиотеке. В Windows-сборке этого способа пока нет, остальные четыре работают так же.'
+        : 'Хоткей ⌥⌘C в любом приложении: выделяете область экрана — и файл уже в библиотеке. Нужно разрешение на запись экрана.',
     media: { kind: 'image', src: '/media/way-01-menubar.webp' },
     alt: 'Строка меню macOS с открытым меню Копирки: «Снять область», «Открыть Копирку», «Автоимпорт скриншотов»',
   },
@@ -55,7 +71,8 @@ const WAYS: Way[] = [
     id: 'extension',
     num: '02',
     title: 'Расширение Chrome',
-    text: 'Снимайте видимую часть страницы или выделенную область одной кнопкой — прямо из панели браузера.',
+    text: () =>
+      'Снимайте видимую часть страницы или выделенную область одной кнопкой — прямо из панели браузера.',
     media: { kind: 'image', src: '/media/way-02-extension.webp' },
     alt: 'Поповер расширения Копирки в Chrome с кнопками «Снять область» и «Видимая часть»',
   },
@@ -63,7 +80,8 @@ const WAYS: Way[] = [
     id: 'context',
     num: '03',
     title: 'Правый клик по картинке',
-    text: 'В контекстном меню браузера появляется пункт «Сохранить в Копирку». Картинка уходит в библиотеку одним движением.',
+    text: () =>
+      'В контекстном меню браузера появляется пункт «Сохранить в Копирку». Картинка уходит в библиотеку одним движением.',
     media: { kind: 'image', src: '/media/way-03-context-menu.webp' },
     alt: 'Контекстное меню Chrome на картинке с подсвеченным пунктом «Сохранить в Копирку»',
   },
@@ -71,7 +89,8 @@ const WAYS: Way[] = [
     id: 'drop',
     num: '04',
     title: 'Перетаскивание',
-    text: 'Файл из Finder или картинка из браузера — тащите прямо в окно Копирки. Отпустили — файл в нужной папке.',
+    text: (platform) =>
+      `Файл ${platformCopy(platform).fromFileManager} или картинка из браузера — тащите прямо в окно Копирки. Отпустили — файл в нужной папке.`,
     media: { kind: 'image', src: '/media/way-04-drop.webp' },
     alt: 'Окно Копирки с подсказкой «Отпустите, чтобы добавить в „Айдентика“»',
   },
@@ -79,14 +98,37 @@ const WAYS: Way[] = [
     id: 'paste',
     num: '05',
     title: 'Скопировал — вставил',
-    text: '⌘V прямо в окно Копирки. Всё, что прилетело без папки, ждёт в «Не разобрано» — разберёте, когда будет время.',
+    text: (platform) =>
+      `${hotkey('⌘V', platform)} прямо в окно Копирки. Всё, что прилетело без папки, ждёт в «Не разобрано» — разберёте, когда будет время.`,
     media: { kind: 'image', src: '/media/way-05-paste.webp' },
     alt: 'Раздел «Не разобрано» в Копирке с восемью только что вставленными файлами',
   },
 ];
 
+/**
+ * Блок «плюс» под вкладками. На macOS это автоимпорт папки скриншотов
+ * (`folder-action/`), на Windows его нет — и вместо обещания там стоит то, чем
+ * этот способ заменяется: системный снимок Win+Shift+S уходит в буфер, а из
+ * буфера его забирает Ctrl+V.
+ */
+const PLUS: Record<'macos' | 'windows', { label: string; text: string }> = {
+  macos: {
+    label: 'плюс',
+    text:
+      'Автоимпорт: папку скриншотов macOS Копирка подхватывает сама — снятое горячей клавишей ' +
+      'системы попадает в библиотеку без вашего участия.',
+  },
+  windows: {
+    label: 'на Windows',
+    text:
+      'Захват области и автоимпорт папки скриншотов — пока только на macOS. Снимок системным ' +
+      'Win+Shift+S попадает в буфер, а оттуда в библиотеку — тем же Ctrl+V.',
+  },
+};
+
 export function FiveWays() {
   const reduced = useReducedMotion();
+  const platform = usePlatform();
   const compact = useCompact();
   const [active, setActive] = useState(0);
   const [hovered, setHovered] = useState(false);
@@ -164,6 +206,7 @@ export function FiveWays() {
   };
 
   const current = WAYS[active] ?? WAYS[0]!;
+  const plus = PLUS[platform === 'windows' ? 'windows' : 'macos'];
 
   return (
     <section id="features" className="mx-auto max-w-[1200px] px-6 pb-[140px] md:px-10 xl:px-0">
@@ -212,11 +255,17 @@ export function FiveWays() {
                   onClick={() => goTo(index)}
                   className="relative w-full cursor-pointer appearance-none border-0 bg-transparent px-0 pt-6 pb-6 text-left"
                 >
-                  <span
-                    className="eyebrow block transition-colors duration-[200ms]"
-                    style={{ color: isActive ? 'var(--color-brand)' : undefined }}
-                  >
-                    {way.num}
+                  <span className="flex items-baseline gap-3">
+                    <span
+                      className="eyebrow block transition-colors duration-[200ms]"
+                      style={{ color: isActive ? 'var(--color-brand)' : undefined }}
+                    >
+                      {way.num}
+                    </span>
+                    {/* Метка платформы — тем же капсом, что номер, без своей
+                        геометрии: на странице не должно появиться ещё одного
+                        вида плашки. */}
+                    {way.macOnly && <span className="eyebrow block">только macOS</span>}
                   </span>
                   <span
                     className="mt-3 block font-medium transition-colors duration-[200ms]"
@@ -244,7 +293,7 @@ export function FiveWays() {
                           className="block pt-3 text-body"
                           style={{ fontSize: 17, lineHeight: '25px' }}
                         >
-                          {way.text}
+                          {way.text(platform)}
                         </span>
                       </motion.span>
                     ) : null}
@@ -313,10 +362,9 @@ export function FiveWays() {
 
       <Reveal>
         <div className="mt-16 flex flex-col gap-6 min-[901px]:flex-row min-[901px]:gap-6">
-          <p className="eyebrow m-0 min-[901px]:w-[420px] min-[901px]:shrink-0">плюс</p>
+          <p className="eyebrow m-0 min-[901px]:w-[420px] min-[901px]:shrink-0">{plus.label}</p>
           <p className="m-0 max-w-[600px] text-body" style={{ fontSize: 18, lineHeight: '25px' }}>
-            Автоимпорт: папку скриншотов macOS Копирка подхватывает сама — снятое горячей клавишей
-            системы попадает в библиотеку без вашего участия.
+            {plus.text}
           </p>
         </div>
       </Reveal>
