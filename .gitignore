@@ -30,3 +30,6 @@ tests/ui/webkit/.out/
 
 # PDF-версии инструкций — генерируемые артефакты (docs/build-pdf.mjs), в git не держим.
 docs/*.pdf
+
+# Артефакты дымового прогона установленного приложения (CI, Windows).
+installed-smoke/

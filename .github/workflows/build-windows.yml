@@ -278,6 +278,51 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      # ── Проверка собранного приложения ───────────────────────────────────────
+      #
+      # Всё, что выше, проверяет дерево сборки: cargo test — оболочку без бандла,
+      # smoke — сервер, запущенный через tsx из рабочей копии. Установщика и payload'а
+      # в том виде, в каком они приедут человеку, не видит ни одна из этих проверок.
+      # А проверить надо: у владельца только Mac, участника с Windows под рукой нет,
+      # и раннер здесь — единственная настоящая Windows в конвейере.
+      #
+      # Скрипт ставит собранный установщик молча (ключ `/S` — штатный ключ NSIS; ставится
+      # в `%LOCALAPPDATA%\Копирка`, потому что в tauri.windows.conf.json задан
+      # installMode: currentUser — `StrCpy $INSTDIR "$LOCALAPPDATA\${PRODUCTNAME}"`
+      # в шаблоне tauri-bundler), выводит дерево установки, запускает приложение,
+      # ждёт ответа его сервера на /api/health по порту из %APPDATA%\Kopirka\config.json
+      # и гоняет через живой HTTP импорт картинки и выдачу превью — то есть проверяет
+      # sharp и better-sqlite3 именно из установленного payload'а.
+      #
+      # Шаг стоит ПОСЛЕ выгрузки установщика: его провал не должен лишать нас файла
+      # для ручной установки. По той же причине continue-on-error — красным итог сделает
+      # последний шаг, разобравшись, что именно провалилось.
+      #
+      # Про окно и раннер. GUI-приложение на windows-раннере запускается: с июня 2023 года
+      # служба раннера держит интерактивный сеанс рабочего стола (actions/runner-images#7227),
+      # а WebView2 приезжает на образ вместе с Edge (actions/runner-images#9538) — версию
+      # рантайма скрипт печатает из реестра. Но чёрный кадр на CI ничего не доказывает
+      # про живую машину, поэтому отрисовка окна и снимок экрана в скрипте помечены как
+      # справочные: провалить прогон может только установка, health или операции по HTTP.
+      # Тост-уведомления на раннере не проверить вовсе — их некому увидеть; проверяем
+      # только ярлык в «Пуске», без которого у приложения нет AUMID, а значит и тостов.
+      - name: Дымовой прогон установленного приложения
+        id: installed
+        continue-on-error: true
+        timeout-minutes: 20
+        run: node desktop/scripts/smoke-installed-windows.mjs 2>&1 | tee installed-smoke.log
+
+      # Первый в истории проекта взгляд на окно «Копирки» под Windows. Отдельным
+      # артефактом, а не внутри логов: за ним будут лазить руками.
+      - name: Забрать снимок экрана
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: kopirka-windows-x64-screenshot
+          path: installed-smoke/installed-screen.png
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Забрать логи
         if: always()
         uses: actions/upload-artifact@v7
@@ -286,6 +331,8 @@ jobs:
           path: |
             build-windows.log
             payload-listing.txt
+            installed-smoke.log
+            installed-smoke/**
           if-no-files-found: warn
           retention-days: 14
 
@@ -296,6 +343,7 @@ jobs:
         run: |
           echo "cargo test: ${{ steps.cargo-test.outcome }}" >> "$GITHUB_STEP_SUMMARY"
           echo "smoke: ${{ steps.smoke.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "установленное приложение: ${{ steps.installed.outcome }}" >> "$GITHUB_STEP_SUMMARY"
           failed=0
           if [ "${{ steps.cargo-test.outcome }}" != "success" ]; then
             echo "::error::cargo test не прошёл"
@@ -303,6 +351,12 @@ jobs:
           fi
           if [ "${{ steps.smoke.outcome }}" != "success" ]; then
             echo "::error::smoke не прошёл — сервер на Windows ещё не поднимается"
+            failed=1
+          fi
+          # Пустой outcome — шаг не выполнялся (сборка упала раньше): это уже отражено
+          # провалом своего шага, вторым сообщением об ошибке шуметь не нужно.
+          if [ -n "${{ steps.installed.outcome }}" ] && [ "${{ steps.installed.outcome }}" != "success" ]; then
+            echo "::error::установленное приложение не прошло дымовой прогон — подробности в kopirka-windows-x64-logs/installed-smoke.log"
             failed=1
           fi
           exit $failed
