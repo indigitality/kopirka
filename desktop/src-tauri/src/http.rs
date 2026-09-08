@@ -72,6 +72,8 @@ pub fn get_probe(port: u16, path: &str) -> Result<Response, String> {
     request(port, get_head(port, path), &[], PROBE_TIMEOUT)
 }
 
+/// Единственный POST оболочки — отправка снятой области (`capture.rs`), а её нет вне macOS.
+#[cfg(target_os = "macos")]
 pub fn post_json(port: u16, path: &str, body: &str) -> Result<Response, String> {
     let head = format!(
         "POST {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",

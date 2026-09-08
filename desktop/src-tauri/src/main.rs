@@ -4,11 +4,18 @@
 //! и локальный Node-сервер, который живёт ровно столько же, сколько приложение.
 
 mod backend;
+// Захват области (CAP-08) и пункт контекстного меню Finder — только macOS. В Windows-версии
+// их нет по решению о составе ядра, и модулей в бинарнике тоже нет: мёртвый код,
+// который зовёт `/usr/sbin/screencapture` и раскладывает `~/Library/Services`,
+// на Windows не должен даже компилироваться.
+#[cfg(target_os = "macos")]
 mod capture;
 mod events;
 mod http;
+mod log;
 mod menu;
 mod notify;
+#[cfg(target_os = "macos")]
 mod quickaction;
 mod tray;
 mod windows;
@@ -16,7 +23,6 @@ mod windows;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use tauri::{AppHandle, Manager, RunEvent, WindowEvent};
-use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 /// Взведён на пути «Выйти»: пока false, закрытие окна только прячет его.
 static QUITTING: AtomicBool = AtomicBool::new(false);
@@ -28,9 +34,19 @@ pub fn quit(app: &AppHandle) {
 }
 
 fn main() {
-    tauri::Builder::default()
+    #[allow(unused_mut)]
+    let mut builder = tauri::Builder::default()
         // Диалог выбора папки библиотеки: настройки и онбординг зовут его из интерфейса.
-        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_dialog::init());
+
+    // Баннеры на Windows показывает штатный плагин: там под капотом WinRT-тост, а не
+    // мёртвый API, из-за которого плагин сняли с macOS. Подробности — в notify.rs.
+    #[cfg(windows)]
+    {
+        builder = builder.plugin(tauri_plugin_notification::init());
+    }
+
+    builder
         .manage(backend::BackendState::default())
         // Аварийное окно живёт на собственной схеме: у него нет ни сервера, ни IPC,
         // а кнопки — обычные ссылки, которые ловит этот же обработчик.
@@ -55,9 +71,10 @@ fn main() {
                     &format!(
                         "Не удалось вернуть в конфиг порт {}.\n\
                          {reason}\n\
-                         Поправьте ~/Library/Application Support/Kopirka/config.json руками, \
+                         Поправьте {} руками, \
                          поле serverPort, и откройте «Копирку» заново.",
-                        backend::DEFAULT_PORT
+                        backend::DEFAULT_PORT,
+                        backend::config_path_hint("config.json")
                     ),
                     None,
                 )),
@@ -73,6 +90,9 @@ fn main() {
             let handle = app.handle().clone();
             // Меню ставим до всего: ⌘Q должен работать и в аварийном окне.
             menu::setup(&handle)?;
+            // Показ баннеров на Windows идёт через плагин, а плагину нужен хэндл.
+            // На macOS вызов ничего не делает — баннеры уходят прямо в UN*.
+            notify::remember_app(&handle);
             match backend::start(&handle) {
                 Ok(port) => start_ui(&handle, port)?,
                 // На порту отвечает «Копирка» — своя же, поднятая из терминала или
@@ -92,7 +112,8 @@ fn main() {
                         &format!(
                             "Порт {port} занят другой программой.\n\
                              Сбросьте порт на {default} или закройте программу, которая его заняла.\n\
-                             Порт хранится в ~/Library/Application Support/Kopirka/config.json, поле serverPort."
+                             Порт хранится в {}, поле serverPort.",
+                            backend::config_path_hint("config.json")
                         ),
                         Some((&reset, windows::RESET_PORT_HREF)),
                     )?
@@ -103,7 +124,8 @@ fn main() {
                     &format!(
                         "Не удалось поднять локальный сервер библиотеки.\n\
                          {message}\n\
-                         Подробности — в ~/Library/Application Support/Kopirka/kopirka.log."
+                         Подробности — в {}.",
+                        backend::config_path_hint("kopirka.log")
                     ),
                     None,
                 )?,
@@ -166,17 +188,28 @@ fn html_page(body: String) -> tauri::http::Response<Vec<u8>> {
 fn start_ui(app: &AppHandle, port: u16) -> tauri::Result<()> {
     windows::open_main(app, port)?;
     tray::setup(app)?;
-    register_hotkey(app)?;
-    // Пункт Finder «Добавить в Копирку» — в фоне и после окна: он никому не нужен
-    // раньше, чем приложение видно, а его отсутствие — не повод не запускаться.
-    quickaction::ensure_installed();
+    // Хоткей и пункт Finder — только macOS: в Windows-версии съёмки области нет, а
+    // раскладывать `~/Library/Services` там некуда (при заданном `HOME` — а его заводит
+    // Git Bash — получилась бы папка `%USERPROFILE%\Library\Services`).
+    #[cfg(target_os = "macos")]
+    {
+        register_hotkey(app)?;
+        // Пункт Finder «Добавить в Копирку» — в фоне и после окна: он никому не нужен
+        // раньше, чем приложение видно, а его отсутствие — не повод не запускаться.
+        quickaction::ensure_installed();
+    }
     // Разрешение на уведомления здесь НЕ спрашиваем: `setup` выполняется до запуска
     // цикла событий. Запрос стоит в обработчике `RunEvent::Ready` ниже.
     Ok(())
 }
 
 /// ⌥⌘C в любом приложении — снимок выделенной области.
+#[cfg(target_os = "macos")]
 fn register_hotkey(app: &AppHandle) -> tauri::Result<()> {
+    use tauri_plugin_global_shortcut::{
+        Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState,
+    };
+
     let hotkey = Shortcut::new(Some(Modifiers::ALT | Modifiers::SUPER), Code::KeyC);
     app.plugin(
         tauri_plugin_global_shortcut::Builder::new()
@@ -189,7 +222,7 @@ fn register_hotkey(app: &AppHandle) -> tauri::Result<()> {
     )?;
     if let Err(error) = app.global_shortcut().register(hotkey) {
         // Хоткей мог занять кто-то другой — это не повод не запускаться.
-        eprintln!("не удалось зарегистрировать ⌥⌘C: {error}");
+        crate::diag!("не удалось зарегистрировать ⌥⌘C: {error}");
     }
     Ok(())
 }

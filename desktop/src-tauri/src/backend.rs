@@ -20,12 +20,43 @@ const HEALTH_TIMEOUT: Duration = Duration::from_secs(30);
 const HEALTH_INTERVAL: Duration = Duration::from_millis(200);
 
 /// Каталог конфига сервера. `KOPIRKA_CONFIG_DIR` нужен для изолированных экземпляров.
-fn config_dir() -> Option<PathBuf> {
+///
+/// Путь обязан совпадать с тем, что берёт Node-сервер: `~/Library/Application Support/Kopirka`
+/// на macOS, `%APPDATA%\Kopirka` (Roaming) на Windows. Разойдутся — оболочка будет читать
+/// порт из одного конфига, а сервер встанет по другому.
+///
+/// Развилка через `cfg!`, а не через `#[cfg]`: обе ветки — обычное чтение переменной
+/// окружения, компилируются везде, и на macOS результат тот же, что и до Windows-версии.
+/// `HOME` на Windows заводит себе Git Bash, поэтому смотреть на него там нельзя.
+pub fn config_dir() -> Option<PathBuf> {
     if let Ok(dir) = std::env::var("KOPIRKA_CONFIG_DIR") {
         return Some(PathBuf::from(dir));
     }
-    let home = std::env::var("HOME").ok()?;
-    Some(PathBuf::from(home).join("Library").join("Application Support").join("Kopirka"))
+    if cfg!(windows) {
+        // %APPDATA% — это Roaming, в живом сеансе она задана всегда. Если нет (служба,
+        // урезанное окружение) — собираем тот же путь от профиля, ровно как сервер
+        // в `server/src/config.ts`, `supportDirFor`. Разойтись здесь нельзя: оболочка
+        // читала бы порт из одного конфига, а сервер писал бы в другой.
+        let roaming = match std::env::var("APPDATA") {
+            Ok(appdata) if !appdata.is_empty() => PathBuf::from(appdata),
+            _ => PathBuf::from(std::env::var("USERPROFILE").ok()?)
+                .join("AppData")
+                .join("Roaming"),
+        };
+        Some(roaming.join("Kopirka"))
+    } else {
+        let home = std::env::var("HOME").ok()?;
+        Some(PathBuf::from(home).join("Library").join("Application Support").join("Kopirka"))
+    }
+}
+
+/// Как назвать путь к файлу рядом с конфигом в тексте для человека. Настоящий путь берётся
+/// из `config_dir`, но в аварийном окне уместнее привычная запись, а не разложенный `%APPDATA%`.
+pub fn config_path_hint(file: &str) -> String {
+    #[cfg(windows)]
+    return format!("%APPDATA%\\Kopirka\\{file}");
+    #[cfg(not(windows))]
+    return format!("~/Library/Application Support/Kopirka/{file}");
 }
 
 fn config_file() -> Option<PathBuf> {
@@ -132,7 +163,9 @@ pub fn start(app: &AppHandle) -> Result<u16, StartError> {
     }
 
     let dir = backend_dir(app).map_err(StartError::Failed)?;
-    let node = dir.join("node");
+    // Имя бинарника в payload'е: `node` в macOS-сборке, `node.exe` в Windows-сборке.
+    // Кладёт его туда `scripts/bundle-server.mjs`, здесь только берём.
+    let node = dir.join(if cfg!(windows) { "node.exe" } else { "node" });
 
     let mut command = Command::new(&node);
     command
@@ -144,9 +177,21 @@ pub fn start(app: &AppHandle) -> Result<u16, StartError> {
         .env("KOPIRKA_QUIET", "1")
         // Сигнал серверу: следить за stdin и выходить, когда родитель умрёт.
         .env("KOPIRKA_PARENT_STDIN", "1")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit());
+        .stdin(Stdio::piped());
+
+    // Наследовать stdout/stderr есть смысл только там, где они куда-то ведут.
+    // На Windows приложение собрано с `windows_subsystem = "windows"`: консоли у процесса
+    // нет, наследовать нечего, и сервер писал бы в закрытые дескрипторы. Свой журнал
+    // он всё равно ведёт сам — `kopirka.log` рядом с конфигом.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // CREATE_NO_WINDOW: иначе на каждый запуск «Копирки» мигало бы окно консоли Node.
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW).stdout(Stdio::null()).stderr(Stdio::null());
+    }
+    #[cfg(not(windows))]
+    command.stdout(Stdio::inherit()).stderr(Stdio::inherit());
 
     // Прокидываем тестовые переопределения, если они заданы у приложения.
     for key in ["KOPIRKA_LIBRARY_PATH", "KOPIRKA_CONFIG_DIR"] {

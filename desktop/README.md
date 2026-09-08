@@ -19,6 +19,7 @@
 | `src-tauri/src/quickaction.rs` | Установка быстрой команды Finder «Добавить в Копирку» |
 | `src-tauri/src/menu.rs` | Русское меню приложения; ⌘Q идёт через наш код |
 | `src-tauri/src/http.rs` | Микро-клиент HTTP к 127.0.0.1 (без зависимостей) |
+| `src-tauri/src/log.rs` | Диагностика оболочки: `eprintln!` на macOS, `kopirka-shell.log` на Windows |
 | `src-tauri/capabilities/default.json` | Права IPC: доступ с `http://127.0.0.1:*`, перетаскивание окна, диалог выбора папки |
 | `scripts/bundle-server.mjs` | Сборка payload'а сервера в `src-tauri/resources/backend` |
 | `scripts/build-intel.mjs` | Intel-сборка одной командой: rust target, x64-Node, x64-пакеты sharp |
@@ -346,6 +347,29 @@ mac-notification-sys, а тот — в `NSUserNotificationCenter`, объявл�
 работает быстрая команда Finder «Добавить в Копирку», а показать тост в такой момент
 некому. По той же логике окно опрашивает `/api/events` само (раз в 3 с, только пока
 вкладка видима) и дорисовывает карточку без перезагрузки.
+
+### Windows: тост и ярлык в «Пуске»
+
+В Windows-сборке баннеры показывает штатный `tauri-plugin-notification` — он подключён
+только там (`Cargo.toml`, `[target.'cfg(windows)'.dependencies]`). Причина, по которой
+плагин сняли с macOS, на Windows не действует: под капотом у него не мёртвый
+`NSUserNotificationCenter`, а живой WinRT-тост.
+
+**Уведомления заработают только у приложения, поставленного установщиком.** Тост в Windows
+принадлежит не процессу, а зарегистрированному AppUserModelID, а AUMID появляется вместе
+с ярлыком в меню «Пуск» — его кладёт NSIS-установщик и прописывает в ярлык
+`System.AppUserModel.ID`. У бинарника, запущенного из папки сборки, тостов не будет,
+и это не поломка. Плагин учитывает это сам: `app_id` он ставит, только когда исполняемый
+файл лежит не в `target\debug` и не в `target\release`.
+
+Разрешения спрашивать не нужно — системного запроса на уведомления в Windows нет, и плагин
+всегда отвечает `Granted`. В капабилити `notification:default` намеренно не добавлен:
+оболочка зовёт плагин из Rust, а ACL стоит только на пути через `invoke`.
+
+Диагностика оболочки на Windows идёт не в stderr: приложение собрано с
+`windows_subsystem = "windows"`, консоли у процесса нет, и `eprintln!` пишет в никуда.
+Те же строки дописываются в `kopirka-shell.log` рядом с конфигом — в
+`%APPDATA%\Kopirka`. Ротации нет: дошёл до 256 КБ — файл начинается заново.
 
 ## Быстрая команда Finder
 

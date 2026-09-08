@@ -34,6 +34,19 @@
 //! нормально собранным и установленным `.app`, а не кодом здесь.
 //!
 //! `catch` тем не менее оставлен: остальные пути (`show`) исключения пропускают обычно.
+//!
+//! На Windows всё иначе и проще. Там у плагина под капотом WinRT-тост, а не мёртвый API,
+//! поэтому баннеры показывает `tauri-plugin-notification` — он подключён только в
+//! Windows-сборке (`Cargo.toml`, `[target.'cfg(windows)'.dependencies]`). Разрешения
+//! спрашивать не нужно: на десктопе плагин всегда отвечает `Granted`, потому что
+//! системного запроса на уведомления в Windows нет.
+//!
+//! Зато есть своё условие, и его не обойти кодом: WinRT-тост принадлежит не процессу,
+//! а зарегистрированному AppUserModelID, а AUMID появляется вместе с ярлыком в меню
+//! «Пуск». То есть уведомления работают у приложения, поставленного установщиком
+//! (NSIS кладёт ярлык и прописывает `System.AppUserModel.ID`), и молчат у бинарника,
+//! запущенного из папки сборки. Плагин это учитывает сам: `app_id` он ставит только
+//! когда исполняемый файл лежит не в `target\debug` и не в `target\release`.
 
 #[cfg(target_os = "macos")]
 mod imp {
@@ -55,6 +68,10 @@ mod imp {
     /// UNAuthorizationOptionBadge | Sound | Alert — то же, что просит любое приложение
     /// с баннерами. Без этого запроса система молча выбрасывает наши уведомления.
     const AUTHORIZATION_OPTIONS: usize = 1 << 0 | 1 << 1 | 1 << 2;
+
+    /// Хэндл приложения здесь ни при чём: показ идёт прямо в UNUserNotificationCenter.
+    /// Функция есть только ради единого вызова из `main.rs`.
+    pub fn remember_app(_app: &tauri::AppHandle) {}
 
     /// Каждому уведомлению нужен свой идентификатор, иначе новое заменяет предыдущее.
     static COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -200,10 +217,45 @@ mod imp {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(windows)]
 mod imp {
+    use std::sync::OnceLock;
+
+    use tauri::AppHandle;
+    use tauri_plugin_notification::NotificationExt;
+
+    /// Хэндл приложения: плагину он нужен, а `show` зовут из фоновых потоков (опрос
+    /// трея), куда его не передать параметром без переделки всех вызовов.
+    static APP: OnceLock<AppHandle> = OnceLock::new();
+
+    pub fn remember_app(app: &AppHandle) {
+        let _ = APP.set(app.clone());
+    }
+
+    /// Спрашивать нечего: в Windows нет системного запроса на уведомления, и плагин
+    /// всегда отвечает `Granted`. Оставлено вызываемым, чтобы `RunEvent::Ready`
+    /// в `main.rs` не пришлось ветвить по системам.
+    pub fn request_authorization() {}
+
+    pub fn show(title: &str, body: &str) {
+        let Some(app) = APP.get() else {
+            crate::diag!("уведомление «{title}» не показано: приложение ещё не запомнено");
+            return;
+        };
+        // Ошибку плагин почти всегда съедает сам: внутри `show()` он уходит в
+        // `async_runtime::spawn` и роняет результат (tauri-plugin-notification 2.4.0,
+        // desktop.rs:216). Сюда попадает только отказ на подготовке запроса.
+        if let Err(error) = app.notification().builder().title(title).body(body).show() {
+            crate::diag!("уведомление не показано: {error}");
+        }
+    }
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
+mod imp {
+    pub fn remember_app(_app: &tauri::AppHandle) {}
     pub fn request_authorization() {}
     pub fn show(_title: &str, _body: &str) {}
 }
 
-pub use imp::{request_authorization, show};
+pub use imp::{remember_app, request_authorization, show};

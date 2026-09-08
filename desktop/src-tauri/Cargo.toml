@@ -16,17 +16,26 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-dialog = "2"
-tauri-plugin-global-shortcut = "2"
 serde_json = "1"
 
 # Уведомления показываем сами через UNUserNotificationCenter — см. src/notify.rs.
 # tauri-plugin-notification снят: на macOS он ходит в устаревший
 # NSUserNotificationCenter, который на macOS 26 молча ничего не показывает.
 # Эти три крейта уже есть в дереве ради tao и wry, новых зависимостей не появляется.
+#
+# Глобальный хоткей ⌥⌘C — тоже только здесь: съёмка области (CAP-08) в Windows-версии
+# не участвует, и незачем тащить плагин, который там нечего регистрировать.
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = { version = "0.6", features = ["exception"] }
 objc2-foundation = { version = "0.3", features = ["NSString", "NSError"] }
 block2 = "0.6"
+tauri-plugin-global-shortcut = "2"
+
+# На Windows баннеры показывает штатный плагин: там это WinRT-тост, а не мёртвый
+# API, из-за которого плагин сняли с macOS. Оболочка зовёт его из Rust, поэтому
+# в капабилити ничего добавлять не нужно — ACL стоит только на пути через invoke.
+[target.'cfg(windows)'.dependencies]
+tauri-plugin-notification = "2"
 
 [profile.release]
 codegen-units = 1

@@ -1,13 +1,17 @@
-//! Иконка в строке меню — главный вход в приложение.
+//! Иконка в строке меню (macOS) и в области уведомлений (Windows) — главный вход
+//! в приложение. Пункт «Снять область» есть только на macOS: захвата экрана (CAP-08)
+//! в Windows-сборке нет, и пункт, ведущий в никуда, не показывается вовсе.
 
 use std::time::Duration;
 
 use tauri::image::Image;
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+use tauri::menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, Wry};
 
-use crate::{backend, capture, events, http, windows};
+#[cfg(target_os = "macos")]
+use crate::capture;
+use crate::{backend, events, http, windows};
 
 /// Как часто ходим на сервер: за счётчиком «Не разобрано» и за лентой новых импортов.
 /// Две секунды — компромисс: уведомление о скриншоте приходит почти сразу, а запрос
@@ -16,38 +20,75 @@ const POLL_INTERVAL: Duration = Duration::from_secs(2);
 
 pub fn setup(app: &AppHandle) -> tauri::Result<()> {
     let show = MenuItem::with_id(app, "show", "Показать библиотеку", true, None::<&str>)?;
-    let capture_item = MenuItem::with_id(app, "capture", "Снять область", true, Some("Alt+Cmd+C"))?;
     let untagged = MenuItem::with_id(app, "untagged", "Не разобрано: —", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Выйти", true, Some("Cmd+Q"))?;
+    // Акселератор пункта «Выйти» — только macOS: ⌘Q там и правда работает, его держит
+    // меню приложения (menu.rs). На Windows меню нет, а «Cmd» muda разбирает как клавишу
+    // Win — подпись «Win+Q» обещала бы сочетание, которого не существует.
+    #[cfg(target_os = "macos")]
+    let quit_accelerator = Some("Cmd+Q");
+    #[cfg(not(target_os = "macos"))]
+    let quit_accelerator = None::<&str>;
+    let quit = MenuItem::with_id(app, "quit", "Выйти", true, quit_accelerator)?;
 
-    let menu = Menu::with_items(
-        app,
-        &[
-            &show,
-            &capture_item,
-            &PredefinedMenuItem::separator(app)?,
-            &untagged,
-            &PredefinedMenuItem::separator(app)?,
-            &quit,
-        ],
-    )?;
+    #[cfg(target_os = "macos")]
+    let capture_item = MenuItem::with_id(app, "capture", "Снять область", true, Some("Alt+Cmd+C"))?;
 
-    // Шаблонная иконка: macOS сама красит её под светлую и тёмную строку меню.
-    let icon = Image::from_bytes(include_bytes!("../icons/tray@2x.png"))?;
+    let first_separator = PredefinedMenuItem::separator(app)?;
+    let second_separator = PredefinedMenuItem::separator(app)?;
 
-    TrayIconBuilder::with_id("kopirka")
-        .icon(icon)
-        .icon_as_template(true)
-        .menu(&menu)
-        .show_menu_on_left_click(true)
-        .on_menu_event(|app, event| match event.id().as_ref() {
-            "show" => windows::focus_main(app, false),
-            "capture" => capture::start(),
-            "untagged" => windows::focus_main(app, true),
-            "quit" => crate::quit(app),
-            _ => {}
-        })
-        .build(app)?;
+    let mut items: Vec<&dyn IsMenuItem<Wry>> = vec![&show];
+    #[cfg(target_os = "macos")]
+    items.push(&capture_item);
+    items.extend([
+        &first_separator as &dyn IsMenuItem<Wry>,
+        &untagged,
+        &second_separator,
+        &quit,
+    ]);
+    let menu = Menu::with_items(app, &items)?;
+
+    let mut tray = TrayIconBuilder::with_id("kopirka").menu(&menu);
+
+    #[cfg(target_os = "macos")]
+    {
+        // Шаблонная иконка: macOS сама красит её под светлую и тёмную строку меню.
+        tray = tray
+            .icon(Image::from_bytes(include_bytes!("../icons/tray@2x.png"))?)
+            .icon_as_template(true)
+            .show_menu_on_left_click(true);
+    }
+    #[cfg(windows)]
+    {
+        // Шаблонная иконка на Windows дала бы почти невидимое чёрное пятно: там никто
+        // её не перекрашивает. Поэтому отдельный цветной файл — знак лаймом на прозрачном
+        // фоне (icons/tray-windows.png, рисует scripts/make-icons.mjs).
+        //
+        // И другая привычка обращения: меню — по правой кнопке, левая сразу открывает окно.
+        tray = tray
+            .icon(Image::from_bytes(include_bytes!("../icons/tray-windows.png"))?)
+            .show_menu_on_left_click(false)
+            .on_tray_icon_event(|tray, event| {
+                use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
+                if let TrayIconEvent::Click {
+                    button: MouseButton::Left,
+                    button_state: MouseButtonState::Up,
+                    ..
+                } = event
+                {
+                    windows::focus_main(tray.app_handle(), false);
+                }
+            });
+    }
+
+    tray.on_menu_event(|app, event| match event.id().as_ref() {
+        "show" => windows::focus_main(app, false),
+        #[cfg(target_os = "macos")]
+        "capture" => capture::start(),
+        "untagged" => windows::focus_main(app, true),
+        "quit" => crate::quit(app),
+        _ => {}
+    })
+    .build(app)?;
 
     spawn_poller(app.clone(), untagged);
     Ok(())

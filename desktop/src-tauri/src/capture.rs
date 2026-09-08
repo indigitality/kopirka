@@ -3,6 +3,11 @@
 //! Рамку выделения рисует системный `screencapture -i`: это родное поведение macOS
 //! вместе с отменой по Esc. Готовый PNG уходит в `POST /api/import/capture`
 //! с `sourceType = area_screenshot`, временный файл удаляется.
+//!
+//! Модуль целиком macOS-only: `main.rs` объявляет его под `cfg(target_os = "macos")`.
+//! В Windows-версии захвата области нет — ни хоткея, ни пункта трея, ни этого кода
+//! в бинарнике. Появится он не подменой `screencapture` на что-то своё, а отдельной
+//! работой: рамку выделения там придётся рисовать самим.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -10,7 +15,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::{backend, http, notify};
 
-#[cfg(target_os = "macos")]
 #[link(name = "CoreGraphics", kind = "framework")]
 extern "C" {
     fn CGPreflightScreenCaptureAccess() -> bool;
@@ -35,7 +39,6 @@ pub fn start() {
 }
 
 fn run() {
-    #[cfg(target_os = "macos")]
     unsafe {
         if !CGPreflightScreenCaptureAccess() {
             // Первый вызов покажет системный запрос; повторные — уже нет,
