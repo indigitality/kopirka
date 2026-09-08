@@ -21,6 +21,7 @@ import { flattenFolders } from '@/lib/folders';
 import { plural } from '@/lib/format';
 import { Icon } from '@/lib/icons';
 import { DUR_FAST, EASE_OUT } from '@/lib/motion';
+import { platformStrings } from '@/lib/platform';
 import { EASE_IN } from '@/components/ui/motion-presets';
 import { Button } from '@/components/ui/Button';
 import { IconButton } from '@/components/ui/IconButton';
@@ -277,7 +278,7 @@ export function GridScreen() {
       try {
         await api.revealFile(file.id);
       } catch (cause) {
-        notifyError(cause, 'Не удалось открыть Finder');
+        notifyError(cause, platformStrings().revealFailedToast);
       }
     },
     [notifyError],

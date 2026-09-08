@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { ChevronDown, Folder } from 'lucide-react';
 import { Icon } from '@/lib/icons';
+import { hotkeyLabel, platformStrings } from '@/lib/platform';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from './ContextMenu';
 import { Popover, PopoverContent, PopoverItem, PopoverSeparator, PopoverTrigger } from './Popover';
 import { Select } from './Select';
@@ -73,9 +74,9 @@ export const МенюКарточки: Story = {
         </PopoverTrigger>
         <PopoverContent>
           <PopoverItem current>Открыть</PopoverItem>
-          <PopoverItem hotkey="⌘C">Скопировать</PopoverItem>
+          <PopoverItem hotkey={hotkeyLabel('⌘C')}>Скопировать</PopoverItem>
           <PopoverItem>В папку…</PopoverItem>
-          <PopoverItem>Показать в Finder</PopoverItem>
+          <PopoverItem>{platformStrings().revealMenuItem}</PopoverItem>
           <PopoverSeparator />
           <PopoverItem danger hotkey="⌫">
             Удалить
@@ -97,8 +98,8 @@ export const ПравыйКлик: Story = {
         </ContextMenuTrigger>
         <ContextMenuContent>
           <ContextMenuItem>Открыть</ContextMenuItem>
-          <ContextMenuItem hotkey="⌘C">Скопировать</ContextMenuItem>
-          <ContextMenuItem>Показать в Finder</ContextMenuItem>
+          <ContextMenuItem hotkey={hotkeyLabel('⌘C')}>Скопировать</ContextMenuItem>
+          <ContextMenuItem>{platformStrings().revealMenuItem}</ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem danger hotkey="⌫">
             Удалить

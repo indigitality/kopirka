@@ -14,6 +14,7 @@ import { ChevronLeft, ChevronRight, ImageOff, X } from 'lucide-react';
 import * as api from '@/lib/api';
 import { cn } from '@/lib/cn';
 import { Icon } from '@/lib/icons';
+import { platformStrings } from '@/lib/platform';
 import { useReducedMotion } from '@/lib/useReducedMotion';
 import { IconButton } from '@/components/ui/IconButton';
 import { glassLayerMotion, scrimMotion } from '@/components/ui/motion-presets';
@@ -167,7 +168,7 @@ export function DetailView() {
                 onReveal={() => {
                   void api
                     .revealFile(file.id)
-                    .catch((cause: unknown) => notify(cause, 'Не удалось открыть Finder'));
+                    .catch((cause: unknown) => notify(cause, platformStrings().revealFailedToast));
                 }}
                 onTrash={() => {
                   const ids = [file.id];

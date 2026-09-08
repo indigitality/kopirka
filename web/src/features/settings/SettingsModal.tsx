@@ -24,6 +24,7 @@ import { Input } from '@/components/ui/Input';
 import { Modal, ModalContent } from '@/components/ui/Modal';
 import { cn } from '@/lib/cn';
 import { Icon } from '@/lib/icons';
+import { platformStrings } from '@/lib/platform';
 import { isTauri, pickDirectory } from '@/lib/tauri';
 import { formatBytes, truncateMiddle } from './format';
 
@@ -210,6 +211,7 @@ export function SettingsModal({ open, onOpenChange, settings, onSave, className 
 
   // Кнопка выбора папки есть только в приложении: в браузере JS абсолютный путь не отдаёт.
   const inTauri = isTauri();
+  const platform = platformStrings();
 
   /*
     Черновик начинается заново, когда пришли новые данные с сервера и когда
@@ -361,7 +363,7 @@ export function SettingsModal({ open, onOpenChange, settings, onSave, className 
               label="Путь библиотеки"
               htmlFor="settings-library-path"
               error={showPathError}
-              hint="По умолчанию ~/Pictures/Копирка. Внутри — library.db, originals и previews."
+              hint={`По умолчанию ${platform.defaultLibraryPath}. Внутри — library.db, originals и previews.`}
             >
               <div className="flex items-center gap-2">
                 <Input
@@ -395,7 +397,8 @@ export function SettingsModal({ open, onOpenChange, settings, onSave, className 
           {/* PRD §7.2 — формулировка намеренно прямая, без смягчения. */}
           <Notice tone="warning" icon={TriangleAlert} title="Смена пути не переносит файлы.">
             Приложение просто начнёт работать с новой директорией — пустой или ранее
-            существовавшей. Перенести библиотеку нужно вручную в Finder при закрытом приложении.
+            существовавшей. Перенести библиотеку нужно вручную {platform.inFileManager} при
+            закрытом приложении.
           </Notice>
 
           {/* SET-03, спрятан в «Дополнительно» — D16. */}

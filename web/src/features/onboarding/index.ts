@@ -1,5 +1,5 @@
 export {
   OnboardingScreen,
-  DEFAULT_LIBRARY_PATH,
+  defaultLibraryPath,
   type OnboardingScreenProps,
 } from './OnboardingScreen';

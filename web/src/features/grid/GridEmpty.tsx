@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Icon } from '@/lib/icons';
 import { plural } from '@/lib/format';
+import { hotkeyLabel } from '@/lib/platform';
 
 /**
  * Пустое состояние занимает всю свободную высоту панели: сетка живёт в колонке
@@ -117,7 +118,7 @@ export function GridEmpty({
       className={SLOT}
       icon={<Icon icon={Image} size={20} aria-hidden />}
       title="Библиотека пуста"
-      description="Перетащите изображения в окно, вставьте из буфера через ⌘V или сохраните картинку из браузера через «Сохранить в Копирку»."
+      description={`Перетащите изображения в окно, вставьте из буфера через ${hotkeyLabel('⌘V')} или сохраните картинку из браузера через «Сохранить в Копирку».`}
       action={
         <Button variant="primary" onClick={onPickFiles}>
           Выбрать файлы

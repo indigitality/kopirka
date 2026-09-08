@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { Copy, Folder, Grid2x2, Grid3x3, ImageDown, Plus, Square, Trash2 } from 'lucide-react';
 import { iconProps } from '@/lib/icons';
 import { flattenFolders } from '@/lib/folders';
+import { hotkeyLabel, platformStrings } from '@/lib/platform';
 import { mockFolders } from '@/features/shell/mock';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -48,12 +49,19 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-/** Размер карточек сетки — решение D5, дизайн-аудит §3.3. */
-const GRID_SIZE_OPTIONS: readonly SegmentedOption<string>[] = [
-  { value: 'l', label: 'Большие', hotkey: '⌘1', icon: <Square {...iconProps(16)} /> },
-  { value: 'm', label: 'Средние', hotkey: '⌘2', icon: <Grid2x2 {...iconProps(16)} /> },
-  { value: 's', label: 'Маленькие', hotkey: '⌘3', icon: <Grid3x3 {...iconProps(16)} /> },
-];
+/**
+ * Размер карточек сетки — решение D5, дизайн-аудит §3.3.
+ * Функция, а не константа модуля: подпись хоткея зависит от платформы
+ * (`hotkeyLabel`), читаем которую можно только при рендере — см. тот же
+ * приём в `TopBar.gridSizeOptions`.
+ */
+function gridSizeOptions(): readonly SegmentedOption<string>[] {
+  return [
+    { value: 'l', label: 'Большие', hotkey: hotkeyLabel('⌘1'), icon: <Square {...iconProps(16)} /> },
+    { value: 'm', label: 'Средние', hotkey: hotkeyLabel('⌘2'), icon: <Grid2x2 {...iconProps(16)} /> },
+    { value: 's', label: 'Маленькие', hotkey: hotkeyLabel('⌘3'), icon: <Grid3x3 {...iconProps(16)} /> },
+  ];
+}
 
 const VIEW_OPTIONS: readonly SegmentedOption<string>[] = [
   { value: 'any', label: 'Любые' },
@@ -69,6 +77,7 @@ const folderOptions = flattenFolders(mockFolders).map(({ folder, depth }) => ({
 }));
 
 export function KitPage() {
+  const platform = platformStrings();
   const { toast } = useToast();
   const [tags, setTags] = useState(['интерфейс', 'дашборд', 'тёмная тема']);
   const [checked, setChecked] = useState(false);
@@ -146,7 +155,7 @@ export function KitPage() {
             <Button variant="primary" icon={<Copy {...iconProps(16)} />}>
               С иконкой
             </Button>
-            <Button variant="primary" hotkey="⌘C">
+            <Button variant="primary" hotkey={hotkeyLabel('⌘C')}>
               С хоткеем
             </Button>
             <Button variant="primary" disabled>
@@ -154,14 +163,14 @@ export function KitPage() {
             </Button>
           </Row>
           <Row label="Вторичная">
-            <Button variant="secondary">В Finder</Button>
+            <Button variant="secondary">{platform.revealButton}</Button>
             <Button variant="secondary" size="sm">
-              В Finder
+              {platform.revealButton}
             </Button>
             <Button variant="secondary" icon={<Folder {...iconProps(16)} />}>
               С иконкой
             </Button>
-            <Button variant="secondary" hotkey="⌘R">
+            <Button variant="secondary" hotkey={hotkeyLabel('⌘R')}>
               С хоткеем
             </Button>
             <Button variant="secondary" disabled>
@@ -250,7 +259,7 @@ export function KitPage() {
         <Section title="Поиск">
           <div className="flex flex-wrap gap-10">
             <div>
-              <p className="text-technical mb-2">покой · ⌘K фокусирует</p>
+              <p className="text-technical mb-2">покой · {hotkeyLabel('⌘K')} фокусирует</p>
               <SearchField />
             </div>
             <div>
@@ -335,7 +344,7 @@ export function KitPage() {
               label="Размер карточек"
               value={gridSize}
               onValueChange={setGridSize}
-              options={GRID_SIZE_OPTIONS}
+              options={gridSizeOptions()}
               segmentWidth={32}
             />
             <span className="text-technical">
@@ -374,7 +383,7 @@ export function KitPage() {
             </Button>
           </Row>
           <Row label="Тултип">
-            <Tooltip content="Скопировать в буфер" hotkey="⌘C">
+            <Tooltip content="Скопировать в буфер" hotkey={hotkeyLabel('⌘C')}>
               <IconButton label="Скопировать" variant="secondary">
                 <Copy {...iconProps(16)} />
               </IconButton>
@@ -389,8 +398,8 @@ export function KitPage() {
               </ContextMenuTrigger>
               <ContextMenuContent>
                 <ContextMenuItem hotkey="⏎">Открыть</ContextMenuItem>
-                <ContextMenuItem hotkey="⌘C">Скопировать</ContextMenuItem>
-                <ContextMenuItem>Показать в Finder</ContextMenuItem>
+                <ContextMenuItem hotkey={hotkeyLabel('⌘C')}>Скопировать</ContextMenuItem>
+                <ContextMenuItem>{platform.revealMenuItem}</ContextMenuItem>
                 <ContextMenuSeparator />
                 <ContextMenuItem danger hotkey="⌫">
                   Удалить

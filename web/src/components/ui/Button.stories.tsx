@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { Copy, Plus, Trash2 } from 'lucide-react';
 import { Icon } from '@/lib/icons';
+import { hotkeyLabel, platformStrings } from '@/lib/platform';
 import { Button } from './Button';
 
 /**
@@ -26,11 +27,11 @@ type Story = StoryObj<typeof meta>;
 
 /** «Скопировать ⌘C» с полки: лайм `brand`, текст `brand-ink`, хоткей на 55 %. */
 export const Основная: Story = {
-  args: { variant: 'primary', icon: <Icon icon={Copy} />, hotkey: '⌘C' },
+  args: { variant: 'primary', icon: <Icon icon={Copy} />, hotkey: hotkeyLabel('⌘C') },
 };
 
 export const Вторичная: Story = {
-  args: { children: 'В Finder' },
+  args: { children: platformStrings().revealButton },
 };
 
 export const Призрачная: Story = {
@@ -62,10 +63,10 @@ export const Полка: Story = {
   name: 'Полка · все варианты',
   render: () => (
     <div className="flex flex-wrap items-center gap-6 rounded-panel bg-panel p-5">
-      <Button variant="primary" hotkey="⌘C">
+      <Button variant="primary" hotkey={hotkeyLabel('⌘C')}>
         Скопировать
       </Button>
-      <Button variant="secondary">В Finder</Button>
+      <Button variant="secondary">{platformStrings().revealButton}</Button>
       <Button variant="ghost">Отменить</Button>
       <Button variant="danger-solid" icon={<Icon icon={Trash2} />}>
         Очистить корзину

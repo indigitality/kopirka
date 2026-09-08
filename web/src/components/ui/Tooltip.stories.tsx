@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { Copy, Trash2 } from 'lucide-react';
 import { Icon } from '@/lib/icons';
+import { hotkeyLabel, platformStrings } from '@/lib/platform';
 import { IconButton } from './IconButton';
 import { Tooltip, TooltipContent, TooltipRoot, TooltipTrigger } from './Tooltip';
 
@@ -28,12 +29,12 @@ export const Полка: Story = {
         <TooltipTrigger className="text-2xs text-ink-faint">с хоткеем</TooltipTrigger>
         <TooltipContent side="top">
           Скопировать
-          <span className="text-2xs leading-3 font-normal text-ink-faint">⌘C</span>
+          <span className="text-2xs leading-3 font-normal text-ink-faint">{hotkeyLabel('⌘C')}</span>
         </TooltipContent>
       </TooltipRoot>
       <TooltipRoot open>
         <TooltipTrigger className="text-2xs text-ink-faint">без хоткея</TooltipTrigger>
-        <TooltipContent side="top">Показать в Finder</TooltipContent>
+        <TooltipContent side="top">{platformStrings().revealMenuItem}</TooltipContent>
       </TooltipRoot>
       <TooltipRoot open>
         <TooltipTrigger className="text-2xs text-ink-faint">клавиша</TooltipTrigger>
@@ -51,7 +52,7 @@ export const НаКнопке: Story = {
   name: 'На кнопке · по наведению',
   render: () => (
     <div className="flex h-[120px] items-center gap-2">
-      <Tooltip content="Скопировать" hotkey="⌘C">
+      <Tooltip content="Скопировать" hotkey={hotkeyLabel('⌘C')}>
         <IconButton label="Скопировать" variant="secondary">
           <Icon icon={Copy} />
         </IconButton>

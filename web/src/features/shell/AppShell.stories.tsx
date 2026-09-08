@@ -1,6 +1,7 @@
-import type { CSSProperties } from 'react';
+import { useEffect, type CSSProperties, type ReactNode } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import type { StatsResponse } from '@shared/api';
+import type { KopirkaPlatform } from '@/lib/platform';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { AppShell } from './AppShell';
 import { mockFolders } from './mock';
@@ -35,6 +36,35 @@ function GridPlaceholder() {
       ))}
     </div>
   );
+}
+
+/**
+ * Ставит `data-kopirka-platform` на настоящий `<html>` витрины на время жизни
+ * истории — ровно то, что в окне приложения делает десктопная обёртка синхронно
+ * до первого кадра. Только так дочерние компоненты (`SearchField`, «Пульт»)
+ * прочитают `hotkeyLabel`/`platformStrings` и покажут подписи Windows, а не
+ * только отступ оболочки — «канон виден в обоих состояниях», а не только его
+ * верхнее поле.
+ *
+ * Атрибут ставится синхронно в теле рендера, а не в эффекте: `hotkeyLabel` и
+ * `platformStrings` читают его во время рендера потомков, а эффект сработал бы
+ * только после коммита — потомки успели бы отрисоваться с чужим (или ещё не
+ * выставленным) значением, и хоткеи навсегда остались бы в подписи предыдущей
+ * истории до следующего события. Идемпотентно, поэтому двойной вызов в
+ * StrictMode безопасен. Снятие на размонтировании: атрибут не должен утечь в
+ * соседние истории.
+ */
+function ShellPlatform({ platform, children }: { platform: KopirkaPlatform; children: ReactNode }) {
+  if (typeof document !== 'undefined') {
+    document.documentElement.dataset.kopirkaPlatform = platform;
+  }
+  useEffect(() => {
+    return () => {
+      if (typeof document === 'undefined') return;
+      delete document.documentElement.dataset.kopirkaPlatform;
+    };
+  }, [platform]);
+  return <>{children}</>;
 }
 
 const meta = {
@@ -98,7 +128,9 @@ export const СИнсетомСветофора: Story = {
         className="relative h-screen w-full bg-app"
         style={{ '--kopirka-titlebar-inset': '36px' } as CSSProperties}
       >
-        <Story />
+        <ShellPlatform platform="macos">
+          <Story />
+        </ShellPlatform>
         <div aria-hidden className="pointer-events-none absolute inset-0">
           {TRAFFIC_LIGHT_COLORS.map((color, index) => (
             <span
@@ -108,6 +140,31 @@ export const СИнсетомСветофора: Story = {
             />
           ))}
         </div>
+      </div>
+    ),
+  ],
+};
+
+/**
+ * Окно Windows: титлбар системный (рисует ОС поверх веб-контента, не внутри
+ * него), кнопок-кружков в интерфейсе нет и не должно быть — их место снаружи
+ * окна. Оболочка на Windows `--kopirka-titlebar-inset` не ставит вовсе (контракт
+ * с десктопным агентом), поэтому `--shell-pad-top` тихо падает на фолбэк
+ * `--shell-pad` 12 — тот же путь, что и в браузере без переменной. Разница с
+ * историей «Библиотека — сетка» в том, что здесь ещё и `data-kopirka-platform`
+ * стоит явным `windows`, поэтому подписи хоткеев в «Пульте» и поиске читаются
+ * как «Ctrl+…», а не «⌘…» — это и есть вторая половина канона, которую
+ * не видно по одному отступу сверху.
+ */
+export const ОкноWindows: Story = {
+  name: 'Системный титлбар Windows (без инсета)',
+  args: { children: <GridPlaceholder /> },
+  decorators: [
+    (Story) => (
+      <div className="relative h-screen w-full bg-app">
+        <ShellPlatform platform="windows">
+          <Story />
+        </ShellPlatform>
       </div>
     ),
   ],

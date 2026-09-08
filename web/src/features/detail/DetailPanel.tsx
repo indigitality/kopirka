@@ -24,6 +24,7 @@ import {
 } from '@/lib/format';
 import { Icon } from '@/lib/icons';
 import { similarityPercent } from '@/lib/phash';
+import { hotkeyLabel, platformStrings } from '@/lib/platform';
 import { Button } from '@/components/ui/Button';
 import { Chip } from '@/components/ui/Chip';
 import { IconButton } from '@/components/ui/IconButton';
@@ -407,13 +408,13 @@ export function DetailPanel({
               <Button
                 variant="secondary"
                 className="flex-1 gap-1.5"
-                hotkey="⌘C"
+                hotkey={hotkeyLabel('⌘C')}
                 onClick={onCopy}
               >
                 Скопировать
               </Button>
               <Button variant="secondary" onClick={onReveal}>
-                В Finder
+                {platformStrings().revealButton}
               </Button>
               <IconButton label="В корзину" variant="danger" onClick={onTrash}>
                 <Icon icon={Trash2} size={16} aria-hidden />

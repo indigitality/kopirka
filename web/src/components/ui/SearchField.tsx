@@ -15,6 +15,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import { Search, X } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { Icon } from '@/lib/icons';
+import { hotkeyLabel } from '@/lib/platform';
 import { Tooltip } from './Tooltip';
 
 export interface SearchFieldProps {
@@ -97,9 +98,9 @@ export const SearchField = forwardRef<HTMLInputElement, SearchFieldProps>(functi
           </button>
         </Tooltip>
       ) : null}
-      {/* Хоткей ⌘K. В редизайне это просто подпись, без плашки (R01 / R05). */}
+      {/* Хоткей ⌘K / Ctrl+K на Windows. В редизайне это просто подпись, без плашки (R01 / R05). */}
       <kbd className="shrink-0 text-2xs leading-[15px] font-medium tracking-label text-ink-faint">
-        ⌘K
+        {hotkeyLabel('⌘K')}
       </kbd>
     </div>
   );

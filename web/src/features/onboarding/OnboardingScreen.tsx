@@ -4,7 +4,8 @@
  * объяснение в одну фразу, путь библиотеки и кнопка. Всё остальное — потом.
  *
  * Оболочка та же, что у всего приложения: фон окна `--color-app`, поле
- * `--shell-pad` (сверху `--shell-pad-top` — полоса светофора в окне macOS),
+ * `--shell-pad` (сверху `--shell-pad-top` — полоса светофора в окне macOS;
+ * в окне Windows титлбар системный, и это поле остаётся 12, как в браузере),
  * внутри — одна панель `--color-panel` с радиусом `--radius-panel`. Колонка 420
  * стоит по центру панели, элементы разделены зазором 28 (узлы R11);
  * подзаголовок поджат к заголовку на 14.
@@ -16,10 +17,20 @@ import { Input } from '@/components/ui/Input';
 import { Logo } from '@/components/ui/Logo';
 import { cn } from '@/lib/cn';
 import { Icon } from '@/lib/icons';
+import { hotkeyLabel, platformStrings } from '@/lib/platform';
 import { isTauri, pickDirectory } from '@/lib/tauri';
 
-/** SET-01 — путь библиотеки по умолчанию. */
-export const DEFAULT_LIBRARY_PATH = '~/Pictures/Копирка';
+/**
+ * SET-01 — путь библиотеки по умолчанию. Читает платформу окна: macOS/браузер
+ * — `~/Pictures/Копирка`, Windows — `%USERPROFILE%\Pictures\Копирка` (см.
+ * `platformStrings` в `lib/platform.ts`). В реальном приложении `App.tsx`
+ * почти всегда передаёт свой `defaultPath` из `settings.libraryPath` сервера —
+ * это низовой фолбэк для витрины (`preview.tsx`) и на случай, если сервер
+ * ещё не ответил.
+ */
+export function defaultLibraryPath(): string {
+  return platformStrings().defaultLibraryPath;
+}
 
 export interface OnboardingScreenProps {
   /** Предзаполнение поля. */
@@ -31,25 +42,32 @@ export interface OnboardingScreenProps {
   className?: string;
 }
 
-const HINTS: readonly { icon: LucideIcon; text: ReactNode }[] = [
-  { icon: Image, text: 'Перетащите картинки прямо в окно' },
-  {
-    icon: Clipboard,
-    text: (
-      <>
-        Вставьте из буфера обмена —{' '}
-        {/* Чип хоткея: 18 в высоту, поля 6, радиус `--radius-sm`, текст 10/12. */}
-        <span className="ml-0.5 inline-flex h-[18px] items-center rounded-sm bg-control px-1.5 align-middle text-2xs leading-3 text-ink-muted">
-          ⌘V
-        </span>
-      </>
-    ),
-  },
-  { icon: Puzzle, text: 'Сохраняйте из браузера через расширение «Копирка»' },
-];
+/**
+ * Функция, а не константа модуля: чип хоткея зависит от платформы
+ * (`hotkeyLabel`), которую можно достоверно читать только после того, как
+ * оболочка выставила `data-kopirka-platform` — то есть при рендере компонента.
+ */
+function hints(): readonly { icon: LucideIcon; text: ReactNode }[] {
+  return [
+    { icon: Image, text: 'Перетащите картинки прямо в окно' },
+    {
+      icon: Clipboard,
+      text: (
+        <>
+          Вставьте из буфера обмена —{' '}
+          {/* Чип хоткея: 18 в высоту, поля 6, радиус `--radius-sm`, текст 10/12. */}
+          <span className="ml-0.5 inline-flex h-[18px] items-center rounded-sm bg-control px-1.5 align-middle text-2xs leading-3 text-ink-muted">
+            {hotkeyLabel('⌘V')}
+          </span>
+        </>
+      ),
+    },
+    { icon: Puzzle, text: 'Сохраняйте из браузера через расширение «Копирка»' },
+  ];
+}
 
 export function OnboardingScreen({
-  defaultPath = DEFAULT_LIBRARY_PATH,
+  defaultPath = defaultLibraryPath(),
   onSubmit,
   busy,
   className,
@@ -198,7 +216,7 @@ export function OnboardingScreen({
 
             <div className="flex w-full flex-col">
               <p className="label-section mb-2">Как наполнять</p>
-              {HINTS.map((hint, index) => (
+              {hints().map((hint, index) => (
                 <div key={index} className="flex h-7 items-center gap-2.5">
                   <Icon icon={hint.icon} className="shrink-0 text-ink-faint" aria-hidden />
                   <span className="text-base leading-4 text-ink-muted">{hint.text}</span>

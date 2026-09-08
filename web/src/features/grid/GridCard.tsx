@@ -16,6 +16,7 @@ import type { FileRecord, LibraryScope } from '@shared/api';
 import { cn } from '@/lib/cn';
 import { Icon } from '@/lib/icons';
 import { CARD_RING_WIDTH, SPRING_PANEL } from '@/lib/motion';
+import { hotkeyLabel, platformStrings } from '@/lib/platform';
 import { useReducedMotion } from '@/lib/useReducedMotion';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { Chip } from '@/components/ui/Chip';
@@ -379,13 +380,15 @@ export const GridCard = memo(function GridCard({
         ) : (
           <>
             <ContextMenuItem onSelect={() => onOpen(file)}>Открыть</ContextMenuItem>
-            <ContextMenuItem hotkey="⌘C" onSelect={() => onCopy(file)}>
+            <ContextMenuItem hotkey={hotkeyLabel('⌘C')} onSelect={() => onCopy(file)}>
               Скопировать
             </ContextMenuItem>
             <ContextMenuItem onSelect={() => onMoveToFolder(file)}>В папку…</ContextMenuItem>
             {/* «Добавить тег…» в макете R14 нет, но действие есть в коде — оставляем рядом с «В папку…». */}
             <ContextMenuItem onSelect={() => onAddTag(file)}>Добавить тег…</ContextMenuItem>
-            <ContextMenuItem onSelect={() => onReveal(file)}>Показать в Finder</ContextMenuItem>
+            <ContextMenuItem onSelect={() => onReveal(file)}>
+              {platformStrings().revealMenuItem}
+            </ContextMenuItem>
             <ContextMenuSeparator />
             <ContextMenuItem danger hotkey="⌫" onSelect={() => onTrash(file)}>
               Удалить

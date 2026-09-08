@@ -7,6 +7,7 @@
  */
 import { Grid2x2, Grid3x3, Square } from 'lucide-react';
 import { Icon } from '@/lib/icons';
+import { hotkeyLabel } from '@/lib/platform';
 import { SearchField } from '@/components/ui/SearchField';
 import { SegmentedControl, type SegmentedOption } from '@/components/ui/SegmentedControl';
 import { FilterButton } from '@/features/filters/FilterButton';
@@ -17,12 +18,18 @@ import { useViewSelector, viewActions, type GridSize } from '@/store/view';
  * Размер карточек — решение D5 от 02.09.2026. Иконки идут по возрастанию плотности:
  * одна крупная ячейка → четыре → девять. Лучшего ряда в lucide нет: решётки 4×4
  * в наборе не существует. В редизайне они 16 px (узел «размер карточек» R13).
+ *
+ * Функция, а не константа модуля: подпись хоткея зависит от платформы
+ * (`hotkeyLabel`), а атрибут `data-kopirka-platform` оболочка ставит до
+ * первого кадра React — читаем его при рендере компонента, не при загрузке модуля.
  */
-const GRID_SIZE_OPTIONS: readonly SegmentedOption<GridSize>[] = [
-  { value: 'l', label: 'Большие', hotkey: '⌘1', icon: <Icon icon={Square} aria-hidden /> },
-  { value: 'm', label: 'Средние', hotkey: '⌘2', icon: <Icon icon={Grid2x2} aria-hidden /> },
-  { value: 's', label: 'Маленькие', hotkey: '⌘3', icon: <Icon icon={Grid3x3} aria-hidden /> },
-];
+function gridSizeOptions(): readonly SegmentedOption<GridSize>[] {
+  return [
+    { value: 'l', label: 'Большие', hotkey: hotkeyLabel('⌘1'), icon: <Icon icon={Square} aria-hidden /> },
+    { value: 'm', label: 'Средние', hotkey: hotkeyLabel('⌘2'), icon: <Icon icon={Grid2x2} aria-hidden /> },
+    { value: 's', label: 'Маленькие', hotkey: hotkeyLabel('⌘3'), icon: <Icon icon={Grid3x3} aria-hidden /> },
+  ];
+}
 
 export interface TopBarProps {
   /** Открытие панели фильтров — SEARCH-01/03/04. */
@@ -68,7 +75,7 @@ export function TopBar({
           label="Размер карточек"
           value={gridSize}
           onValueChange={viewActions.setGridSize}
-          options={GRID_SIZE_OPTIONS}
+          options={gridSizeOptions()}
           segmentWidth={32}
         />
         <FilterButton count={filterCount} open={filterOpen} onClick={() => onOpenFilter?.()} />
