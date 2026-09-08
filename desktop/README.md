@@ -438,10 +438,13 @@ rm -rf ~/Library/Services/Добавить\ в\ Копирку.workflow   # пу
   сервер из готового бандла поднят под Rosetta на этой же машине — `/api/health`, импорт
   картинки и превью проходят, то есть x64-сборки `better-sqlite3`, `sharp` и libvips рабочие.
   Оболочка, трей, хоткей ⌥⌘C и уведомления на Intel не проверены.
-- **Только macOS.** Windows-сборки нет. Структура к ней готова: `bundle-server.mjs`
-  принимает `KOPIRKA_NODE_BINARY` (другой бинарник Node), `KOPIRKA_TARGET` (другая платформа
-  для prebuild'ов `better-sqlite3` и пакетов `sharp`) и `KOPIRKA_PLATFORM_MODULES`
-  (корень с пакетами под целевую платформу, если в рабочем дереве их нет).
+- **Windows-версия собирается только в CI и живьём ещё не проверена.** Установщик NSIS под
+  x64 делает GitHub Actions (`.github/workflows/build-windows.yml`): на Mac Windows-бандл
+  собрать нечем — нет MSVC и makensis. Кросс-конвейера, как `build-intel.mjs` для Intel, для
+  неё не нужно: на раннере хост совпадает с целью. Чего в Windows-версии нет по решению
+  от 09.09.2026 — захвата области экрана, автоимпорта папки и пункта контекстного меню
+  Проводника. Параметры кросс-сборки payload'а (`KOPIRKA_NODE_BINARY`, `KOPIRKA_TARGET`,
+  `KOPIRKA_PLATFORM_MODULES`) остаются в силе и используются Intel-сборкой.
 - **Нет подписи, нотаризации и автообновления.** Новая версия — новый `.dmg` руками.
 - **Порт берётся из конфига.** Если сменить `serverPort` в
   `~/Library/Application Support/Kopirka/config.json`, оболочка пойдёт туда же.

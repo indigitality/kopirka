@@ -50,18 +50,18 @@ Productivity, а не в Workflow & Planning.
 в Node, не `wc -m` — в этой оболочке `LC_CTYPE=C`, байты вместо
 кодовых точек).
 
-**RU** (130 символов):
-> Сохраняйте картинки и скриншоты сайтов в приложение «Копирка» на Mac — правым кликом или кнопкой расширения. Локально, без облака.
+**RU** (129 символов):
+> Сохраняйте картинки и скриншоты сайтов в «Копирку» на Mac и Windows — правым кликом или кнопкой расширения. Локально, без облака.
 
-**EN** (124 символа):
-> Save images and screenshots from webpages into the Kopirka app on your Mac — right-click or the toolbar button. Fully local.
+**EN** (130 символов):
+> Save images and screenshots from webpages into the Kopirka app for Mac and Windows — right-click or the toolbar icon. Fully local.
 
 ## Подробное описание
 
 **RU:**
 
-> «Копирка» — расширение-компаньон для одноимённого приложения на Mac,
-> локальной библиотеки визуальных референсов. Расширение снимает
+> «Копирка» — расширение-компаньон для одноимённого приложения для Mac
+> и Windows, локальной библиотеки визуальных референсов. Расширение снимает
 > находки в браузере, приложение их хранит и организует.
 >
 > Три способа добавить картинку:
@@ -77,8 +77,8 @@ Productivity, а не в Workflow & Planning.
 > протаскиваете прямоугольник — и получаете кадр именно этого места,
 > с учётом ретина-экранов.
 >
-> **Нужно установленное приложение «Копирка» на Mac.** Расширение само
-> ничего не хранит и не открывает: оно передаёт находку локально
+> **Нужно установленное приложение «Копирка» — для Mac или для Windows.**
+> Расширение само ничего не хранит и не открывает: оно передаёт находку локально
 > запущенному приложению по адресу на этом же компьютере
 > (`127.0.0.1`, порт настраивается). Без запущенного приложения
 > расширение честно покажет «Копирка не запущена» и не сделает вид,
@@ -95,9 +95,9 @@ Productivity, а не в Workflow & Planning.
 
 **EN:**
 
-> Kopirka is a companion extension for the Kopirka Mac app — a local
-> library of visual references. The extension captures things you find
-> in the browser; the app stores and organizes them.
+> Kopirka is a companion extension for the Kopirka app for Mac and
+> Windows — a local library of visual references. The extension captures
+> things you find in the browser; the app stores and organizes them.
 >
 > Three ways to save an image:
 >
@@ -112,8 +112,8 @@ Productivity, а не в Workflow & Planning.
 > rectangle, and you get exactly that region, correctly on Retina
 > displays too.
 >
-> **Requires the Kopirka app installed on your Mac.** The extension
-> doesn't store or open anything itself — it hands the capture to the
+> **Requires the Kopirka app installed — for Mac or for Windows.**
+> The extension doesn't store or open anything itself — it hands the capture to the
 > app already running on the same computer (`127.0.0.1`, port
 > configurable). Without the app running, the extension honestly shows
 > "Kopirka isn't running" instead of pretending it worked.

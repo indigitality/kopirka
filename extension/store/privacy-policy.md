@@ -18,8 +18,8 @@ Notion-страница с публичным доступом — решает 
 **Политика конфиденциальности расширения «Копирка» для Chrome**
 Черновик от 03.09.2026.
 
-Расширение «Копирка» — компаньон одноимённого приложения для Mac,
-локальной библиотеки визуальных референсов. Эта страница описывает
+Расширение «Копирка» — компаньон одноимённого приложения для Mac
+и Windows, локальной библиотеки визуальных референсов. Эта страница описывает
 только расширение для Chrome; политика самого приложения «Копирка» —
 отдельный документ.
 
@@ -96,8 +96,8 @@ Notion-страница с публичным доступом — решает 
 **Privacy Policy — Kopirka Chrome Extension**
 Draft dated 2026-09-03.
 
-Kopirka is a companion extension for the Kopirka Mac app, a local
-library of visual references. This page covers the Chrome extension
+Kopirka is a companion extension for the Kopirka app for Mac and
+Windows, a local library of visual references. This page covers the Chrome extension
 only; the Kopirka app itself has its own, separate policy.
 
 ### In short

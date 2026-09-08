@@ -27,3 +27,6 @@ shared/api.d.ts
 # Скриншоты регрессионного UI-прогона (tests/ui) — пересоздаются каждым запуском
 tests/ui/.out/
 tests/ui/webkit/.out/
+
+# PDF-версии инструкций — генерируемые артефакты (docs/build-pdf.mjs), в git не держим.
+docs/*.pdf
