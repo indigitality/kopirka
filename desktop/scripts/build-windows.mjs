@@ -67,10 +67,37 @@ function run(command, args, options = {}) {
 }
 
 /**
- * На Windows npm — это npm.cmd, и spawn без shell его не найдёт: с Node 18
- * запуск .cmd через spawn запрещён из соображений безопасности.
+ * Ни npm, ни tauri не зовём шимами из node_modules/.bin: на Windows это `.cmd`,
+ * а Node с 18.20.2 отказывается запускать `.cmd` через spawn без shell —
+ * `spawnSync npm.cmd EINVAL` (CVE-2024-27980). Так уже сделано в tests/ui и в
+ * дымовом прогоне сервера: зовём сам Node и передаём ему js-файл команды.
+ *
+ * npm_execpath задаёт npm, когда скрипт запущен через `npm run` (в CI — всегда).
+ * Запасной путь — npm-cli.js рядом с бинарником Node: так лежит npm и в дистрибутиве
+ * с nodejs.org, и в образе раннера.
  */
-const NPM = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+function npmCli() {
+  const fromEnv = process.env.npm_execpath;
+  if (fromEnv !== undefined && fromEnv !== '' && fromEnv.endsWith('.js')) return fromEnv;
+  const beside = path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js');
+  if (fs.existsSync(beside)) return beside;
+  throw new Error(
+    'не нашёл npm-cli.js — ни в npm_execpath, ни рядом с Node. ' +
+      'Запускайте сборку через `npm run app:build:windows`',
+  );
+}
+
+/** Точка входа CLI Tauri: bin «tauri» в @tauri-apps/cli указывает на tauri.js. */
+function tauriCli() {
+  const cli = path.join(DESKTOP, 'node_modules', '@tauri-apps', 'cli', 'tauri.js');
+  if (!fs.existsSync(cli)) {
+    throw new Error(
+      `нет ${path.relative(APP, cli)} — devDependencies оболочки не установлены. ` +
+        'В CI это отдельный шаг «Зависимости оболочки», локально — прогон без --skip-install',
+    );
+  }
+  return cli;
+}
 
 function assertHost() {
   if (process.platform !== 'win32') {
@@ -150,9 +177,10 @@ function renameInstaller() {
 function main() {
   assertHost();
   if (!process.argv.includes('--skip-install')) {
-    run(NPM, ['install', '--no-audit', '--no-fund', '--silent'], { cwd: DESKTOP });
+    run(process.execPath, [npmCli(), 'install', '--no-audit', '--no-fund', '--silent'], { cwd: DESKTOP });
   }
-  run(NPM, ['run', 'build', '--', '--target', RUST_TARGET], { cwd: DESKTOP });
+  // Минуя npm-скрипт `build` в desktop/package.json: он тоже ушёл бы в шим tauri.cmd.
+  run(process.execPath, [tauriCli(), 'build', '--target', RUST_TARGET], { cwd: DESKTOP });
   log('Готово:');
   verifyPayload();
   renameInstaller();
