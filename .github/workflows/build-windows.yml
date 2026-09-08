@@ -40,10 +40,26 @@ concurrency:
 
 jobs:
   build:
+    # windows-latest — это Windows Server 2025 с Visual Studio Enterprise 2026 (версия 18.x):
+    # GitHub перевёл на неё метки windows-latest и windows-2025 в июне 2026
+    # (actions/runner-images#14017). Rust с MSVC 18 работает — rustup и cargo 1.98 лежат
+    # на самом образе, а rust-lang/rust ещё в марте 2026 обновил документацию под VS 2026
+    # (rust-lang/rust#154104); известных поломок cc/link.exe на этой версии нет.
+    #
+    # Запасной вариант: если cargo или tauri build споткнутся именно о MSVC — в логе это
+    # будет «linker `link.exe` not found», «could not find any Visual Studio installation»
+    # или ошибка сборки крейта с cc/windows-rs — заменить на `runs-on: windows-2022`.
+    # Там VS 2022 (17.x), она заведомо совместима, и метка живёт без объявленной даты
+    # снятия. Node и npm ставит setup-node, так что от образа зависит только MSVC.
+    # Обратно на windows-latest — когда поломка исправится в апстриме.
     runs-on: windows-latest
     # Холодная сборка Tauri на Windows — это полтысячи крейтов дважды (debug под тесты
     # и release под бандл). С прогретым кэшем минут пятнадцать, без него около часа.
-    timeout-minutes: 90
+    # 120, а не 90: первый прогон идёт с пустым кэшем cargo, «около часа» — оценка снизу,
+    # и обрыв по таймауту стоит дороже лишнего запаса. Он не тратит минуты сам по себе
+    # (лимит только режет), зато при обрыве теряется ещё и сохранение кэша target'а,
+    # то есть следующий прогон снова окажется холодным.
+    timeout-minutes: 120
 
     env:
       # Инкрементальная сборка в CI бесполезна (каждый прогон с чистого листа),
@@ -59,13 +75,19 @@ jobs:
         shell: bash
 
     steps:
+      # Мажорные версии actions'ов: v4 у всех четырёх работала на Node 20, который GitHub
+      # объявил устаревшим и принудительно переводит на Node 24 — в логе прогона №1 это
+      # висело предупреждением на каждом шаге. Взяты актуальные мажоры (сентябрь 2026):
+      # checkout v7, setup-node v7, cache v6, upload-artifact v7. Все они уже на Node 24,
+      # и ни один параметр, который мы здесь используем, в этих мажорах не менялся —
+      # переходы v4→v7 сводились к смене рантайма и переезду на ESM.
       - name: Забрать код
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # Ровно та мажорная версия, под которую собраны нативные модули payload'а:
       # bundle-server.mjs откажется работать с любой другой.
       - name: Node 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '22'
           cache: npm
@@ -80,27 +102,107 @@ jobs:
           rustc --version
           cargo --version
           rustup target add x86_64-pc-windows-msvc
+          # MSVC печатаем отдельно и заранее. Rust ищет link.exe через vswhere, и если
+          # на образе он лежит не там или без нужного компонента — узнать об этом лучше
+          # сейчас за две секунды, чем через двадцать минут на линковке крейта.
+          vswhere='/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe'
+          if [ -x "$vswhere" ]; then
+            "$vswhere" -latest -products '*' \
+              -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 \
+              -property installationVersion || true
+            "$vswhere" -latest -products '*' \
+              -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 \
+              -property installationPath || true
+          else
+            echo "::warning::vswhere не найден — cargo может не найти MSVC; см. запасной вариант windows-2022 в шапке workflow'а"
+          fi
 
-      # Реестр и git-кэш cargo экономят несколько минут на выкачивании крейтов,
-      # target.noindex — основное время сборки (у Tauri в дереве около пятисот крейтов).
-      # Ключ по Cargo.lock, restore-keys подхватывает предыдущий: cargo сам пересоберёт
-      # то, что изменилось. Кэш target'а тяжёлый, порядка гигабайта-двух: если он начнёт
-      # выедать лимит репозитория или обваливаться на загрузке — убрать эту строку,
-      # сборка станет дольше, но не сломается.
-      - name: Кэш cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-            desktop/src-tauri/target.noindex
-          key: windows-cargo-${{ hashFiles('desktop/src-tauri/Cargo.lock') }}
-          restore-keys: |
-            windows-cargo-
-
+      # ── Зависимости ──────────────────────────────────────────────────────────
+      #
+      # --ignore-scripts обязателен, и вот почему. У better-sqlite3 нет ни install,
+      # ни preinstall, ни postinstall — но в пакете лежит binding.gyp, и npm в таком
+      # случае сам подставляет `node-gyp rebuild`. На прогоне №1 это и убило сборку:
+      # на образе Visual Studio 18 (2026), а node-gyp 11.5 знает версии только до 17
+      # и отвечает `find VS unknown version "undefined"` (nodejs/node-gyp#3214, #3282).
+      #
+      # Собирать better-sqlite3 из исходников нам и не нужно. В самом пакете лежат
+      # готовые бинарники на восемь платформ (prebuilds/win32-x64.node в том числе),
+      # и загрузчик lib/binding.js пробует prebuilds ПЕРВЫМ, а build/Release — только
+      # если prebuild'а нет. Больше того: binding.gyp пакета сам объявляет цели как
+      # 'type': 'none', когда prebuild для хоста найден, — то есть штатный
+      # `node-gyp rebuild` здесь и задуман пустышкой, просто до неё дело не доходит,
+      # падая ещё на configure. Ровно этот prebuild bundle-server.mjs и кладёт
+      # в payload (trimBetterSqlite), так что установка без сборки — не обход,
+      # а тот же результат более коротким путём.
+      #
+      # Что ещё в дереве зависит от install-скриптов:
+      #   esbuild (postinstall: node install.js) — на Windows скрипт почти ничего
+      #     не делает: подмена bin/esbuild нативным бинарником у него под
+      #     `if (os.platform() !== 'win32')`, остаётся только проверка версии.
+      #     Бинарник и без скрипта берётся из @esbuild/win32-x64 в рантайме
+      #     (lib/main.js → generateBinPath), чем и живут vite и tsx.
+      #   fsevents — только darwin, на Windows не ставится вовсе.
+      # У sharp и @tauri-apps/cli lifecycle-скриптов нет ни одного: их нативные части
+      # приезжают платформенными optionalDependencies (@img/sharp-win32-x64,
+      # @tauri-apps/cli-win32-x64-msvc), и они есть в обоих package-lock.json.
+      #
+      # Локальные команды на macOS это не меняет: флаг стоит здесь, а не в .npmrc.
       - name: Зависимости (npm ci)
-        run: npm ci --no-audit --no-fund
+        run: npm ci --no-audit --no-fund --ignore-scripts
+
+      # Отдельным шагом и до сборки: @tauri-apps/cli — это 20 секунд, и если
+      # платформенный бинарник не приедет, узнать об этом надо здесь, а не после
+      # четверти часа cargo. Раньше это делал сам build-windows.mjs, из-за чего провал
+      # установки выглядел в логе как провал сборки установщика. npm ci, а не npm install:
+      # в CI нужна ровно та версия CLI, что в desktop/package-lock.json.
+      - name: Зависимости оболочки (npm ci в desktop)
+        run: npm ci --no-audit --no-fund --ignore-scripts
+        working-directory: desktop
+
+      # Пять секунд, которые экономят прогон. Установка без install-скриптов обязана
+      # оставить рабочими три нативных модуля, и проверить это лучше сразу: иначе
+      # отсутствующий платформенный пакет всплывёт либо на сборке web (esbuild),
+      # либо на payload (sharp), либо вообще у человека на машине (better-sqlite3).
+      - name: Проверка нативных модулей
+        run: |
+          cat > check-native.cjs <<'EOF'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const target = `${process.platform}-${process.arch}`;
+
+          async function main() {
+            const root = path.dirname(require.resolve('better-sqlite3/package.json'));
+            const prebuild = path.join(root, 'prebuilds', `${target}.node`);
+            if (!fs.existsSync(prebuild)) {
+              throw new Error(`better-sqlite3: нет prebuilds/${target}.node — в payload положить нечего`);
+            }
+            const db = new (require('better-sqlite3'))(':memory:');
+            db.exec('CREATE TABLE t(a)');
+            db.prepare('INSERT INTO t VALUES (?)').run(1);
+            if (db.prepare('SELECT a FROM t').get().a !== 1) throw new Error('better-sqlite3: запрос вернул не то');
+            db.close();
+            console.log(`  better-sqlite3: prebuilds/${target}.node — открывает базу`);
+
+            const sharp = require('sharp');
+            const png = await sharp({ create: { width: 4, height: 4, channels: 3, background: '#000' } })
+              .png()
+              .toBuffer();
+            if (png.length === 0) throw new Error('sharp: пустой PNG');
+            console.log(`  sharp ${sharp.versions.sharp}: libvips ${sharp.versions.vips} — жмёт картинку`);
+
+            const esbuild = require('esbuild');
+            const out = esbuild.transformSync('export const a: number = 1', { loader: 'ts' });
+            if (!out.code.includes('a = 1')) throw new Error('esbuild: transformSync вернул не то');
+            console.log(`  esbuild ${esbuild.version}: бинарник отвечает`);
+          }
+
+          main().catch((error) => {
+            process.stderr.write(`${error.message}\n`);
+            process.exit(1);
+          });
+          EOF
+          node check-native.cjs
+          rm -f check-native.cjs
 
       # Собранный web/dist нужен ещё до cargo: generate_context! вшивает статику
       # в бинарник. Сборка обоих воркспейсов заодно и есть typecheck — web делает
@@ -112,6 +214,27 @@ jobs:
       # важно видеть в логе, что в payload лёг node.exe нужной дуги и платформенный sharp.
       - name: Payload сервера
         run: npm run app:payload
+
+      # Реестр и git-кэш cargo экономят несколько минут на выкачивании крейтов,
+      # target.noindex — основное время сборки (у Tauri в дереве около пятисот крейтов).
+      # Ключ по Cargo.lock, restore-keys подхватывает предыдущий: cargo сам пересоберёт
+      # то, что изменилось. Кэш target'а тяжёлый, порядка гигабайта-двух: если он начнёт
+      # выедать лимит репозитория или обваливаться на загрузке — убрать эту строку,
+      # сборка станет дольше, но не сломается.
+      #
+      # Шаг стоит после npm, а не до: восстановление гигабайтного кэша — это минуты,
+      # и тратить их, чтобы потом упасть на установке зависимостей, незачем.
+      - name: Кэш cargo
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            desktop/src-tauri/target.noindex
+          key: windows-cargo-${{ hashFiles('desktop/src-tauri/Cargo.lock') }}
+          restore-keys: |
+            windows-cargo-
 
       - name: Юнит-тесты оболочки (cargo test)
         id: cargo-test
@@ -128,8 +251,10 @@ jobs:
         continue-on-error: true
         run: npm run smoke --workspace=server
 
+      # --skip-install: devDependencies оболочки уже стоят отдельным шагом выше.
+      # Именно так этот флаг и задуман в build-windows.mjs («в CI это отдельный шаг»).
       - name: Установщик NSIS
-        run: npm run app:build:windows 2>&1 | tee build-windows.log
+        run: npm run app:build:windows -- --skip-install 2>&1 | tee build-windows.log
 
       - name: Что уехало в payload
         if: always()
@@ -146,7 +271,7 @@ jobs:
 
       - name: Забрать установщик
         if: success()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: kopirka-windows-x64-installer
           path: desktop/src-tauri/target.noindex/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
@@ -155,7 +280,7 @@ jobs:
 
       - name: Забрать логи
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: kopirka-windows-x64-logs
           path: |
