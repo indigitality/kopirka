@@ -12,7 +12,8 @@ import { registerImportRoutes } from './routes.import.js';
 import { registerLibraryRoutes } from './routes.library.js';
 import type { AppState } from './state.js';
 
-const WEB_DIST = fileURLToPath(new URL('../../web/dist/', import.meta.url));
+/** Корень собранного интерфейса, уже без хвостового разделителя (на Windows он `\`). */
+const WEB_DIST = path.resolve(fileURLToPath(new URL('../../web/dist/', import.meta.url)));
 
 const STATIC_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -32,6 +33,33 @@ const STATIC_TYPES: Record<string, string> = {
   '.map': 'application/json; charset=utf-8',
   '.txt': 'text/plain; charset=utf-8',
 };
+
+/**
+ * URL-путь запроса → файл внутри web/dist, либо null, если он оттуда выходит.
+ *
+ * Проверка «внутри» идёт через path.resolve и path.sep, а не через сравнение строк с
+ * `/`: на Windows разделитель другой, и старое сравнение с корнем там не срабатывало.
+ * resolve заодно съедает `..` в любом написании — как `..%2F`, так и `..%5C`
+ * (обратный слэш на Windows тоже разделитель, на macOS это обычный символ имени).
+ *
+ * Чистая функция с внешними path и признаком Windows: обе раскладки проверяются на
+ * macOS (см. smoke.ts), без подмены process.platform в рабочем коде.
+ */
+export function resolveStaticCandidate(
+  root: string,
+  pathname: string,
+  p: path.PlatformPath = path,
+  windows: boolean = process.platform === 'win32',
+): string | null {
+  if (pathname.includes('\0')) return null;
+  // Windows: `app.js::$DATA` — альтернативный поток того же файла, отдавать его нельзя,
+  // а двоеточию в пути статики делать нечего (диск в pathname не приходит).
+  if (windows && pathname.includes(':')) return null;
+  const candidate = p.resolve(root, `.${pathname}`);
+  const prefix = root.endsWith(p.sep) ? root : `${root}${p.sep}`;
+  if (candidate !== root && !candidate.startsWith(prefix)) return null;
+  return candidate;
+}
 
 /**
  * Сервер слушает только 127.0.0.1, но браузер может принести запрос со стороннего сайта.
@@ -81,9 +109,10 @@ export function createApp(state: AppState): Hono {
       return c.text('Веб-интерфейс не собран: нет ../web/dist. В режиме разработки это нормально.', 404);
     }
     const pathname = decodeURIComponent(new URL(c.req.url).pathname);
-    const candidate = path.resolve(WEB_DIST, `.${pathname}`);
-    const inside = candidate === WEB_DIST.replace(/\/$/, '') || candidate.startsWith(WEB_DIST);
-    if (inside && fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+    const candidate = resolveStaticCandidate(WEB_DIST, pathname);
+    // statSync().isFile() отсекает и папки, и системные устройства Windows (`nul`, `con`),
+    // которые открываются в любой директории.
+    if (candidate !== null && fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
       return sendFile(c, candidate, {
         contentType: STATIC_TYPES[path.extname(candidate).toLowerCase()] ?? 'application/octet-stream',
         etag: staticEtag(candidate),

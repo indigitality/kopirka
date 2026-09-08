@@ -10,9 +10,15 @@ function write(level: 'info' | 'warn' | 'error', message: string, detail?: unkno
   const line = `${new Date().toISOString()} [${level}] ${message}${detail === undefined ? '' : ` :: ${format(detail)}`}\n`;
   try {
     fs.mkdirSync(supportDir, { recursive: true });
-    // Простая ротация: лог не должен расти бесконечно.
-    if (fs.existsSync(logPath) && fs.statSync(logPath).size > MAX_LOG_BYTES) {
-      fs.renameSync(logPath, path.join(supportDir, 'kopirka.log.1'));
+    // Простая ротация: лог не должен расти бесконечно. Отдельный try — на Windows
+    // rename отбивается EPERM/EBUSY, когда файл держит антивирус или чужой «хвост»
+    // лога; из-за этого нельзя терять саму строку, ради которой всё затевалось.
+    try {
+      if (fs.existsSync(logPath) && fs.statSync(logPath).size > MAX_LOG_BYTES) {
+        fs.renameSync(logPath, path.join(supportDir, 'kopirka.log.1'));
+      }
+    } catch {
+      // Не получилось повернуть — пишем в тот же файл дальше.
     }
     fs.appendFileSync(logPath, line, 'utf8');
   } catch {

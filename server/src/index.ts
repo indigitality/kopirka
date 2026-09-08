@@ -61,12 +61,27 @@ export async function start(): Promise<RunningServer> {
   };
 }
 
+/**
+ * Браузер открываем только при запуске сервера «сам по себе» (npm start): в десктопной
+ * сборке оболочка сама рисует окно и ставит KOPIRKA_NO_OPEN.
+ */
 function openBrowser(url: string): void {
   if (process.env.KOPIRKA_NO_OPEN) return;
-  if (process.platform !== 'darwin') return;
-  execFile('open', [url], (error) => {
+  const done = (error: Error | null) => {
     if (error) log.warn(`не удалось открыть браузер: ${error.message}`);
-  });
+  };
+  if (process.platform === 'darwin') {
+    execFile('open', [url], done);
+    return;
+  }
+  if (process.platform === 'win32') {
+    // `start` — встроенная команда cmd, отдельного исполняемого файла нет. Первый
+    // пустой аргумент — «заголовок окна», иначе start примет за него сам URL.
+    // Аргументы уходят дословно, но пользовательских данных здесь нет: URL мы собрали
+    // сами из 127.0.0.1 и номера порта.
+    execFile('cmd.exe', ['/c', 'start', '""', url], { windowsVerbatimArguments: true, windowsHide: true }, done);
+    return;
+  }
 }
 
 // SVC-06 — занятый порт объясняем словами, а не стектрейсом.
@@ -78,7 +93,10 @@ function reportPortBusy(port: number): void {
     'Что делать:',
     '  1) закрыть другой экземпляр Копирки;',
     `  2) или сменить порт в ${configPath} (поле "serverPort");`,
-    `  3) или запустить разово с другим портом: KOPIRKA_PORT=${port + 1} npm start`,
+    // Разовый запуск объясняем на языке той оболочки, в которой человек это читает.
+    process.platform === 'win32'
+      ? `  3) или запустить разово с другим портом: set KOPIRKA_PORT=${port + 1} && npm start`
+      : `  3) или запустить разово с другим портом: KOPIRKA_PORT=${port + 1} npm start`,
   ].join('\n');
   process.stderr.write(`${message}\n`);
   log.error(`порт ${port} занят`);
@@ -87,12 +105,36 @@ function reportPortBusy(port: number): void {
 const PARENT_POLL_MS = 5000;
 
 /**
- * Десктопная оболочка (Tauri) отдаёт серверу свой stdin как поводок: когда родитель
- * умирает — хоть штатно, хоть по SIGKILL, — труба закрывается и сервер уходит следом.
- * Без этого осиротевший Node продолжил бы держать порт, и следующий запуск не состоялся бы.
+ * Жив ли ещё родитель — вторая страховка к поводку stdin, не зависящая от трубы.
  *
- * Вторая страховка на тот же случай — опрос ppid: осиротевший процесс переходит к init (1).
- * Она не зависит от того, что случилось с трубой.
+ * macOS: осиротевший процесс переходит к init (1).
+ * Windows: ppid остаётся прежним (сироты как понятия нет), поэтому спрашиваем систему,
+ * существует ли этот pid. Сигнал 0 ничего не посылает, только проверяет. «Умер» —
+ * ровно один ответ, ESRCH; всё остальное (EPERM «есть, но чужой», странные коды,
+ * непонятный ppid) трактуем как «жив»: страховка не должна гасить сервер по догадке,
+ * на этот случай есть поводок stdin. Windows охотно переиспользует pid'ы — и это тоже
+ * ошибка в сторону «жив».
+ */
+function parentGone(): boolean {
+  if (process.platform === 'win32') {
+    if (process.ppid <= 1) return false;
+    try {
+      process.kill(process.ppid, 0);
+      return false;
+    } catch (error) {
+      return (error as NodeJS.ErrnoException).code === 'ESRCH';
+    }
+  }
+  return process.ppid === 1;
+}
+
+/**
+ * Десктопная оболочка (Tauri) отдаёт серверу свой stdin как поводок: когда родитель
+ * умирает — хоть штатно, хоть по SIGKILL (на Windows — TerminateProcess), — труба
+ * закрывается и сервер уходит следом. Без этого осиротевший Node продолжил бы держать
+ * порт, и следующий запуск не состоялся бы. На Windows это ЕДИНСТВЕННЫЙ штатный путь
+ * остановки: сигналов там нет, оболочка гасит процесс жёстко, и только поводок даёт
+ * серверу закрыть базу самому.
  */
 function watchParent(shutdown: (reason: string) => void): void {
   if (!process.env.KOPIRKA_PARENT_STDIN) return;
@@ -108,7 +150,7 @@ function watchParent(shutdown: (reason: string) => void): void {
   process.stdin.on('error', () => bye('закрытие stdin родителя'));
 
   const poll = setInterval(() => {
-    if (process.ppid === 1) bye('родитель умер');
+    if (parentGone()) bye('родитель умер');
   }, PARENT_POLL_MS);
   poll.unref();
 }
@@ -135,6 +177,10 @@ async function main(): Promise<void> {
     log.info(`останов по ${signal}`);
     void running.close().then(() => process.exit(0));
   };
+  // На Windows настоящих сигналов нет: SIGINT приходит по Ctrl+C в консоли, а SIGTERM
+  // Node только эмулирует (его поднимет process.kill из другого Node — например, из
+  // smoke-теста). Подписка безопасна на обеих платформах, но на Windows штатный останов
+  // из оболочки идёт не через сигналы, а через поводок stdin — см. watchParent.
   process.on('SIGINT', () => shutdown('SIGINT'));
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   watchParent(shutdown);

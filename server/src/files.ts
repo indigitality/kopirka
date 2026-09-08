@@ -303,11 +303,16 @@ export function purgeFiles(db: Db, libraryPath: string, fileIds: readonly number
   for (const id of fileIds) {
     const row = select.get(id) as { storage_relpath: string; preview_relpath: string | null } | undefined;
     if (!row) continue;
-    try {
-      safeUnlink(resolveInLibrary(libraryPath, row.storage_relpath));
-      if (row.preview_relpath) safeUnlink(resolveInLibrary(libraryPath, row.preview_relpath));
-    } catch {
-      // Файла на диске может уже не быть — строку всё равно удаляем.
+    // Оригинал и превью — каждый своей попыткой: на Windows заблокированный файл
+    // (открыт в просмотрщике, читает антивирус) не должен уносить с собой и второй.
+    // Строку удаляем в любом случае: файла на диске может уже не быть.
+    for (const relpath of [row.storage_relpath, row.preview_relpath]) {
+      if (!relpath) continue;
+      try {
+        safeUnlink(resolveInLibrary(libraryPath, relpath));
+      } catch {
+        // Не удалилось — в библиотеке останется сирота, но карточка уходит.
+      }
     }
     purged += del.run(id).changes;
   }

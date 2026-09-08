@@ -385,7 +385,7 @@ export const API = {
   updateFile: 'PATCH /api/files/:id',
   filePreview: 'GET /api/files/:id/preview',
   fileOriginal: 'GET /api/files/:id/original',
-  /** LIB-06 — «Показать в Finder», open -R. */
+  /** LIB-06 — «Показать в папке»: macOS — `open -R`, Windows — `explorer /select,…`. */
   revealFile: 'POST /api/files/:id/reveal',
   /** LIB-06 — «Скопировать» в системный буфер обмена. */
   copyFile: 'POST /api/files/:id/copy',

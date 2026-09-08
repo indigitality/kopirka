@@ -1,6 +1,8 @@
 /**
  * App-конфиг лежит ВНЕ библиотеки (PRD §7.3): путь и порт нужны раньше, чем откроется library.db.
- * macOS: ~/Library/Application Support/Kopirka/config.json
+ * macOS:   ~/Library/Application Support/Kopirka/config.json
+ * Windows: %APPDATA%\Kopirka\config.json (Roaming) — ровно эту папку читает Rust-оболочка,
+ *          поэтому менять её нельзя без согласования с desktop/.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -13,10 +15,38 @@ export interface AppPaths {
   logPath: string;
 }
 
+/** Реализация path под нужную платформу — нужна, чтобы проверять windows-раскладку на macOS. */
+function pathFor(platform: NodeJS.Platform): path.PlatformPath {
+  return platform === 'win32' ? path.win32 : path.posix;
+}
+
+/**
+ * Папка конфига и лога. Чистая функция: платформа, окружение и домашняя папка приходят
+ * параметрами — так windows-раскладка проверяется прогоном на macOS (см. smoke.ts),
+ * без подмены process.platform в рабочем коде.
+ *
+ * KOPIRKA_CONFIG_DIR нужен для тестов и запуска нескольких изолированных инстансов.
+ */
+export function supportDirFor(
+  platform: NodeJS.Platform,
+  env: Record<string, string | undefined>,
+  home: string,
+  p: path.PlatformPath = pathFor(platform),
+): string {
+  const override = env['KOPIRKA_CONFIG_DIR'];
+  if (override !== undefined && override !== '') return override;
+  if (platform === 'win32') {
+    // %APPDATA% — это Roaming; в живом сеансе она задана всегда. Если нет (служба,
+    // урезанное окружение) — собираем тот же путь от профиля, лишь бы не упасть на старте.
+    const appData = env['APPDATA'];
+    const base = appData !== undefined && appData !== '' ? appData : p.join(home, 'AppData', 'Roaming');
+    return p.join(base, 'Kopirka');
+  }
+  return p.join(home, 'Library', 'Application Support', 'Kopirka');
+}
+
 export function appPaths(): AppPaths {
-  // KOPIRKA_CONFIG_DIR нужен для тестов и запуска нескольких изолированных инстансов.
-  const supportDir =
-    process.env.KOPIRKA_CONFIG_DIR ?? path.join(os.homedir(), 'Library', 'Application Support', 'Kopirka');
+  const supportDir = supportDirFor(process.platform, process.env, os.homedir());
   return {
     supportDir,
     configPath: path.join(supportDir, 'config.json'),
@@ -24,8 +54,17 @@ export function appPaths(): AppPaths {
   };
 }
 
+/**
+ * Библиотека по умолчанию: macOS — ~/Pictures/Копирка, Windows — %USERPROFILE%\Pictures\Копирка.
+ * Ветка по платформе не нужна: os.homedir() на Windows и есть %USERPROFILE%, а path.join
+ * ставит нужный разделитель. Функция вынесена отдельно ради проверки обеих раскладок.
+ */
+export function defaultLibraryPathFor(home: string, p: path.PlatformPath = path): string {
+  return p.join(home, 'Pictures', 'Копирка');
+}
+
 export function defaultLibraryPath(): string {
-  return path.join(os.homedir(), 'Pictures', 'Копирка');
+  return defaultLibraryPathFor(os.homedir());
 }
 
 function sanitize(raw: unknown): AppConfig {
@@ -44,10 +83,25 @@ function sanitize(raw: unknown): AppConfig {
   };
 }
 
+/**
+ * `~` в начале пути → домашняя папка. На Windows человек напишет и `~\Pictures\…`
+ * (обратный слэш), и `~/Pictures/…` — понимаем оба, иначе путь из конфига был бы
+ * принят как относительный и библиотека уехала бы в рабочую папку процесса.
+ */
+export function expandHomeWith(
+  raw: string,
+  home: string,
+  platform: NodeJS.Platform,
+  p: path.PlatformPath = pathFor(platform),
+): string {
+  if (raw === '~') return home;
+  const separated = raw.startsWith('~/') || (platform === 'win32' && raw.startsWith('~\\'));
+  if (separated) return p.join(home, raw.slice(2));
+  return p.resolve(raw);
+}
+
 export function expandHome(p: string): string {
-  if (p === '~') return os.homedir();
-  if (p.startsWith('~/')) return path.join(os.homedir(), p.slice(2));
-  return path.resolve(p);
+  return expandHomeWith(p, os.homedir(), process.platform, path);
 }
 
 export function loadConfig(): AppConfig {
@@ -70,10 +124,48 @@ export function loadConfig(): AppConfig {
   return config;
 }
 
+const RENAME_ATTEMPTS = 6;
+const RENAME_PAUSE_MS = 40;
+
+/** Пауза без async: saveConfig синхронный и зовётся из синхронных путей. */
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * Конфиг пишем через временный файл и rename: полупустым его застать нельзя.
+ * На Windows этот rename может отбиться EPERM/EBUSY/EACCES — файл в тот момент держит
+ * антивирус или индексатор. Тогда пробуем ещё несколько раз, а в самом конце пишем
+ * поверх напрямую: потерять настройки хуже, чем на миг лишиться атомарности.
+ * На macOS путь ровно прежний — один renameSync без повторов.
+ */
+function replaceFile(tmp: string, target: string): void {
+  if (process.platform !== 'win32') {
+    fs.renameSync(tmp, target);
+    return;
+  }
+  for (let attempt = 1; attempt <= RENAME_ATTEMPTS; attempt += 1) {
+    try {
+      fs.renameSync(tmp, target);
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      const transient = code === 'EPERM' || code === 'EBUSY' || code === 'EACCES';
+      if (!transient || attempt === RENAME_ATTEMPTS) {
+        if (!transient) throw error;
+        break;
+      }
+      sleepSync(RENAME_PAUSE_MS);
+    }
+  }
+  fs.copyFileSync(tmp, target);
+  fs.rmSync(tmp, { force: true });
+}
+
 export function saveConfig(config: AppConfig): void {
   const { supportDir, configPath } = appPaths();
   fs.mkdirSync(supportDir, { recursive: true });
   const tmp = `${configPath}.tmp`;
   fs.writeFileSync(tmp, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
-  fs.renameSync(tmp, configPath);
+  replaceFile(tmp, configPath);
 }

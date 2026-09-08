@@ -3,7 +3,7 @@
  * Запуск: npm run smoke --workspace=server
  * Ничего не пишет ни в ~/Pictures, ни в ~/Library/Application Support — только во временную папку.
  */
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
@@ -22,15 +22,25 @@ import type {
   ImportResponse,
   NoticeEvent,
   NotifyResponse,
+  RevealResponse,
   SettingsResponse,
   SettingsUpdateResponse,
   StatsResponse,
   TagRecord,
 } from '../../shared/api.js';
+import { resolveStaticCandidate } from './app.js';
+import { defaultLibraryPathFor, expandHomeWith, supportDirFor } from './config.js';
 
 const SERVER_DIR = fileURLToPath(new URL('..', import.meta.url));
 const APP_DIR = path.resolve(SERVER_DIR, '..');
-const TSX_BIN = path.join(APP_DIR, 'node_modules', '.bin', 'tsx');
+/**
+ * Сервер поднимаем тем же node, которым запущен сам прогон, и напрямую через cli.mjs
+ * из tsx — а не через node_modules/.bin/tsx. В .bin лежит шелл-шим без расширения:
+ * на Windows spawn такого файла даёт ENOENT (там исполняемым был бы tsx.cmd).
+ * Тот же приём уже работает в tests/ui/lib/processes.mjs.
+ */
+const NODE_BIN = process.execPath;
+const TSX_CLI = path.join(APP_DIR, 'node_modules', 'tsx', 'dist', 'cli.mjs');
 
 let failures = 0;
 let base = '';
@@ -134,14 +144,37 @@ async function main(): Promise<void> {
 
   let serverLog = '';
   const spawnServer = (): ChildProcess => {
-    const process_ = spawn(TSX_BIN, [path.join(SERVER_DIR, 'src', 'index.ts')], {
+    const process_ = spawn(NODE_BIN, [TSX_CLI, path.join(SERVER_DIR, 'src', 'index.ts')], {
       cwd: SERVER_DIR,
-      env: { ...process.env, KOPIRKA_CONFIG_DIR: configDir, KOPIRKA_NO_OPEN: '1', KOPIRKA_QUIET: '1' },
+      env: {
+        ...process.env,
+        KOPIRKA_CONFIG_DIR: configDir,
+        KOPIRKA_NO_OPEN: '1',
+        KOPIRKA_QUIET: '1',
+        // Ни Finder/Explorer, ни буфер обмена человека проверка трогать не должна.
+        KOPIRKA_NO_SHELL: '1',
+      },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     process_.stdout?.on('data', (chunk: Buffer) => (serverLog += chunk.toString()));
     process_.stderr?.on('data', (chunk: Buffer) => (serverLog += chunk.toString()));
     return process_;
+  };
+
+  /**
+   * Останов сервера. macOS — SIGTERM, как и раньше. На Windows сигналов нет: kill там
+   * сводится к TerminateProcess и убивает только прямого потомка, а tsx запускает
+   * настоящий сервер отдельным процессом — иначе он остался бы держать порт, и проверки
+   * перезапуска стали бы ложно-красными. Поэтому на Windows гасим дерево через taskkill.
+   */
+  const stopServer = (target: ChildProcess): void => {
+    if (target.exitCode !== null || target.signalCode !== null) return;
+    if (process.platform !== 'win32') {
+      target.kill('SIGTERM');
+      return;
+    }
+    if (target.pid === undefined) return;
+    spawnSync('taskkill', ['/PID', String(target.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
   };
 
   const waitHealth = async (): Promise<boolean> => {
@@ -157,7 +190,7 @@ async function main(): Promise<void> {
 
   let child = spawnServer();
   const shutdown = () => {
-    if (!child.killed) child.kill('SIGTERM');
+    if (!child.killed) stopServer(child);
   };
   process.on('exit', shutdown);
 
@@ -185,6 +218,7 @@ async function main(): Promise<void> {
   let idGamma = 0;
   let idVariant1 = 0;
   let idVariant2 = 0;
+  let idSvg = 0;
   let folderId = 0;
   let subFolderId = 0;
 
@@ -556,12 +590,142 @@ async function main(): Promise<void> {
     assert(file?.previewUrl === null && file.hasPreview === false, 'у SVG появилось превью');
     assert(file?.isBroken === false, 'SVG помечен как битый');
     assert(file?.phash === null, 'для SVG посчитан перцептивный хэш');
+    idSvg = file?.id ?? 0;
     const original = await fetch(`${base}/api/files/${file?.id}/original`);
     assert(original.headers.get('content-type') === 'image/svg+xml', 'SVG отдаётся с чужим Content-Type');
     const again = await upload('/api/import', [{ name: 'logo-copy.svg', buffer: svg }], {
       sourceType: 'drag_drop',
     });
     assert(again.items[0]?.outcome === 'duplicate', 'точный дубль SVG не отловлен');
+  });
+
+  /**
+   * Дополнительно: LIB-06 — «выход в работу». Сам вызов системной утилиты подменён
+   * KOPIRKA_NO_SHELL: настоящий Finder/Explorer в проверке открывать нечего, а буфер
+   * обмена принадлежит человеку, который запустил прогон. Проверяем то, что от платформы
+   * не зависит: маршрутизацию, разбор id, обе ветви (растр и SVG) и коды ошибок.
+   */
+  await check('LIB-06: reveal и copy отвечают на растр, на SVG, на чужой id и на пропавший файл', async () => {
+    const reveal = await api<RevealResponse>('POST', `/api/files/${idAlpha}/reveal`);
+    assert(reveal.ok === true, 'reveal не вернул ok');
+    const copyRaster = await api<RevealResponse>('POST', `/api/files/${idAlpha}/copy`);
+    assert(copyRaster.ok === true, 'copy растра не вернул ok');
+    assert(idSvg > 0, 'не нашли id SVG из предыдущей проверки');
+    // SVG идёт другой ветвью — как текст, без превращения в PNG.
+    const copySvg = await api<RevealResponse>('POST', `/api/files/${idSvg}/copy`);
+    assert(copySvg.ok === true, 'copy SVG не вернул ok');
+
+    for (const action of ['reveal', 'copy']) {
+      const response = await fetch(`${base}/api/files/999999/${action}`, { method: 'POST' });
+      assert(response.status === 404, `${action} чужого id вернул ${response.status}`);
+      const body = (await response.json()) as ApiError;
+      assert(body.code === 'file_not_found', `${action} чужого id: code=${body.code}`);
+    }
+
+    // Файл есть в базе, но пропал с диска: строку прятать некуда, поэтому просто
+    // уводим оригинал в сторону и возвращаем обратно.
+    const file = await api<FileRecord>('GET', `/api/files/${idAlpha}`);
+    const original = path.join(
+      libraryPath,
+      'originals',
+      file.sha256.slice(0, 2),
+      file.sha256.slice(2, 4),
+      `${file.sha256}.${file.ext}`,
+    );
+    const parked = `${original}.parked`;
+    fs.renameSync(original, parked);
+    try {
+      for (const action of ['reveal', 'copy']) {
+        const response = await fetch(`${base}/api/files/${idAlpha}/${action}`, { method: 'POST' });
+        assert(response.status === 404, `${action} пропавшего файла вернул ${response.status}`);
+        const body = (await response.json()) as ApiError;
+        assert(body.code === 'original_missing', `${action} пропавшего файла: code=${body.code}`);
+      }
+    } finally {
+      fs.renameSync(parked, original);
+    }
+  });
+
+  /**
+   * Дополнительно: раскладка путей на обеих платформах. Windows-ветки считаются чистыми
+   * функциями с явной платформой и path.win32 — так они проверяются на macOS, без подмены
+   * process.platform. Контракт с Rust-оболочкой: %APPDATA%\Kopirka и %USERPROFILE%\Pictures\Копирка.
+   */
+  await check('кроссплатформенность: папка конфига, библиотека по умолчанию и разбор «~»', () => {
+    const macHome = '/Users/tester';
+    const winHome = 'C:\\Users\\Тестер';
+
+    assert(
+      supportDirFor('darwin', {}, macHome) === '/Users/tester/Library/Application Support/Kopirka',
+      `macOS: ${supportDirFor('darwin', {}, macHome)}`,
+    );
+    const roaming = 'C:\\Users\\Тестер\\AppData\\Roaming';
+    assert(
+      supportDirFor('win32', { APPDATA: roaming }, winHome) === `${roaming}\\Kopirka`,
+      `Windows: ${supportDirFor('win32', { APPDATA: roaming }, winHome)}`,
+    );
+    // APPDATA не задан — не падаем, собираем тот же Roaming от профиля.
+    assert(
+      supportDirFor('win32', {}, winHome) === `${roaming}\\Kopirka`,
+      `Windows без APPDATA: ${supportDirFor('win32', {}, winHome)}`,
+    );
+    // KOPIRKA_CONFIG_DIR сильнее платформы — на нём держится вся изоляция прогона.
+    assert(
+      supportDirFor('win32', { APPDATA: roaming, KOPIRKA_CONFIG_DIR: 'D:\\tmp\\cfg' }, winHome) === 'D:\\tmp\\cfg',
+      'KOPIRKA_CONFIG_DIR не перебил платформенный путь',
+    );
+
+    assert(
+      defaultLibraryPathFor(macHome, path.posix) === '/Users/tester/Pictures/Копирка',
+      'библиотека по умолчанию на macOS',
+    );
+    assert(
+      defaultLibraryPathFor(winHome, path.win32) === 'C:\\Users\\Тестер\\Pictures\\Копирка',
+      'библиотека по умолчанию на Windows',
+    );
+
+    assert(expandHomeWith('~', winHome, 'win32') === winHome, '«~» на Windows');
+    assert(
+      expandHomeWith('~\\Pictures\\Копирка', winHome, 'win32') === 'C:\\Users\\Тестер\\Pictures\\Копирка',
+      '«~\\» на Windows',
+    );
+    assert(
+      expandHomeWith('~/Pictures/Копирка', winHome, 'win32') === 'C:\\Users\\Тестер\\Pictures\\Копирка',
+      '«~/» на Windows',
+    );
+    assert(
+      expandHomeWith('~/Pictures/Копирка', macHome, 'darwin') === '/Users/tester/Pictures/Копирка',
+      '«~/» на macOS',
+    );
+    assert(expandHomeWith('D:\\Мои картинки', winHome, 'win32') === 'D:\\Мои картинки', 'абсолютный путь Windows');
+    assert(
+      expandHomeWith('/Volumes/Disk/Копирка', macHome, 'darwin') === '/Volumes/Disk/Копирка',
+      'абсолютный путь macOS',
+    );
+  });
+
+  /** Дополнительно: статика не выпускает за web/dist ни на одной платформе. */
+  await check('кроссплатформенность: статика остаётся внутри web/dist (POSIX и Windows)', () => {
+    const posixRoot = '/app/web/dist';
+    const winRoot = 'C:\\Program Files\\Kopirka\\web\\dist';
+    const mac = (pathname: string) => resolveStaticCandidate(posixRoot, pathname, path.posix, false);
+    const win = (pathname: string) => resolveStaticCandidate(winRoot, pathname, path.win32, true);
+
+    assert(mac('/index.html') === '/app/web/dist/index.html', `macOS: ${mac('/index.html')}`);
+    assert(win('/index.html') === `${winRoot}\\index.html`, `Windows: ${win('/index.html')}`);
+    assert(win('/assets/app-Ab12.js') === `${winRoot}\\assets\\app-Ab12.js`, 'вложенный ресурс на Windows');
+    // Корень остаётся разрешённым: дальше его отсекает statSync().isFile().
+    assert(mac('/') === posixRoot && win('/') === winRoot, 'корень web/dist перестал считаться своим');
+
+    assert(mac('/../../etc/passwd') === null, 'macOS: обход каталога через ..');
+    assert(win('/../../windows/win.ini') === null, 'Windows: обход каталога через ..');
+    // %5C декодируется в обратный слэш: на Windows это разделитель, значит настоящий обход.
+    assert(win('/..\\..\\windows\\win.ini') === null, 'Windows: обход каталога через обратный слэш');
+    // На macOS обратный слэш — обычный символ имени, путь остаётся внутри (так было и раньше).
+    assert(mac('/..\\..\\etc\\passwd') === '/app/web/dist/..\\..\\etc\\passwd', 'macOS: обратный слэш в имени');
+    // NTFS-поток того же файла отдавать нельзя.
+    assert(win('/index.html::$DATA') === null, 'Windows: альтернативный поток NTFS');
+    assert(mac('/index.html:weird') !== null, 'macOS: двоеточие в имени файла не запрещено');
   });
 
   // Дополнительно: GIF — превью статичным кадром.
@@ -816,8 +980,11 @@ async function main(): Promise<void> {
     );
     assert(fs.existsSync(original), 'оригинал не найден до автоочистки');
 
-    child.kill('SIGTERM');
+    stopServer(child);
     await new Promise<void>((resolve) => child.on('exit', () => resolve()));
+    // На Windows выход прямого потомка (tsx) не значит, что умер и сам сервер: taskkill
+    // гасит дерево, но освобождение файлов базы отстаёт на мгновение. Даём ему это время.
+    if (process.platform === 'win32') await sleep(500);
 
     const db = new Database(path.join(libraryPath, 'library.db'));
     db.prepare('UPDATE files SET deleted_at = ? WHERE id = ?').run(
@@ -833,7 +1000,7 @@ async function main(): Promise<void> {
     assert(!fs.existsSync(original), 'оригинал остался на диске после автоочистки');
   });
 
-  child.kill('SIGTERM');
+  stopServer(child);
   await sleep(300);
   fs.rmSync(scratch, { recursive: true, force: true });
 

@@ -1,5 +1,5 @@
 /** Эндпоинты файлов: список, карточка, отдача содержимого, организация, корзина. */
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -11,7 +11,7 @@ import {
   type FileListResponse,
   type RevealResponse,
 } from '../../shared/api.js';
-import { badRequest, notFound } from './errors.js';
+import { HttpError, badRequest, notFound } from './errors.js';
 import {
   getFile,
   getFileRow,
@@ -47,6 +47,211 @@ const execFileAsync = promisify(execFile);
 
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 500;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// «Выход в работу» (LIB-06): показать файл в файловом менеджере и положить в буфер.
+// Единственное место сервера, которое зовёт системные утилиты, — поэтому здесь
+// собраны обе платформенные реализации.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Тестовый флаг: не звать системные утилиты. Smoke-прогон проверяет коды ответов
+ * эндпоинтов, но не должен открывать окно Finder/Explorer и подменять буфер обмена
+ * человеку, который запустил проверку.
+ */
+function shellSuppressed(): boolean {
+  return Boolean(process.env.KOPIRKA_NO_SHELL);
+}
+
+function unsupportedPlatform(what: string): HttpError {
+  return new HttpError(501, `${what} на платформе ${process.platform} не поддерживается`, 'unsupported_platform');
+}
+
+/** Системные бинарники ищем от %SystemRoot%: PATH у процесса-потомка бывает урезанным. */
+function windowsSystemRoot(): string | null {
+  const root = process.env['SystemRoot'] ?? process.env['windir'];
+  return root !== undefined && root !== '' ? root : null;
+}
+
+function explorerPath(): string {
+  const root = windowsSystemRoot();
+  // explorer.exe лежит в самом %SystemRoot%, а не в System32.
+  return root === null ? 'explorer.exe' : path.join(root, 'explorer.exe');
+}
+
+/**
+ * Windows PowerShell 5.1 — он есть на любой чистой Windows 10/11, в отличие от pwsh
+ * (PowerShell 7), который надо ставить отдельно.
+ */
+function powershellPath(): string {
+  const root = windowsSystemRoot();
+  return root === null
+    ? 'powershell.exe'
+    : path.join(root, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+}
+
+/** Путь к файлу отдаём PowerShell переменной окружения, а не командной строкой. */
+const CLIPBOARD_PATH_ENV = 'KOPIRKA_CLIPBOARD_PATH';
+
+/** Текст (SVG) → буфер. ReadAllText сам снимает BOM, если он есть. */
+const PS_COPY_TEXT = [
+  `$ErrorActionPreference = 'Stop'`,
+  'try {',
+  `  $text = [System.IO.File]::ReadAllText($env:${CLIPBOARD_PATH_ENV}, [System.Text.Encoding]::UTF8)`,
+  '  Set-Clipboard -Value $text',
+  '  exit 0',
+  '} catch { [Console]::Error.WriteLine($_.Exception.Message); exit 1 }',
+].join('\n');
+
+/**
+ * Картинка → буфер. Кладём сразу в двух видах:
+ *  - формат «PNG» — его читают Chromium, Figma, современные редакторы, и в нём
+ *    сохраняется прозрачность;
+ *  - обычный SetImage (DIB) — для всех остальных (Word, Paint), но альфа там теряется.
+ * Файл читаем байтами, а не Image::FromFile: тот держит файл открытым, и временную
+ * папку потом не удалить.
+ * Запятая перед $bytes обязательна: иначе PowerShell разложит массив байт по аргументам
+ * конструктора MemoryStream. Position сбрасываем сами — поток уже прочитан GDI+.
+ * SetDataObject с повторами: буфер обмена монопольный, его на миг может держать чужое окно.
+ */
+const PS_COPY_IMAGE = [
+  `$ErrorActionPreference = 'Stop'`,
+  'try {',
+  '  Add-Type -AssemblyName System.Windows.Forms',
+  '  Add-Type -AssemblyName System.Drawing',
+  `  $bytes = [System.IO.File]::ReadAllBytes($env:${CLIPBOARD_PATH_ENV})`,
+  '  $stream = New-Object System.IO.MemoryStream(,$bytes)',
+  '  $image = [System.Drawing.Image]::FromStream($stream)',
+  '  $stream.Position = 0',
+  '  $data = New-Object System.Windows.Forms.DataObject',
+  `  $data.SetData('PNG', $false, $stream)`,
+  '  $data.SetImage($image)',
+  '  [System.Windows.Forms.Clipboard]::SetDataObject($data, $true, 10, 100)',
+  '  exit 0',
+  '} catch { [Console]::Error.WriteLine($_.Exception.Message); exit 1 }',
+].join('\n');
+
+/**
+ * Скрипт уходит в -EncodedCommand (base64 от UTF-16LE) — командная строка получается
+ * чисто ASCII, без кавычек и без зависимости от кодовой страницы консоли. Путь к файлу
+ * едет переменной окружения, поэтому кириллица и пробелы не проходят ни через shell,
+ * ни через разбор аргументов. -Sta нужен буферу обмена (для powershell.exe это и так
+ * значение по умолчанию, но пусть будет видно), -NoProfile — чтобы чужой профиль не
+ * ломал скрипт, -NonInteractive — чтобы скрипт ничего не спрашивал: отвечать некому.
+ */
+async function runPowerShell(script: string, filePath: string): Promise<void> {
+  const encoded = Buffer.from(script, 'utf16le').toString('base64');
+  await execFileAsync(
+    powershellPath(),
+    ['-NoProfile', '-NonInteractive', '-Sta', '-EncodedCommand', encoded],
+    { env: { ...process.env, [CLIPBOARD_PATH_ENV]: filePath }, windowsHide: true },
+  );
+}
+
+/**
+ * «Показать в Explorer». Тонкости, из-за которых здесь не execFile с обычными аргументами:
+ *  - explorer.exe штатно возвращает НЕнулевой код выхода даже после успешного показа,
+ *    а если оболочка ещё не запущена, он и вовсе не завершится — сам станет оболочкой.
+ *    Поэтому ждём только события «процесс создан» (там ловится ENOENT), а код выхода
+ *    не значит ничего; unref, чтобы висящий explorer не держал наш цикл событий;
+ *  - командную строку explorer разбирает сам, и ключ должен выглядеть как
+ *    `/select,"C:\путь\файл.png"` — Node без windowsVerbatimArguments закавычил бы
+ *    аргумент целиком, вместе с ключом. Кавычки вокруг пути обязательны: в нём бывают
+ *    и пробелы, и запятые, по которым explorer иначе обрежет путь.
+ * Склейка безопасна: двойная кавычка в имени файла на Windows невозможна, shell в
+ * цепочке не участвует (CreateProcess напрямую).
+ */
+function revealInExplorer(abs: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(explorerPath(), [`/select,"${abs}"`], {
+      windowsVerbatimArguments: true,
+      windowsHide: true,
+      stdio: 'ignore',
+    });
+    child.once('error', reject);
+    child.once('spawn', () => {
+      child.unref();
+      resolve();
+    });
+  });
+}
+
+async function revealInFileManager(abs: string): Promise<void> {
+  if (shellSuppressed()) {
+    log.info(`KOPIRKA_NO_SHELL: показ в папке пропущен (${abs})`);
+    return;
+  }
+  if (process.platform === 'darwin') {
+    // execFile без shell: путь уходит аргументом.
+    await execFileAsync('open', ['-R', abs]);
+    return;
+  }
+  if (process.platform === 'win32') {
+    await revealInExplorer(abs);
+    return;
+  }
+  throw unsupportedPlatform('Показ файла в папке');
+}
+
+/** Текстовое содержимое файла (SVG) в буфер обмена. */
+async function copyTextFile(abs: string): Promise<void> {
+  if (shellSuppressed()) {
+    log.info(`KOPIRKA_NO_SHELL: копирование текста пропущено (${abs})`);
+    return;
+  }
+  if (process.platform === 'darwin') {
+    await new Promise<void>((resolve, reject) => {
+      const child = execFile('pbcopy', [], (error) => (error ? reject(error) : resolve()));
+      child.stdin?.end(fs.readFileSync(abs));
+    });
+    return;
+  }
+  if (process.platform === 'win32') {
+    await runPowerShell(PS_COPY_TEXT, abs);
+    return;
+  }
+  throw unsupportedPlatform('Копирование в буфер обмена');
+}
+
+/** Готовый PNG-файл в буфер обмена как картинку. */
+async function copyImageFile(pngPath: string): Promise<void> {
+  if (shellSuppressed()) {
+    log.info(`KOPIRKA_NO_SHELL: копирование картинки пропущено (${pngPath})`);
+    return;
+  }
+  if (process.platform === 'darwin') {
+    // Путь передаётся аргументом (argv), а не склейкой в текст скрипта.
+    await execFileAsync('osascript', [
+      '-e',
+      'on run argv',
+      '-e',
+      'set f to POSIX file (item 1 of argv)',
+      '-e',
+      'set the clipboard to (read f as «class PNGf»)',
+      '-e',
+      'end run',
+      pngPath,
+    ]);
+    return;
+  }
+  if (process.platform === 'win32') {
+    await runPowerShell(PS_COPY_IMAGE, pngPath);
+    return;
+  }
+  throw unsupportedPlatform('Копирование в буфер обмена');
+}
+
+/**
+ * Временную папку убираем «мягко»: на Windows только что созданный файл может держать
+ * антивирус, и упавшая уборка превратила бы удачное копирование в 500.
+ */
+function removeTempDir(dir: string): void {
+  try {
+    fs.rmSync(dir, { recursive: true, force: true });
+  } catch (error) {
+    log.warn(`не удалось убрать временную папку ${dir}`, error);
+  }
+}
 
 function multiParam(values: string[] | undefined): string[] {
   if (!values) return [];
@@ -178,12 +383,12 @@ export function registerFileRoutes(app: Hono, state: AppState): void {
     return sendFile(c, abs, { contentType, etag: row.sha256, sandbox: true });
   });
 
-  // LIB-06 — «Показать в Finder». execFile без shell: путь уходит аргументом.
+  // LIB-06 — «Показать в Finder» (macOS) / «Показать в проводнике» (Windows).
   app.post('/api/files/:id/reveal', async (c) => {
     const row = requireFileRow(state, parseId(c.req.param('id')));
     const abs = resolveInLibrary(state.libraryPath, row.storage_relpath);
     if (!fs.existsSync(abs)) throw notFound('Оригинал пропал с диска', 'original_missing');
-    await execFileAsync('open', ['-R', abs]);
+    await revealInFileManager(abs);
     const response: RevealResponse = { ok: true };
     return c.json(response);
   });
@@ -196,33 +401,20 @@ export function registerFileRoutes(app: Hono, state: AppState): void {
 
     if (row.ext === 'svg') {
       // Вектор кладём как текст: растрового представления у него нет.
-      await new Promise<void>((resolve, reject) => {
-        const child = execFile('pbcopy', [], (error) => (error ? reject(error) : resolve()));
-        child.stdin?.end(fs.readFileSync(abs));
-      });
+      await copyTextFile(abs);
       const response: RevealResponse = { ok: true };
       return c.json(response);
     }
 
-    // Растр приводим к PNG во временный файл: AppleScript кладёт в буфер картинку, а не путь.
+    // Растр приводим к PNG во временный файл: и AppleScript, и PowerShell кладут в буфер
+    // картинку, а не путь, и оба читают её с диска.
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kopirka-copy-'));
     const tmpFile = path.join(tmpDir, `${row.sha256}.png`);
     try {
       fs.writeFileSync(tmpFile, await toPngBuffer(fs.readFileSync(abs)));
-      // Путь передаётся аргументом (argv), а не склейкой в текст скрипта.
-      await execFileAsync('osascript', [
-        '-e',
-        'on run argv',
-        '-e',
-        'set f to POSIX file (item 1 of argv)',
-        '-e',
-        'set the clipboard to (read f as «class PNGf»)',
-        '-e',
-        'end run',
-        tmpFile,
-      ]);
+      await copyImageFile(tmpFile);
     } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      removeTempDir(tmpDir);
     }
     const response: RevealResponse = { ok: true };
     return c.json(response);
