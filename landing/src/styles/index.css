@@ -1,0 +1,87 @@
+/**
+ * Базовая раскладка лендинга. Токены — в `tokens.css` рядом.
+ *
+ * Правила те же, что в приложении (`app/web/src/styles/tokens.css`, слой base):
+ * тёмная тема жёстко, Inter Tight, лаймовое выделение и лаймовый фокус.
+ */
+
+@import './tokens.css';
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    /* Липкая навигация 64 px + воздух: якорь не должен уезжать под неё. */
+    scroll-padding-top: 96px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+
+  body {
+    margin: 0;
+    background: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-ui);
+    font-size: var(--text-lg);
+    font-weight: var(--font-weight-regular);
+    line-height: var(--leading-normal);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    /* Горизонтального скролла нет ни на одной ширине. */
+    overflow-x: hidden;
+  }
+
+  ::selection {
+    background: var(--color-brand);
+    color: var(--color-brand-ink);
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-line-strong) transparent;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  /*
+    Стекло навигации: сам холст на 72 % + размытие 20, без края.
+    // Расхождение с приложением: там плавающие панели стоят на
+    // `--color-raised-glass` (85 % светло-серого) с краем `--color-line-strong`
+    // — DESIGN-SPEC §11. На лендинге такая плашка при прокрутке заметно
+    // светлела и отчёркивалась линией; правка Сергея 08.09.2026 — цвет как у
+    // фона, разница только в плотности и размытии.
+    `-webkit-backdrop-filter` обязателен.
+  */
+  .glass {
+    background-color: var(--color-canvas-glass);
+    -webkit-backdrop-filter: blur(var(--blur-glass));
+    backdrop-filter: blur(var(--blur-glass));
+  }
+
+  /*
+    Надзаголовок секции: капс с трекингом. В макете он набран моноширинным
+    13/16 с трекингом 0.06em; моноширинного в системе «Копирки» нет вовсе
+    (см. tokens.css приложения), поэтому тот же размер набран Inter Tight
+    с табличными цифрами — как «техническое» в интерфейсе.
+  */
+  .eyebrow {
+    font-size: 13px;
+    line-height: 16px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-faint);
+    font-variant-numeric: tabular-nums;
+  }
+}

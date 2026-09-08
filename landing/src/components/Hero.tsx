@@ -1,0 +1,191 @@
+/**
+ * Первый экран. Макет — H1R-0 (текст H1S-0 + снимок H81-0).
+ *
+ * Два варианта на сравнение (см. `heroVariant.ts`):
+ *
+ *   `shot`  — как было: шейдерный фон `HeroBackdrop`, под текстом снимок
+ *             приложения с наклоном rotateX(8deg), который выравнивается по
+ *             мере прокрутки; под ним лаймовое свечение и маска в холст.
+ *   `video` — то же самое, но вместо шейдера за текстом крутится видео на
+ *             высоту первого экрана. Разметка у вариантов общая, разница живёт
+ *             целиком в `HeroBackdrop`. Снимок остаётся: правка Сергея
+ *             08.09.2026 — сначала из этого варианта его убирали совсем, потом
+ *             вернули, потому что видео гасится к низу и окно въезжает
+ *             из темноты.
+ *
+ * Заголовок в обоих вариантах появляется по словам: blur 8 → 0, y 12 → 0,
+ * пружина 380/32, задержка 40 мс на слово, один раз при загрузке.
+ *
+ * // Расхождение с макетом: кнопки 40 px и радиуса 8 вместо пилюль 44–48 —
+ * // правка Сергея. Версия 0.2.0 и «Apple Silicon и Intel» вместо
+ * // «v0.1.0 · Apple Silicon · система определяется автоматически»: обе сборки
+ * // существуют (wiki/RELEASE.md), а чип браузер не сообщает.
+ */
+import { useRef } from 'react';
+import { motion, useScroll, useTransform } from 'motion/react';
+import { Github } from 'lucide-react';
+import { Button } from './Button';
+import { HeroBackdrop } from './HeroBackdrop';
+import type { HeroVariant } from '@/heroVariant';
+import { RELEASE } from '@/links';
+import { GITHUB, GITHUB_PUBLIC } from '@/links';
+import { BLUR_ENTER, REVEAL_SHIFT, SPRING_PANEL, WORD_STAGGER } from '@/lib/motion';
+import { useReducedMotion } from '@/lib/useReducedMotion';
+
+const HEADLINE_LINES = ['Референсы — на своём диске,', 'а не в чужом облаке'] as const;
+
+const LEAD =
+  'Копирка — локальная библиотека визуальных референсов. Плотная сетка, папки, теги, поиск. ' +
+  'Захват из Chrome, drag&drop, ⌘V и автоимпорт скриншотов. Никакого облака и подписки.';
+
+export interface HeroProps {
+  variant?: HeroVariant;
+  /**
+   * Показать вторую кнопку, даже пока репозиторий закрыт. Нужно только в
+   * режиме сравнения: Сергей смотрит, как она держится на видео.
+   */
+  showSecondaryButton?: boolean;
+}
+
+export function Hero({ variant = 'shot', showSecondaryButton = false }: HeroProps) {
+  const reduced = useReducedMotion();
+  const withGithub = GITHUB_PUBLIC || showSecondaryButton;
+
+  let wordIndex = 0;
+
+  return (
+    <section id="top" className="relative isolate overflow-hidden pt-[140px] pb-[140px]">
+      <HeroBackdrop variant={variant} />
+
+      {/*
+        Колонка заголовка шире общей 1200: в макете строка «Референсы — на своём
+        диске,» набрана 96 px и выходит за колонку — узел H1V-0 шириной 1250.
+        Чтобы заголовок оставался в двух строках, как нарисовано, даём ему 1300.
+      */}
+      <div
+        id="hero-content"
+        className="relative mx-auto flex max-w-[1300px] flex-col items-center px-6 text-center md:px-10 xl:px-0"
+      >
+        <p className="eyebrow m-0">Бесплатно · macOS · файлы у вас на диске</p>
+
+        <h1
+          className="mt-9 mb-0 font-medium text-display"
+          style={{
+            fontSize: 'clamp(34px, 6.66vw, 96px)',
+            lineHeight: 0.96,
+            letterSpacing: '-0.04em',
+          }}
+        >
+          {HEADLINE_LINES.map((line, lineIndex) => (
+            <span key={line} className="block">
+              {line.split(' ').map((word) => {
+                const delay = wordIndex * WORD_STAGGER;
+                wordIndex += 1;
+                return (
+                  <motion.span
+                    key={`${lineIndex}-${word}-${delay}`}
+                    className="inline-block whitespace-pre"
+                    initial={
+                      reduced
+                        ? { opacity: 0 }
+                        : { opacity: 0, y: REVEAL_SHIFT, filter: `blur(${BLUR_ENTER}px)` }
+                    }
+                    animate={
+                      reduced
+                        ? { opacity: 1 }
+                        : { opacity: 1, y: 0, filter: 'blur(0px)' }
+                    }
+                    transition={reduced ? { duration: 0.2, delay: 0 } : { ...SPRING_PANEL, delay }}
+                  >
+                    {word}
+                    {' '}
+                  </motion.span>
+                );
+              })}
+            </span>
+          ))}
+        </h1>
+
+        <p
+          className="mx-auto mt-8 mb-0 max-w-[780px] text-lead"
+          style={{ fontSize: 'clamp(17px, 1.67vw, 24px)', lineHeight: 1.25 }}
+        >
+          {LEAD}
+        </p>
+
+        <div className="mt-11 flex flex-wrap items-center justify-center gap-3">
+          <Button href="#download" variant="primary" size="hero">
+            Скачать для macOS
+          </Button>
+          {/* Репозиторий приватный — на публичной странице кнопки нет. */}
+          {withGithub && (
+            <Button
+              href={GITHUB}
+              variant="secondary"
+              size="hero"
+              icon={<Github size={16} strokeWidth={1.8} aria-hidden />}
+            >
+              Открыть на GitHub
+            </Button>
+          )}
+        </div>
+
+        <p className="eyebrow mt-7 mb-0">
+          {RELEASE.version} · {RELEASE.size} · {RELEASE.minMacOS} · Apple Silicon и Intel
+        </p>
+      </div>
+
+      <HeroShot reduced={reduced} />
+    </section>
+  );
+}
+
+/**
+ * Снимок приложения под текстом. Вынесен отдельным компонентом, чтобы
+ * `useScroll` не висел на ref, которого нет в разметке, и чтобы оба варианта
+ * первого экрана собирали его одинаково.
+ */
+function HeroShot({ reduced }: { reduced: boolean }) {
+  const shotRef = useRef<HTMLDivElement>(null);
+
+  // Наклон снимка выравнивается, пока он въезжает в экран.
+  const { scrollYProgress } = useScroll({
+    target: shotRef,
+    offset: ['start end', 'center center'],
+  });
+  const rotateX = useTransform(scrollYProgress, [0, 1], [8, 0]);
+
+  return (
+    <div
+      ref={shotRef}
+      className="relative mx-auto mt-[88px] w-full max-w-[1200px] px-6 md:px-10 xl:px-0"
+      style={{ perspective: 1400 }}
+    >
+      {/* Свечение под рамкой: лайм 12 % с большим размытием. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-10 top-10 bottom-0"
+        style={{ background: 'rgb(197 253 99 / 0.12)', filter: 'blur(80px)', borderRadius: 24 }}
+      />
+      <motion.div
+        className="overflow-hidden rounded-[14px] border border-line-strong bg-panel md:rounded-[24px]"
+        style={{
+          rotateX: reduced ? 0 : rotateX,
+          transformOrigin: 'center top',
+          // Низ снимка уходит в холст.
+          maskImage: 'linear-gradient(to bottom, #000 72%, transparent 100%)',
+          WebkitMaskImage: 'linear-gradient(to bottom, #000 72%, transparent 100%)',
+        }}
+      >
+        <img
+          src="/media/hero-library.webp"
+          width={2400}
+          height={1500}
+          alt="Окно Копирки: сайдбар с папками, плотная сетка референсов"
+          className="block h-auto w-full"
+          fetchPriority="high"
+        />
+      </motion.div>
+    </div>
+  );
+}
