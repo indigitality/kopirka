@@ -1,0 +1,183 @@
+# Сборка Windows-версии «Копирки»: NSIS-установщик под x64, без подписи кода.
+#
+# Запускается вручную (Actions → «Сборка Windows» → Run workflow), на теги vX.Y.Z
+# и на push в ветку windows-build. На остальные ветки не запускается намеренно:
+# репозиторий приватный, минуты Actions на Windows тратятся втрое против Linux,
+# и собирать бандл на каждый коммит незачем.
+#
+# Про ветку windows-build. Кнопка «Run workflow» появляется в интерфейсе только тогда,
+# когда файл workflow'а есть в ветке по умолчанию (main) — это правило GitHub, не наше.
+# Пока он туда не влит, единственный способ получить сборку — запушить работу в ветку
+# windows-build: этот триггер сработает без main. После влития в main достаточно
+# «Run workflow» с выбором любой ветки.
+#
+# Почему в CI, а не на машине Сергея: Windows-бандл нельзя собрать на macOS — нет MSVC,
+# нет makensis, и ни один нативный модуль в payload не проверить. Хост здесь и есть цель,
+# поэтому кросс-конвейера (как scripts/build-intel.mjs для Intel) не требуется:
+# бинарник Node берётся из раннера, prebuild better-sqlite3 под win32-x64 лежит в самом
+# пакете, @img/sharp-win32-x64 ставит обычный npm ci.
+#
+# Установщик не подписан. Windows покажет SmartScreen — это объясняется в инструкции
+# по установке, а не лечится настройками сборки.
+name: Сборка Windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - windows-build
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+# Второй запуск на той же ветке отменяет первый: 25 минут Windows-раннера дороже,
+# чем результат заведомо устаревшей сборки.
+concurrency:
+  group: build-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    # Холодная сборка Tauri на Windows — это полтысячи крейтов дважды (debug под тесты
+    # и release под бандл). С прогретым кэшем минут пятнадцать, без него около часа.
+    timeout-minutes: 90
+
+    env:
+      # Инкрементальная сборка в CI бесполезна (каждый прогон с чистого листа),
+      # а кэш target'а раздувает вдвое.
+      CARGO_INCREMENTAL: 0
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: 1
+
+    defaults:
+      run:
+        # bash на windows-latest — это Git Bash. Он и без Cyrillic-сюрпризов, и одинаков
+        # с локальными командами из README; pipefail в нём включён по умолчанию.
+        shell: bash
+
+    steps:
+      - name: Забрать код
+        uses: actions/checkout@v4
+
+      # Ровно та мажорная версия, под которую собраны нативные модули payload'а:
+      # bundle-server.mjs откажется работать с любой другой.
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            desktop/package-lock.json
+
+      - name: Версии инструментов
+        run: |
+          node --version
+          npm --version
+          rustc --version
+          cargo --version
+          rustup target add x86_64-pc-windows-msvc
+
+      # Реестр и git-кэш cargo экономят несколько минут на выкачивании крейтов,
+      # target.noindex — основное время сборки (у Tauri в дереве около пятисот крейтов).
+      # Ключ по Cargo.lock, restore-keys подхватывает предыдущий: cargo сам пересоберёт
+      # то, что изменилось. Кэш target'а тяжёлый, порядка гигабайта-двух: если он начнёт
+      # выедать лимит репозитория или обваливаться на загрузке — убрать эту строку,
+      # сборка станет дольше, но не сломается.
+      - name: Кэш cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            desktop/src-tauri/target.noindex
+          key: windows-cargo-${{ hashFiles('desktop/src-tauri/Cargo.lock') }}
+          restore-keys: |
+            windows-cargo-
+
+      - name: Зависимости (npm ci)
+        run: npm ci --no-audit --no-fund
+
+      # Собранный web/dist нужен ещё до cargo: generate_context! вшивает статику
+      # в бинарник. Сборка обоих воркспейсов заодно и есть typecheck — web делает
+      # `tsc -b && vite build`, server `tsc -p`, так что ошибка типов валит этот шаг.
+      - name: Интерфейс и сервер (typecheck + сборка)
+        run: npm run build
+
+      # Отдельным шагом, а не только внутри tauri build: на первой Windows-сборке
+      # важно видеть в логе, что в payload лёг node.exe нужной дуги и платформенный sharp.
+      - name: Payload сервера
+        run: npm run app:payload
+
+      - name: Юнит-тесты оболочки (cargo test)
+        id: cargo-test
+        continue-on-error: true
+        working-directory: desktop/src-tauri
+        run: cargo test --target x86_64-pc-windows-msvc
+
+      # Самая ценная проверка Windows: smoke реально поднимает сервер по HTTP.
+      # Не блокирует сборку намеренно — сервер писался под macOS (пути к конфигу,
+      # запуск tsx), и до его портирования установщик всё равно нужен для ручной
+      # проверки оболочки. Красным итог всё равно станет — см. последний шаг.
+      - name: Дымовой прогон сервера (smoke)
+        id: smoke
+        continue-on-error: true
+        run: npm run smoke --workspace=server
+
+      - name: Установщик NSIS
+        run: npm run app:build:windows 2>&1 | tee build-windows.log
+
+      - name: Что уехало в payload
+        if: always()
+        run: |
+          {
+            echo "# payload (desktop/src-tauri/resources/backend)"
+            du -sh desktop/src-tauri/resources/backend || true
+            find desktop/src-tauri/resources/backend -maxdepth 1 -mindepth 1 | sort || true
+            echo
+            echo "# нативные модули"
+            find desktop/src-tauri/resources/backend -name '*.node' -o -name '*.dll' | sort || true
+          } > payload-listing.txt
+          cat payload-listing.txt
+
+      - name: Забрать установщик
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kopirka-windows-x64-installer
+          path: desktop/src-tauri/target.noindex/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Забрать логи
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kopirka-windows-x64-logs
+          path: |
+            build-windows.log
+            payload-listing.txt
+          if-no-files-found: warn
+          retention-days: 14
+
+      # Итог: установщик уже загружен, но провал smoke или cargo test не должен
+      # выглядеть зелёной галочкой.
+      - name: Итог проверок
+        if: always()
+        run: |
+          echo "cargo test: ${{ steps.cargo-test.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "smoke: ${{ steps.smoke.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+          failed=0
+          if [ "${{ steps.cargo-test.outcome }}" != "success" ]; then
+            echo "::error::cargo test не прошёл"
+            failed=1
+          fi
+          if [ "${{ steps.smoke.outcome }}" != "success" ]; then
+            echo "::error::smoke не прошёл — сервер на Windows ещё не поднимается"
+            failed=1
+          fi
+          exit $failed

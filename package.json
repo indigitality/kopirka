@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.2.0",
   "description": "Копирка — локальная база визуальных референсов",
-  "workspaces": ["server", "web"],
+  "workspaces": ["server", "web", "landing"],
   "scripts": {
     "dev": "npm run dev --workspace=server & npm run dev --workspace=web",
     "build": "npm run build --workspace=web && npm run build --workspace=server",
@@ -11,6 +11,8 @@
     "app:dev": "cd desktop && npm install --no-audit --no-fund --silent && npm run dev",
     "app:build": "cd desktop && npm install --no-audit --no-fund --silent && npm run build",
     "app:build:intel": "node desktop/scripts/build-intel.mjs",
+    "app:build:windows": "node desktop/scripts/build-windows.mjs",
+    "app:payload": "node desktop/scripts/bundle-server.mjs",
     "test:ui": "node tests/ui/run.mjs",
     "test:ui:webkit": "node tests/ui/webkit/run.mjs"
   }

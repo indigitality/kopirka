@@ -9,7 +9,8 @@
     "icons": "node scripts/make-icons.mjs && tauri icon src-tauri/icons/source-1024.png",
     "dev": "tauri dev",
     "build": "tauri build",
-    "build:intel": "node scripts/build-intel.mjs"
+    "build:intel": "node scripts/build-intel.mjs",
+    "build:windows": "node scripts/build-windows.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.9.2"

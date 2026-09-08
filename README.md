@@ -21,9 +21,10 @@
 - Node 22+ (нативные модули `sharp` и `better-sqlite3` собираются под него)
 - Chrome — для расширения
 
-Сборка самого десктопного приложения (`.app`/`.dmg`) возможна только на Apple
-Silicon — подробности в [`desktop/README.md`](./desktop/README.md). Сервер и
-веб-интерфейс (`npm run dev`) это ограничение не затрагивает.
+Сборка десктопного приложения под macOS (`.app`/`.dmg`) возможна только на Apple
+Silicon — подробности в [`desktop/README.md`](./desktop/README.md). Windows-версия
+собирается не на Mac, а в GitHub Actions — см. [ниже](#windows). Сервер и
+веб-интерфейс (`npm run dev`) эти ограничения не затрагивают.
 
 ## Запуск для разработки
 
@@ -47,6 +48,8 @@ npm start          # сервер поднимается и сам открыв�
 
 ## Сборка десктопного приложения
 
+### macOS
+
 Нужны Rust (`rustup`) и Xcode Command Line Tools — первая настройка и все
 детали в [`desktop/README.md`](./desktop/README.md). Rust обычно не в `PATH`
 по умолчанию, отсюда переменная в команде ниже. Из корня репозитория:
@@ -67,6 +70,52 @@ desktop/src-tauri/target.noindex/x86_64-apple-darwin/release/bundle/dmg/Копи
 Каталог называется `target.noindex`, а не `target`, — чтобы Spotlight не
 индексировал промежуточные сборки (причина и остальные детали — там же, в
 `desktop/README.md`).
+
+### Windows
+
+**На Mac Windows-версию собрать нельзя.** Не «неудобно», а нечем: нужен
+компилятор MSVC, нужен `makensis`, и ни один нативный модуль в payload'е
+(`node.exe`, `better-sqlite3`, `sharp`) на macOS не запустить и не проверить.
+Поэтому `npm run app:build:windows` на macOS честно отказывается работать, а
+`bundle-server.mjs` отказывается собирать payload под `win32-*` не на Windows.
+
+Собирает GitHub Actions: **Actions → «Сборка Windows» → Run workflow** (ветку
+можно выбрать любую). Workflow — [`.github/workflows/build-windows.yml`](./.github/workflows/build-windows.yml),
+раннер `windows-latest`, цель `x86_64-pc-windows-msvc`. На каждый push он не
+запускается намеренно: репозиторий приватный, минуты Windows-раннера тратятся
+втрое против Linux. Тег `vX.Y.Z` сборку запускает.
+
+Кнопка «Run workflow» появляется только после того, как файл workflow'а попал в
+`main` — так устроен GitHub. Пока не попал, запуск делается push'ем в ветку
+`windows-build`: на неё стоит отдельный триггер именно для этого.
+
+Артефакты появляются внизу страницы законченного прогона:
+
+```
+kopirka-windows-x64-installer   Kopirka_0.2.0_x64-setup.exe    ← установщик
+kopirka-windows-x64-logs        build-windows.log, payload-listing.txt
+```
+
+Внутри установщика приложение остаётся «Копиркой» кириллицей — так оно
+называется в «Пуске», в «Установке и удалении программ» и в пути установки
+(`%LOCALAPPDATA%\Копирка`). ASCII только в имени файла установщика: кириллицу
+в имени ломают и старые распаковщики zip'а, и пересылка мессенджерами.
+
+Особенности этой сборки:
+
+- **Установка без прав администратора** — NSIS в режиме `currentUser`, всё
+  ложится в `%LOCALAPPDATA%`. Участнику клуба не нужно ни UAC, ни админ.
+- **Установщик не подписан.** Windows покажет SmartScreen («Приложение не
+  распознано») — это объясняется в инструкции по установке, настройками сборки
+  не лечится.
+- **Только x64.** ARM64-Windows не собираем.
+- **WebView2** — режим `embedBootstrapper`: установщик несёт в себе загрузчик
+  рантайма (+1,8 МБ) и ставит его, если в системе рантайма нет. На Windows 11 он
+  есть всегда, на Windows 10 бывает нет.
+
+Локально на Windows-машине то же самое делает `npm run app:build:windows`
+(нужны Node 22, Rust с целью `x86_64-pc-windows-msvc` и NSIS, который
+`@tauri-apps/cli` скачивает сам при первой сборке).
 
 ## Где что лежит
 
@@ -129,6 +178,7 @@ node extension/tools/verify.mjs      # целостность манифеста
 | `KOPIRKA_CONFIG_DIR` | Другая папка конфига |
 | `KOPIRKA_PORT` | Другой порт |
 | `KOPIRKA_NO_OPEN` | Не открывать браузер при старте |
+| `KOPIRKA_NO_SHELL` | Не звать системные утилиты: `reveal` и `copy` отвечают `ok`, но Finder/Explorer не открывается и буфер обмена не меняется |
 | `KOPIRKA_QUIET` | Тише в консоли |
 
 ## Документация

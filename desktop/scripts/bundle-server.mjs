@@ -7,14 +7,14 @@
  * shared, собранный web/dist и минимальный срез node_modules.
  *
  * Раскладка payload'а (важна: сервер ищет соседей по относительным путям):
- *   backend/node                 — бинарник Node
+ *   backend/node                 — бинарник Node (на Windows — backend/node.exe)
  *   backend/server/src/index.js  — точка входа
  *   backend/server/package.json  — из него сервер читает версию
  *   backend/shared/api.js        — ../../shared/api.js от server/src
  *   backend/web/dist/…           — ../../web/dist/ от server/src
  *   backend/node_modules/…       — резолвится вверх от server/src
  *
- * Сборка под чужую архитектуру (Intel с машины на Apple Silicon, в перспективе Windows)
+ * Сборка под чужую архитектуру (Intel с машины на Apple Silicon)
  * настраивается тремя переменными окружения:
  *
  *   KOPIRKA_TARGET           — платформа payload'а, например darwin-x64. По умолчанию хостовая;
@@ -24,6 +24,11 @@
  *                              (npm ставит в app/node_modules только «свою» архитектуру).
  *
  * Готовит всё это desktop/scripts/build-intel.mjs — руками переменные задавать не нужно.
+ *
+ * Чужая ОС — не то же, что чужая архитектура: payload под win32 собирается только на Windows
+ * (см. assertHostCanBuildTarget). Там ничего задавать не нужно вовсе — хост и есть цель,
+ * Node берётся свой, а платформенные пакеты ставит обычный npm ci. Делает это
+ * .github/workflows/build-windows.yml на windows-latest.
  */
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -38,6 +43,30 @@ const ROOT_MODULES = path.join(APP, 'node_modules');
 
 /** Платформа целевой сборки — от неё зависит, какие нативные модули берём. */
 const TARGET = process.env.KOPIRKA_TARGET ?? `${process.platform}-${process.arch}`;
+
+/** darwin-arm64 → ['darwin', 'arm64']; linuxmusl-x64 → ['linuxmusl', 'x64']. */
+function splitTarget(target) {
+  const at = target.indexOf('-');
+  if (at < 1 || at === target.length - 1) {
+    throw new Error(`KOPIRKA_TARGET=${target} — ожидается «платформа-архитектура», например darwin-arm64 или win32-x64`);
+  }
+  return [target.slice(0, at), target.slice(at + 1)];
+}
+
+/**
+ * Платформа и архитектура цели по отдельности. От платформы зависят имя бинарника Node,
+ * формат, в котором его проверяем, и бит исполнения; от архитектуры — prebuild'ы.
+ */
+const [TARGET_PLATFORM, TARGET_ARCH] = splitTarget(TARGET);
+
+/**
+ * Имя бинарника Node внутри payload'а. Оболочка на Rust ищет его ровно под этим именем,
+ * а Windows без расширения .exe исполняемый файл не запустит.
+ */
+const NODE_BASENAME = TARGET_PLATFORM === 'win32' ? 'node.exe' : 'node';
+
+/** Все имена, под которыми Node мог лечь в payload прошлыми сборками. */
+const NODE_BASENAMES = ['node', 'node.exe'];
 
 /** Корень с пакетами под TARGET, если он подготовлен отдельно. Проверяется раньше остальных. */
 const PLATFORM_MODULES = process.env.KOPIRKA_PLATFORM_MODULES ?? null;
@@ -71,7 +100,9 @@ function log(message) {
 }
 
 function rmrf(target) {
-  fs.rmSync(target, { recursive: true, force: true });
+  // maxRetries — ради Windows: там файл, только что просмотренный антивирусом или
+  // индексатором, отдаёт EPERM/EBUSY, и повтор через сотню миллисекунд его снимает.
+  fs.rmSync(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 }
 
 function bytes(n) {
@@ -198,11 +229,6 @@ function copyPackage(name, from, to) {
 
 // ── Сборка ──────────────────────────────────────────────────────────────────
 
-/** Архитектура целевой платформы: darwin-x64 → x64, linuxmusl-arm64 → arm64. */
-function targetArch() {
-  return TARGET.slice(TARGET.indexOf('-') + 1);
-}
-
 /**
  * Архитектура Mach-O по заголовку файла: 'x64' | 'arm64' | null.
  * Читаем сами, а не зовём `file`: проверка не зависит ни от локали, ни от формата вывода.
@@ -222,6 +248,50 @@ function machoArch(file) {
   return null;
 }
 
+/**
+ * Архитектура PE (.exe) по заголовку файла: 'x64' | 'arm64' | 'ia32' | null.
+ * Формат: 'MZ' в самом начале, по смещению 0x3C — 32-битный оффсет PE-заголовка,
+ * там подпись 'PE\0\0' и сразу за ней 16-битное поле Machine.
+ */
+function peArch(file) {
+  const dos = Buffer.alloc(0x40);
+  const coff = Buffer.alloc(6);
+  const fd = fs.openSync(file, 'r');
+  try {
+    if (fs.readSync(fd, dos, 0, dos.length, 0) < dos.length) return null;
+    if (dos.readUInt16LE(0) !== 0x5a4d) return null; // 'MZ'
+    const peOffset = dos.readUInt32LE(0x3c);
+    if (fs.readSync(fd, coff, 0, coff.length, peOffset) < coff.length) return null;
+    if (coff.readUInt32LE(0) !== 0x00004550) return null; // 'PE\0\0'
+    const machine = coff.readUInt16LE(4);
+    if (machine === 0x8664) return 'x64'; // IMAGE_FILE_MACHINE_AMD64
+    if (machine === 0xaa64) return 'arm64'; // IMAGE_FILE_MACHINE_ARM64
+    if (machine === 0x014c) return 'ia32'; // IMAGE_FILE_MACHINE_I386
+    return null;
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+/**
+ * Архитектура бинарника в формате целевой платформы: 'x64' | 'arm64' | … | null,
+ * где null — «не тот формат». Формат берём именно целевой, а не угадываем по файлу:
+ * Mach-O, подсунутый под win32, и PE под darwin одинаково негодны, и молчать нельзя.
+ *
+ * undefined — «проверить нечем»: платформа без разбора заголовка (linux и прочее,
+ * куда «Копирка» пока не собирается).
+ */
+function binaryArch(file) {
+  if (TARGET_PLATFORM === 'darwin') return machoArch(file);
+  if (TARGET_PLATFORM === 'win32') return peArch(file);
+  return undefined;
+}
+
+/** Формат, в котором должен быть бинарник цели — только для текста ошибок. */
+function targetFormat() {
+  return TARGET_PLATFORM === 'win32' ? 'PE' : 'Mach-O';
+}
+
 /** `node --version` целевого бинарника. Чужую архитектуру на macOS запускает Rosetta. */
 function nodeVersion(binary, arch) {
   const rosetta = { x64: 'x86_64', arm64: 'arm64' }[arch];
@@ -235,23 +305,35 @@ function nodeVersion(binary, arch) {
 }
 
 /**
+ * Payload собирается только на целевой ОС. Причина не в лени, а в проверках: бинарник Node
+ * и нативные модули надо запустить, а из macOS Windows-сборку не проверить никак — в бандл
+ * уехал бы непроверенный набор файлов. Чужая архитектура той же ОС — другое дело:
+ * на macOS её запускает Rosetta, этим и живёт Intel-сборка.
+ */
+function assertHostCanBuildTarget() {
+  if (TARGET_PLATFORM === process.platform) return;
+  throw new Error(
+    `payload под ${TARGET} собирается только на ${TARGET_PLATFORM}, а эта машина — ${process.platform}. ` +
+      'Windows-бандл «Копирки» собирает .github/workflows/build-windows.yml на windows-latest',
+  );
+}
+
+/**
  * Бинарник Node — это то, на чём приложение будет жить у человека, и подменить его
  * проще простого: достаточно другого симлинка в PATH. Проверяем до копирования, чтобы
  * не оставить в payload'е заведомо негодный файл.
  *
- * Архитектура: чужая — сервер на целевой машине просто не запустится.
+ * Формат и архитектура: чужие — сервер на целевой машине просто не запустится.
  * Мажорная версия: payload собирается и проверяется только на Node 22.
  */
 function verifyNodeBinary(binary) {
-  const arch = targetArch();
-  if (process.platform === 'darwin') {
-    const actual = machoArch(binary);
-    if (actual !== arch) {
-      throw new Error(
-        `${binary}: не та архитектура — нужен ${arch}, а это ${actual ?? 'не Mach-O'}. ` +
-          'Задайте KOPIRKA_NODE_BINARY подходящим бинарником (для Intel это делает scripts/build-intel.mjs)',
-      );
-    }
+  const arch = TARGET_ARCH;
+  const actual = binaryArch(binary);
+  if (actual !== undefined && actual !== arch) {
+    throw new Error(
+      `${binary}: не та архитектура — нужен ${arch} (${targetFormat()}), а это ${actual ?? `не ${targetFormat()}`}. ` +
+        'Задайте KOPIRKA_NODE_BINARY подходящим бинарником (для Intel это делает scripts/build-intel.mjs)',
+    );
   }
   const version = nodeVersion(binary, arch);
   if (version === null) {
@@ -265,7 +347,7 @@ function verifyNodeBinary(binary) {
         'KOPIRKA_NODE_BINARY путём к нужному бинарнику',
     );
   }
-  log(`  node: ${version} ${arch} — проверен`);
+  log(`  ${NODE_BASENAME}: ${version} ${arch} — проверен`);
 }
 
 /**
@@ -277,23 +359,32 @@ function nodeSource() {
 }
 
 function copyNodeBinary(source) {
-  const target = path.join(OUT, 'node');
+  const target = path.join(OUT, NODE_BASENAME);
+  // Payload лежит на одном месте для всех целей, а имя бинарника у целей разное.
+  // Оставить node от прошлой сборки рядом с node.exe — это лишние 100 МБ в бандле
+  // и запутанная диагностика; сносим всё, что не наше.
+  for (const stale of NODE_BASENAMES) {
+    if (stale !== NODE_BASENAME) rmrf(path.join(OUT, stale));
+  }
   const stat = fs.statSync(source);
   let reusable = false;
   if (fs.existsSync(target)) {
     const existing = fs.statSync(target);
     // 104 МБ копируются заметное время — не повторяем без нужды. Архитектуру сверяем
-    // отдельно: payload общий для всех целей, и от прошлой сборки там мог остаться чужой Node.
-    const sameArch = process.platform !== 'darwin' || machoArch(target) === targetArch();
+    // отдельно: от прошлой сборки под другую дугу там мог остаться чужой Node.
+    const existingArch = binaryArch(target);
+    const sameArch = existingArch === undefined || existingArch === TARGET_ARCH;
     if (existing.size === stat.size && existing.mtimeMs >= stat.mtimeMs && sameArch) {
-      log(`  node: без изменений (${bytes(stat.size)})`);
+      log(`  ${NODE_BASENAME}: без изменений (${bytes(stat.size)})`);
       reusable = true;
     }
   }
   if (!reusable) {
     fs.copyFileSync(source, target);
-    fs.chmodSync(target, 0o755);
-    log(`  node: ${source} → ${bytes(stat.size)}`);
+    // Бит исполнения нужен только POSIX-цели: на Windows права определяет ACL,
+    // а исполняемость — расширение файла, и chmod там ничего не решает.
+    if (TARGET_PLATFORM !== 'win32') fs.chmodSync(target, 0o755);
+    log(`  ${NODE_BASENAME}: ${source} → ${bytes(stat.size)}`);
   }
 }
 
@@ -333,6 +424,18 @@ function copyWeb() {
 
 function copyModules() {
   const packages = collectPackages();
+
+  // Нативная часть sharp живёт в платформенном пакете, и он optional: npm молча
+  // пропускает такие пакеты, если сочтёт, что они «не для этой машины». На своём хосте
+  // это незаметно, а в CI обернулось бы бандлом, который падает на первом же превью.
+  const platformSharp = `@img/sharp-${TARGET}`;
+  if (!packages.has(platformSharp)) {
+    throw new Error(
+      `${platformSharp} не найден — sharp в бандле под ${TARGET} работать не будет. ` +
+        'Проверьте, что npm ci поставил платформенные optionalDependencies (или задайте KOPIRKA_PLATFORM_MODULES)',
+    );
+  }
+
   const names = [...packages.keys()].sort();
   for (const name of names) {
     const from = packages.get(name);
@@ -349,6 +452,7 @@ function main() {
   if (PLATFORM_MODULES) log(`  доп. корень модулей: ${PLATFORM_MODULES}`);
   // Бинарник Node проверяем до того, как снесём старый payload: негодная цель не должна
   // оставлять после себя развороченный каталог.
+  assertHostCanBuildTarget();
   const node = nodeSource();
   verifyNodeBinary(node);
 
