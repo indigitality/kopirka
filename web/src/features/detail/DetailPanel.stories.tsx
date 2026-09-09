@@ -92,7 +92,7 @@ const library = {
   folderNameById: new Map(folders.map((item) => [item.id, item.name])),
   stats: { library: 214, untagged: 8, trash: 12, similar: 1 },
   tags,
-  libraryPath: '/Users/sergey/Pictures/Копирка',
+  libraryPath: '/Users/designer/Pictures/Копирка',
   applyFiles: noop,
   dropFiles: noop,
   moveToFolder: resolved,

@@ -13,11 +13,11 @@ import { SettingsModal } from './SettingsModal';
  * а витрина обязана открываться без сервера.
  */
 const settings: SettingsResponse = {
-  libraryPath: '/Users/sergey/Pictures/Копирка',
+  libraryPath: '/Users/designer/Pictures/Копирка',
   serverPort: DEFAULT_PORT,
   firstRunCompleted: true,
   schemaVersion: 1,
-  logPath: '/Users/sergey/Library/Application Support/Kopirka/kopirka.log',
+  logPath: '/Users/designer/Library/Application Support/Kopirka/kopirka.log',
   appVersion: '0.1.0',
   librarySizeBytes: 1_503_238_553,
 };

@@ -49,8 +49,8 @@ npm run test:ui
 ### Требования к машине
 
 - Node — использует `process.execPath` того интерпретатора, которым запущен
-  сам `run.mjs` (никаких требований к PATH). Проверено на
-  `/Users/sergey/.local/bin/node` (v22).
+  сам `run.mjs` (никаких требований к PATH). Проверено на `$(which node)`
+  (v22).
 - Google Chrome — по умолчанию
   `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`, переопределяется
   переменной `CHROME_BIN`.
