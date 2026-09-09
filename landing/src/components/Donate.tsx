@@ -6,14 +6,20 @@
  * клуба», «сэкономила вам час», «это просто спасибо») сняты: лендинг публичный,
  * упоминаний клуба на нём нет.
  *
- * Адреса доната нет — `DONATE` в `links.ts` помечен `[?]` и ведёт на `'#'`;
- * пока так, вместо кнопки стоит тихая строка.
- * // Расхождение с макетом: чипы сумм в макете не нарисованы вовсе — они
- * // добавлены постановкой задачи; геометрия у них та же, что у кнопок (8).
+ * Кнопка ведёт на DonationAlerts студии (`DONATE` в `links.ts`, адрес дал
+ * Сергей 09.09.2026). Пока ссылки не было, вместо кнопки стояла тихая строка —
+ * ветка `isLive` оставлена на случай, если канал придётся снять.
+ *
+ * // Расхождение с макетом: чипы сумм («300 ₽», «500 ₽»…) в макете не
+ * // нарисованы вовсе — их добавила постановка задачи, и Сергей этих сумм
+ * // никогда не называл. Сняты 09.09.2026 вместе с включением ссылки: на
+ * // DonationAlerts они всё равно ничего не подставляют, а блок написан
+ * // подчёркнуто необязательным — «если есть желание», — и прайс-лист под этим
+ * // текстом читается как нажим.
  */
 import { Reveal } from './Reveal';
 import { Button } from './Button';
-import { DONATE, DONATE_AMOUNTS, isLive } from '@/links';
+import { DONATE, isLive } from '@/links';
 
 export function Donate() {
   return (
@@ -47,17 +53,6 @@ export function Donate() {
               <Button href={DONATE} variant="primary" size="hero">
                 Поддержать
               </Button>
-              <div className="flex flex-wrap items-center justify-center gap-2">
-                {DONATE_AMOUNTS.map((amount) => (
-                  <a
-                    key={amount}
-                    href={DONATE}
-                    className="inline-flex h-8 items-center rounded-[8px] bg-control px-3 text-[14px] leading-[18px] font-medium text-ink tabular-nums no-underline transition-colors duration-[140ms] hover:bg-control-hover"
-                  >
-                    {amount}
-                  </a>
-                ))}
-              </div>
             </div>
           ) : (
             // Канал доната не выбран — вместо мёртвой кнопки тихая строка.

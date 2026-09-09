@@ -1,20 +1,18 @@
 /**
  * Первый экран. Макет — H1R-0 (текст H1S-0 + снимок H81-0).
  *
- * Два варианта на сравнение (см. `heroVariant.ts`):
+ * За текстом — видеофон на высоту первого экрана, под текстом снимок
+ * приложения с наклоном rotateX(8deg), который выравнивается по мере
+ * прокрутки; под снимком лаймовое свечение и маска в холст. Видео гасится к
+ * низу, и окно выезжает из темноты.
  *
- *   `shot`  — как было: шейдерный фон `HeroBackdrop`, под текстом снимок
- *             приложения с наклоном rotateX(8deg), который выравнивается по
- *             мере прокрутки; под ним лаймовое свечение и маска в холст.
- *   `video` — то же самое, но вместо шейдера за текстом крутится видео на
- *             высоту первого экрана. Разметка у вариантов общая, разница живёт
- *             целиком в `HeroBackdrop`. Снимок остаётся: правка Сергея
- *             08.09.2026 — сначала из этого варианта его убирали совсем, потом
- *             вернули, потому что видео гасится к низу и окно въезжает
- *             из темноты.
+ * Так решено 09.09.2026: до этого первый экран неделю жил в двух вариантах —
+ * с видео и с прежним шейдерным фоном, — которые переключались адресом
+ * `?hero=…`. Сергей выбрал видео, развилка и её переключатель удалены.
+ * На узком экране видео по-прежнему не показывается — см. `HeroBackdrop`.
  *
- * Заголовок в обоих вариантах появляется по словам: blur 8 → 0, y 12 → 0,
- * пружина 380/32, задержка 40 мс на слово, один раз при загрузке.
+ * Заголовок появляется по словам: blur 8 → 0, y 12 → 0, пружина 380/32,
+ * задержка 40 мс на слово, один раз при загрузке.
  *
  * // Расхождение с макетом: кнопки 40 px и радиуса 8 вместо пилюль 44–48 —
  * // правка Сергея. Версия 0.2.0 и «Apple Silicon и Intel» вместо
@@ -31,7 +29,6 @@ import { motion, useScroll, useTransform } from 'motion/react';
 import { Github } from 'lucide-react';
 import { Button } from './Button';
 import { HeroBackdrop } from './HeroBackdrop';
-import type { HeroVariant } from '@/heroVariant';
 import { PLATFORMS, RELEASE } from '@/links';
 import { GITHUB, GITHUB_PUBLIC } from '@/links';
 import { usePlatform, type Platform } from '@/platform';
@@ -76,25 +73,15 @@ function requirements(platform: Platform): string {
   return parts.filter(Boolean).join(' · ');
 }
 
-export interface HeroProps {
-  variant?: HeroVariant;
-  /**
-   * Показать вторую кнопку, даже пока репозиторий закрыт. Нужно только в
-   * режиме сравнения: Сергей смотрит, как она держится на видео.
-   */
-  showSecondaryButton?: boolean;
-}
-
-export function Hero({ variant = 'shot', showSecondaryButton = false }: HeroProps) {
+export function Hero() {
   const reduced = useReducedMotion();
   const platform = usePlatform();
-  const withGithub = GITHUB_PUBLIC || showSecondaryButton;
 
   let wordIndex = 0;
 
   return (
     <section id="top" className="relative isolate overflow-hidden pt-[140px] pb-[140px]">
-      <HeroBackdrop variant={variant} />
+      <HeroBackdrop />
 
       {/*
         Колонка заголовка шире общей 1200: в макете строка «Референсы — на своём
@@ -157,7 +144,7 @@ export function Hero({ variant = 'shot', showSecondaryButton = false }: HeroProp
             {CTA[platform]}
           </Button>
           {/* Репозиторий приватный — на публичной странице кнопки нет. */}
-          {withGithub && (
+          {GITHUB_PUBLIC && (
             <Button
               href={GITHUB}
               variant="secondary"

@@ -16,20 +16,19 @@
  *
  * При `prefers-reduced-motion` не запускается ничего: остаётся слой 1.
  *
- * Вариант `video` — второй первый экран на сравнение (см. `heroVariant.ts`):
- * вместо шейдера и запасного canvas крутится петля `media/hero-loop.webm`
+ * От 901 px всё это заменяет видео: крутится петля `media/hero-loop.webm`
  * (фолбэк mp4 для Safari), а поверх неё лежит градиент, под которым читается
  * заголовок. Виньетка слоя 1 там не нужна: в самом видео она уже есть, вторая
  * съедает стену карточек по краям до черноты
  * (`work/лендинг (это сделал клод)/видео-фон-v2/ИНТЕГРАЦИЯ.md`).
  *
- * Видео показывается только от 901 px — правка Сергея 08.09.2026: на телефоне
+ * До 900 px видео не показывается — правка Сергея 08.09.2026: на телефоне
  * остаётся снимок приложения на прежнем фоне. Проверка идёт по `useCompact`, а
  * не по CSS, поэтому на узком экране `<video>` не появляется в разметке вовсе
- * и мегабайт петли не качается.
+ * и мегабайт петли не качается. Шейдер и запасной canvas ниже живут ровно ради
+ * этого случая.
  */
 import { Suspense, lazy, useEffect, useRef, useState } from 'react';
-import type { HeroVariant } from '@/heroVariant';
 import { useCompact } from '@/lib/useCompact';
 import { useInView } from '@/lib/useInView';
 import { useReducedMotion } from '@/lib/useReducedMotion';
@@ -47,11 +46,7 @@ function hasWebGL(): boolean {
   }
 }
 
-export interface HeroBackdropProps {
-  variant?: HeroVariant;
-}
-
-export function HeroBackdrop({ variant = 'shot' }: HeroBackdropProps) {
+export function HeroBackdrop() {
   const reduced = useReducedMotion();
   const compact = useCompact();
   const [ref, inView] = useInView<HTMLDivElement>({ threshold: 0.01 });
@@ -60,8 +55,8 @@ export function HeroBackdrop({ variant = 'shot' }: HeroBackdropProps) {
 
   useEffect(() => setWebgl(hasWebGL()), []);
 
-  // На узком экране вариант `video` показывает тот же фон, что и `shot`.
-  const showVideo = variant === 'video' && !compact;
+  // На узком экране вместо видео остаётся прежний шейдерный фон.
+  const showVideo = !compact;
   const wantsMotion = !reduced && inView;
   const useShader = !showVideo && wantsMotion && webgl === true && !shaderFailed;
   const useCanvas = !showVideo && wantsMotion && (webgl === false || shaderFailed);
