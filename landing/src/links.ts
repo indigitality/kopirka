@@ -143,16 +143,16 @@ export const DOWNLOAD = {
 } as const;
 
 /**
- * Репозиторий. Адрес известен и подтверждён (`wiki/RELEASE.md`), но пока
- * приватный: ссылка ведёт на 404 для всех, кроме Сергея.
+ * Репозиторий. Адрес известен и подтверждён (`wiki/RELEASE.md`), открыт для всех
+ * с 09.09.2026.
  */
 export const GITHUB = 'https://github.com/indigitality/kopirka';
 
 /**
- * Репозиторий приватный (LND-10) — пока `false` кнопка/ссылка GitHub на сайте
- * не рендерится вовсе. Переключить в `true`, когда Сергей откроет репозиторий.
+ * Репозиторий публичный с 09.09.2026 (LND-10) — кнопка/ссылка GitHub на сайте
+ * рендерится.
  */
-export const GITHUB_PUBLIC = false;
+export const GITHUB_PUBLIC = true;
 
 /** «Сообщить об ошибке» — тот же адрес, что зашит в приложении. `confirmed`. */
 export const TELEGRAM = 'https://t.me/orshaks';

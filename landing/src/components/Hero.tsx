@@ -143,7 +143,7 @@ export function Hero() {
           <Button href="#download" variant="primary" size="hero">
             {CTA[platform]}
           </Button>
-          {/* Репозиторий приватный — на публичной странице кнопки нет. */}
+          {/* Репозиторий публичный с 09.09.2026 — кнопка на странице есть. */}
           {GITHUB_PUBLIC && (
             <Button
               href={GITHUB}

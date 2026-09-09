@@ -20,7 +20,7 @@ import { usePlatform, type Platform } from '@/platform';
  */
 function links(platform: Platform) {
   return [
-    // Репозиторий приватный — ссылка появится, когда GITHUB_PUBLIC станет true.
+    // Репозиторий публичный с 09.09.2026 — ссылка на GitHub есть.
     ...(GITHUB_PUBLIC ? [{ href: GITHUB, label: 'GitHub' }] : []),
     { href: TELEGRAM, label: 'Telegram' },
     {
