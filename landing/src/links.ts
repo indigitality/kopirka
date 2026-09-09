@@ -31,12 +31,13 @@ export interface Build {
   /** Адрес файла на сервере раздачи. */
   href: string;
   /**
-   * Имя, под которым файл ляжет на диск (атрибут `download`). У образов macOS
-   * оно кириллическое — как и `Content-Disposition`, которым сервер их отдаёт.
-   * У установщика Windows имя ASCII, и это осознанно:
-   * `desktop/scripts/build-windows.mjs` переименовывает его при сборке, потому
-   * что кириллицу в имени файла ломают и старые распаковщики zip'а, и
-   * пересылка мессенджерами. Внутри установщика «Копирка» остаётся кириллицей.
+   * Имя, под которым файл ляжет на диск (атрибут `download`). С 09.09.2026
+   * качается не установщик, а архив «установщик + инструкция», и имя у всех
+   * трёх архивов ASCII — то же, что отдаёт сервер в `Content-Disposition`.
+   * Так осознанно: архив пересылают мессенджерами и распаковывают чем попало, а
+   * кириллицу в имени файла и то и другое исторически ломает. Человеческие
+   * русские имена лежат внутри архива — за них там отвечает бит 11 (UTF-8)
+   * в самом zip (`work/лендинг (это сделал клод)/деплой/pack-downloads.sh`).
    */
   file: string;
 }
@@ -50,7 +51,7 @@ export interface PlatformRelease {
   minOS: string;
   /** Архитектуры, под которые есть сборки. */
   arch: string;
-  /** Вес загрузки. `null` — файла ещё нет, и цифру выдумывать нельзя. */
+  /** Вес загрузки (архива). `null` — файла ещё нет, и цифру выдумывать нельзя. */
   size: string | null;
   /** Сборки этой системы, в порядке показа. */
   builds: Build[];
@@ -61,13 +62,19 @@ export interface PlatformRelease {
 /**
  * Сборки, требования и инструкции по системам.
  *
- * macOS — `wiki/RELEASE.md`: два образа по 48 МБ (aarch64 — 48 077 874 байта,
- * x64 — 50 688 290), минимум macOS 13.
+ * С 09.09.2026 качается не установщик, а архив: внутри установщик под эту
+ * систему и PDF-инструкция для неё. Требование Сергея — что бы человек ни
+ * скачал, инструкция должна лежать в скачанном, а не отдельной ссылкой рядом.
+ * Архивы собирает `work/лендинг (это сделал клод)/деплой/pack-downloads.sh`,
+ * он же печатает их размеры — цифры `size` ниже взяты из его вывода.
+ *
+ * macOS — `wiki/RELEASE.md`: два образа, минимум macOS 13. Архивы —
+ * 47 742 305 байт (Apple Silicon) и 50 347 553 (Intel), отсюда «48–50 МБ».
  * Windows — `desktop/src-tauri/tauri.windows.conf.json` и
  * `desktop/scripts/build-windows.mjs`: NSIS-установщик `currentUser` (права
- * администратора не нужны), только x64, имя файла `Kopirka_0.2.0_x64-setup.exe`.
- * Требования — Windows 10 1809+ / 11: ниже 1809 не живёт WebView2, который
- * установщик несёт загрузчиком (`webviewInstallMode: embedBootstrapper`).
+ * администратора не нужны), только x64. Требования — Windows 10 1809+ / 11:
+ * ниже 1809 не живёт WebView2, который установщик несёт загрузчиком
+ * (`webviewInstallMode: embedBootstrapper`).
  */
 export const PLATFORMS: Record<PlatformId, PlatformRelease> = {
   macos: {
@@ -75,21 +82,21 @@ export const PLATFORMS: Record<PlatformId, PlatformRelease> = {
     label: 'macOS',
     minOS: 'macOS 13+',
     arch: 'Apple Silicon и Intel',
-    size: '48 МБ',
+    size: '48–50 МБ',
     builds: [
       {
         id: 'aarch64',
         title: 'Apple Silicon',
         note: 'M1 и новее',
-        href: '/downloads/Kopirka_0.2.0_aarch64.dmg',
-        file: 'Копирка_0.2.0_aarch64.dmg',
+        href: '/downloads/Kopirka_0.2.0_macOS_AppleSilicon.zip',
+        file: 'Kopirka_0.2.0_macOS_AppleSilicon.zip',
       },
       {
         id: 'mac-x64',
         title: 'Intel',
         note: 'Mac до 2020 года',
-        href: '/downloads/Kopirka_0.2.0_x64.dmg',
-        file: 'Копирка_0.2.0_x64.dmg',
+        href: '/downloads/Kopirka_0.2.0_macOS_Intel.zip',
+        file: 'Kopirka_0.2.0_macOS_Intel.zip',
       },
     ],
     /** Источник — `app/docs/install-guide.md`. На сервере лежит под этим именем. */
@@ -101,9 +108,12 @@ export const PLATFORMS: Record<PlatformId, PlatformRelease> = {
     minOS: 'Windows 10 (1809) и 11',
     arch: 'x64',
     /**
-     * [?] Вес установщика. Файл ещё не собран (сборку делает GitHub Actions,
-     * `.github/workflows/build-windows.yml`), а цифру на публичной странице
-     * выдумывать нельзя — пока `null`, и компоненты вес просто не показывают.
+     * [?] Вес архива с установщиком. Сам установщик собирает GitHub Actions
+     * (`.github/workflows/build-windows.yml`), на момент правки артефакт ещё не
+     * скачан — а цифру на публичной странице выдумывать нельзя. Пока `null`, и
+     * компоненты вес просто не показывают (`filter(Boolean)` в Hero и Download).
+     * Заполнить строкой вида `'12 МБ'` из вывода `pack-downloads.sh`: он печатает
+     * размер каждого архива в тех же десятичных МБ, что и соседние значения.
      */
     size: null,
     builds: [
@@ -111,8 +121,8 @@ export const PLATFORMS: Record<PlatformId, PlatformRelease> = {
         id: 'win-x64',
         title: 'Windows x64',
         note: 'Установщик, без прав администратора',
-        href: '/downloads/Kopirka_0.2.0_x64-setup.exe',
-        file: 'Kopirka_0.2.0_x64-setup.exe',
+        href: '/downloads/Kopirka_0.2.0_Windows_x64.zip',
+        file: 'Kopirka_0.2.0_Windows_x64.zip',
       },
     ],
     /** Отдельная инструкция для Windows — тот же образец имени, что у macOS. */
