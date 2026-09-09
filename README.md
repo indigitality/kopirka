@@ -83,8 +83,8 @@ desktop/src-tauri/target.noindex/x86_64-apple-darwin/release/bundle/dmg/Копи
 Собирает GitHub Actions: **Actions → «Сборка Windows» → Run workflow** (ветку
 можно выбрать любую). Workflow — [`.github/workflows/build-windows.yml`](./.github/workflows/build-windows.yml),
 раннер `windows-latest`, цель `x86_64-pc-windows-msvc`. На каждый push он не
-запускается намеренно: репозиторий приватный, минуты Windows-раннера тратятся
-втрое против Linux. Тег `vX.Y.Z` сборку запускает.
+запускается намеренно: минуты Windows-раннера тратятся втрое против Linux,
+а сборка нужна не на каждый коммит. Тег `vX.Y.Z` сборку запускает.
 
 Кнопка «Run workflow» появляется только после того, как файл workflow'а попал в
 `main` — так устроен GitHub. Пока не попал, запуск делается push'ем в ветку
