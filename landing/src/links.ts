@@ -69,7 +69,7 @@ export interface PlatformRelease {
  * он же печатает их размеры — цифры `size` ниже взяты из его вывода.
  *
  * macOS — `wiki/RELEASE.md`: два образа, минимум macOS 13. Архивы —
- * 47 742 305 байт (Apple Silicon) и 50 347 553 (Intel), отсюда «48–50 МБ».
+ * 47 742 308 байт (Apple Silicon) и 50 347 556 (Intel), отсюда «48–50 МБ».
  * Windows — `desktop/src-tauri/tauri.windows.conf.json` и
  * `desktop/scripts/build-windows.mjs`: NSIS-установщик `currentUser` (права
  * администратора не нужны), только x64. Требования — Windows 10 1809+ / 11:
@@ -107,15 +107,8 @@ export const PLATFORMS: Record<PlatformId, PlatformRelease> = {
     label: 'Windows',
     minOS: 'Windows 10 (1809) и 11',
     arch: 'x64',
-    /**
-     * [?] Вес архива с установщиком. Сам установщик собирает GitHub Actions
-     * (`.github/workflows/build-windows.yml`), на момент правки артефакт ещё не
-     * скачан — а цифру на публичной странице выдумывать нельзя. Пока `null`, и
-     * компоненты вес просто не показывают (`filter(Boolean)` в Hero и Download).
-     * Заполнить строкой вида `'12 МБ'` из вывода `pack-downloads.sh`: он печатает
-     * размер каждого архива в тех же десятичных МБ, что и соседние значения.
-     */
-    size: null,
+    /** Вес архива — 34 359 357 байт, из вывода `pack-downloads.sh` (09.09.2026). */
+    size: '34 МБ',
     builds: [
       {
         id: 'win-x64',
