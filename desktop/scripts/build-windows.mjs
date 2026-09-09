@@ -157,6 +157,22 @@ function appVersion() {
  * распаковщики zip'а (в том числе тот, что отдаёт артефакты GitHub Actions),
  * и пересылка мессенджерами. Переименовываем в ASCII, содержимое не трогаем.
  */
+/**
+ * Каталог nsis лежит внутри target.noindex, а тот в CI восстанавливается из кэша.
+ * Значит от прошлого прогона там остаётся установщик — и уже переименованный,
+ * с ASCII-именем, которого Tauri в этот раз не создаст. Дальше renameInstaller
+ * видит два .exe и не может понять, какой из них свежий. Чистим каталог до
+ * сборки: после неё в нём обязан лежать ровно один файл, и это надёжнее любых
+ * догадок по имени или времени изменения.
+ */
+function clearNsisDir() {
+  const nsis = path.join(bundleDir(), 'nsis');
+  if (!fs.existsSync(nsis)) return;
+  const stale = fs.readdirSync(nsis).filter((name) => name.toLowerCase().endsWith('.exe'));
+  for (const name of stale) fs.rmSync(path.join(nsis, name), { force: true });
+  if (stale.length > 0) log(`Из ${path.relative(APP, nsis)} убраны установщики прошлого прогона: ${stale.join(', ')}`);
+}
+
 function renameInstaller() {
   const nsis = path.join(bundleDir(), 'nsis');
   if (!fs.existsSync(nsis)) throw new Error(`нет каталога ${path.relative(APP, nsis)} — установщик не собрался`);
@@ -179,6 +195,7 @@ function main() {
   if (!process.argv.includes('--skip-install')) {
     run(process.execPath, [npmCli(), 'install', '--no-audit', '--no-fund', '--silent'], { cwd: DESKTOP });
   }
+  clearNsisDir();
   // Минуя npm-скрипт `build` в desktop/package.json: он тоже ушёл бы в шим tauri.cmd.
   run(process.execPath, [tauriCli(), 'build', '--target', RUST_TARGET], { cwd: DESKTOP });
   log('Готово:');
