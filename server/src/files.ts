@@ -11,7 +11,7 @@ import type {
 } from '../../shared/api.js';
 import type { Db } from './db.js';
 import { subtreeIds } from './folders.js';
-import { resolveInLibrary, safeUnlink } from './paths.js';
+import { preview2xRelpath, resolveInLibrary, safeUnlink } from './paths.js';
 import { pruneOrphanTags, tagsForFiles } from './tags.js';
 
 export interface FileRow {
@@ -297,16 +297,21 @@ export function restoreFiles(db: Db, fileIds: readonly number[]): number {
 /** Окончательное удаление: сначала файлы с диска, затем строка (file_tags уходит каскадом). */
 export function purgeFiles(db: Db, libraryPath: string, fileIds: readonly number[]): number {
   if (fileIds.length === 0) return 0;
-  const select = db.prepare(`SELECT storage_relpath, preview_relpath FROM files WHERE id = ?`);
+  const select = db.prepare(`SELECT sha256, storage_relpath, preview_relpath FROM files WHERE id = ?`);
   const del = db.prepare(`DELETE FROM files WHERE id = ?`);
   let purged = 0;
   for (const id of fileIds) {
-    const row = select.get(id) as { storage_relpath: string; preview_relpath: string | null } | undefined;
+    const row = select.get(id) as
+      | { sha256: string; storage_relpath: string; preview_relpath: string | null }
+      | undefined;
     if (!row) continue;
     // Оригинал и превью — каждый своей попыткой: на Windows заблокированный файл
     // (открыт в просмотрщике, читает антивирус) не должен уносить с собой и второй.
     // Строку удаляем в любом случае: файла на диске может уже не быть.
-    for (const relpath of [row.storage_relpath, row.preview_relpath]) {
+    // Крупное превью (FDB-04) в базе не хранится — путь выводим из sha256; его
+    // может и не быть вовсе, если файл ни разу не смотрели крупной плиткой.
+    const previews = row.preview_relpath === null ? [] : [row.preview_relpath, preview2xRelpath(row.sha256)];
+    for (const relpath of [row.storage_relpath, ...previews]) {
       if (!relpath) continue;
       try {
         safeUnlink(resolveInLibrary(libraryPath, relpath));

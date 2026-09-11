@@ -19,6 +19,7 @@ import { useReducedMotion } from '@/lib/useReducedMotion';
 import { IconButton } from '@/components/ui/IconButton';
 import { glassLayerMotion, scrimMotion } from '@/components/ui/motion-presets';
 import { useToast } from '@/components/ui/Toast';
+import { useExport } from '@/features/export';
 import { useLibrary, useOpenFile } from '@/features/library/LibraryProvider';
 import { ConfirmDialog } from '@/features/grid/ConfirmDialog';
 import { useViewSelector, viewActions } from '@/store/view';
@@ -30,6 +31,7 @@ const ARROW = 'pointer-events-auto absolute disabled:opacity-30';
 export function DetailView() {
   const library = useLibrary();
   const { toast } = useToast();
+  const { exportFiles } = useExport();
   const scope = useViewSelector((s) => s.scope);
   const openFileId = useViewSelector((s) => s.openFileId);
   const { file, index } = useOpenFile();
@@ -165,6 +167,7 @@ export function DetailView() {
                     .then(() => toast({ title: 'Скопировано в буфер', tone: 'success' }))
                     .catch((cause: unknown) => notify(cause, 'Не удалось скопировать файл'));
                 }}
+                onExport={() => exportFiles([file.id])}
                 onReveal={() => {
                   void api
                     .revealFile(file.id)

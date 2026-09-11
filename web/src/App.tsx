@@ -7,6 +7,7 @@ import { ConfirmDialog } from '@/features/grid/ConfirmDialog';
 import { DragGhost } from '@/features/grid/DragGhost';
 import { setDropHandler, type DropTarget } from '@/features/grid/dnd';
 import { DetailView } from '@/features/detail/DetailView';
+import { ExportProvider } from '@/features/export';
 import { ImportProvider, useImport } from '@/features/import/ImportProvider';
 import { LibraryProvider, useLibrary } from '@/features/library/LibraryProvider';
 import { SettingsModal, fetchSettings, patchSettings, completeOnboarding } from '@/features/settings';
@@ -337,7 +338,9 @@ function Bootstrap() {
   return (
     <LibraryProvider>
       <ImportProvider>
-        <Shell settings={settings} onSettingsChange={setSettings} />
+        <ExportProvider>
+          <Shell settings={settings} onSettingsChange={setSettings} />
+        </ExportProvider>
       </ImportProvider>
     </LibraryProvider>
   );

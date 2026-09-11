@@ -33,6 +33,19 @@ export function isMacShell(): boolean {
 }
 
 /**
+ * Mac ли под нами вообще — в оболочке по атрибуту, в браузере по user-agent.
+ * Отличается от `isMacShell` нарочно: вопрос «что делает ctrl+клик» решает сама
+ * система, а не то, запущены мы в окне приложения или в Safari рядом.
+ */
+export function isMacLike(): boolean {
+  const shell = shellPlatform();
+  if (shell !== undefined) return shell === 'macos';
+  if (typeof navigator === 'undefined') return false;
+  const source = `${navigator.platform ?? ''} ${navigator.userAgent ?? ''}`;
+  return /mac|iphone|ipad|ipod/i.test(source);
+}
+
+/**
  * Подпись хоткея под текущую платформу: на Windows заменяет command-символ
  * на «Ctrl+» — ⌘K → Ctrl+K, ⌘C → Ctrl+C, ⌘V → Ctrl+V, ⌘1 / ⌘2 / ⌘3 →
  * Ctrl+1 / Ctrl+2 / Ctrl+3. Вне Windows-оболочки (macOS и браузер) возвращает

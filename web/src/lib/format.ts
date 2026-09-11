@@ -65,6 +65,18 @@ export function plural(count: number, one: string, few: string, many: string): s
   return many;
 }
 
+/**
+ * Подпись панели выделения: «Выбрано 7 из 142» либо «Выбраны все 142» (D21 / D21b).
+ * У единственного файла «все» звучало бы нелепо — там форма со словом «файл».
+ */
+export function selectionLabel(count: number, total: number): string {
+  if (total <= 0 || count < total) return `Выбрано ${count} из ${total}`;
+  if (total === 1) {
+    return `${plural(total, 'Выбран', 'Выбраны', 'Выбраны')} ${total} ${plural(total, 'файл', 'файла', 'файлов')}`;
+  }
+  return `${plural(total, 'Выбраны', 'Выбраны', 'Выбраны')} все ${total}`;
+}
+
 const SOURCE_LABELS: Record<string, string> = {
   context_menu: 'Контекстное меню браузера',
   tab_screenshot: 'Скриншот вкладки',

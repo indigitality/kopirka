@@ -36,6 +36,8 @@ export interface GridHotkeyHandlers {
   selectAll: () => void;
   clearSelection: () => void;
   copySelection: () => void;
+  /** FDB-05 — ⇧⌘E: выгрузить выбранное (или открытый файл) в папку на диске. */
+  exportSelection: () => void;
   deleteSelection: () => void;
   paste: (data: DataTransfer | null) => void;
   /** Детальный просмотр: открыт ли, чем листать, чем закрыть. */
@@ -119,6 +121,16 @@ export function useGridHotkeys(handlers: GridHotkeyHandlers): void {
         if (ref.current.detailOpen) return;
         event.preventDefault();
         ref.current.selectAll();
+        return;
+      }
+
+      /*
+        ⇧⌘E — экспорт. Ловим по `event.code`: с Shift `event.key` на разных
+        раскладках приезжает то «E», то «Е», то вовсе символ, а код клавиши один.
+      */
+      if (meta && event.shiftKey && event.code === 'KeyE') {
+        event.preventDefault();
+        ref.current.exportSelection();
         return;
       }
 

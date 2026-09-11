@@ -77,7 +77,22 @@ export function cardRatio(file: FileRecord): number {
   return 0.72;
 }
 
-function Preview({ file }: { file: FileRecord }) {
+/**
+ * FDB-04 — когда просить крупное превью. Обычное — 600 px по большей стороне
+ * (`PREVIEW_MAX_SIDE` сервера), и колонка «L» шириной 560 CSS px растягивала его
+ * почти вдвое на Retina. Порог по фактической ширине колонки, а не по имени
+ * размера: «M» на очень широком окне тоже бывает крупной плиткой.
+ */
+const HIDPI_WIDE_CARD = 400;
+const HIDPI_RETINA_CARD = 300;
+
+function wantsHiDpiPreview(width: number): boolean {
+  if (width >= HIDPI_WIDE_CARD) return true;
+  if (typeof window === 'undefined') return false;
+  return window.devicePixelRatio >= 2 && width >= HIDPI_RETINA_CARD;
+}
+
+function Preview({ file, width }: { file: FileRecord; width: number }) {
   const [failed, setFailed] = useState(false);
 
   if (file.isBroken) {
@@ -98,9 +113,12 @@ function Preview({ file }: { file: FileRecord }) {
     );
   }
 
+  /* Второй размер запрашивается тем же маршрутом — сервер сгенерирует его лениво. */
+  const src = wantsHiDpiPreview(width) ? `${file.previewUrl}?size=2x` : file.previewUrl;
+
   return (
     <img
-      src={file.previewUrl}
+      src={src}
       alt={file.originalFilename}
       width={file.width ?? undefined}
       height={file.height ?? undefined}
@@ -283,7 +301,7 @@ export const GridCard = memo(function GridCard({
               inTrash && 'opacity-55',
             )}
           >
-            <Preview file={file} />
+            <Preview file={file} width={box.width} />
 
             {/*
               Низ карточки: «Похоже дубль» отдельной строкой над тегами, теги —

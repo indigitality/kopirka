@@ -15,6 +15,7 @@ import sharp from 'sharp';
 import type {
   ApiError,
   EventsResponse,
+  FileExportResponse,
   FileListResponse,
   FileRecord,
   FolderRecord,
@@ -644,6 +645,156 @@ async function main(): Promise<void> {
     } finally {
       fs.renameSync(parked, original);
     }
+  });
+
+  /**
+   * Дополнительно: FDB-04 — второй размер превью. Проверяем лень (файла нет, пока
+   * его не попросили), кэш (второй запрос не пересоздаёт), отсечку для мелких
+   * картинок (увеличивать нечего) и уборку обоих превью при окончательном удалении.
+   */
+  await check('FDB-04: превью 2x строится лениво, кэшируется и уходит вместе с файлом', async () => {
+    // Плазма 480×360 меньше обычного превью — крупное ей не положено.
+    const smallPreview2x = await fetch(`${base}/api/files/${idAlpha}/preview?size=2x`);
+    assert(smallPreview2x.status === 200, `мелкая картинка: статус ${smallPreview2x.status}`);
+    const smallMeta = await sharp(Buffer.from(await smallPreview2x.arrayBuffer())).metadata();
+    assert((smallMeta.width ?? 0) <= 600, `мелкой картинке отдали ${smallMeta.width}px вместо обычного превью`);
+    const alphaRow = await api<FileRecord>('GET', `/api/files/${idAlpha}`);
+    const small2xPath = path.join(
+      libraryPath,
+      'previews',
+      alphaRow.sha256.slice(0, 2),
+      alphaRow.sha256.slice(2, 4),
+      `${alphaRow.sha256}@2x.webp`,
+    );
+    assert(!fs.existsSync(small2xPath), 'для мелкой картинки зря создали файл @2x');
+
+    // Крупный оригинал: 1800×1350, обычное превью ужимает его до 600. Сид 13 —
+    // свой, чтобы плазма не оказалась похожей ни на один уже загруженный узор
+    // (иначе IMP-01 увёл бы импорт в needs_confirmation).
+    const big = await plasma(13).resize(1800, 1350, { kernel: 'cubic' }).png().toBuffer();
+    const imported = await upload('/api/import', [{ name: 'plasma-huge.png', buffer: big }], {
+      sourceType: 'drag_drop',
+    });
+    const bigFile = imported.items[0]?.file as FileRecord | undefined;
+    assert(
+      bigFile !== undefined && bigFile.id > 0,
+      `крупный файл не импортировался: ${JSON.stringify(imported.items[0])}`,
+    );
+    assert(bigFile.width === 1800 && bigFile.height === 1350, `размеры ${bigFile.width}×${bigFile.height}`);
+
+    const shard = path.join(libraryPath, 'previews', bigFile.sha256.slice(0, 2), bigFile.sha256.slice(2, 4));
+    const preview1x = path.join(shard, `${bigFile.sha256}.webp`);
+    const preview2x = path.join(shard, `${bigFile.sha256}@2x.webp`);
+    assert(fs.existsSync(preview1x), 'обычное превью не появилось при импорте');
+    assert(!fs.existsSync(preview2x), 'крупное превью создалось до первого запроса — лень сломана');
+
+    const hiDpi = await fetch(`${base}/api/files/${bigFile.id}/preview?size=2x`);
+    assert(hiDpi.status === 200, `крупное превью отдалось со статусом ${hiDpi.status}`);
+    assert(hiDpi.headers.get('content-type') === 'image/webp', 'крупное превью не webp');
+    const hiMeta = await sharp(Buffer.from(await hiDpi.arrayBuffer())).metadata();
+    assert(Math.max(hiMeta.width ?? 0, hiMeta.height ?? 0) === 1400, `крупная сторона ${hiMeta.width}×${hiMeta.height}, ожидалось 1400`);
+    assert(fs.existsSync(preview2x), 'крупное превью не легло рядом с обычным');
+
+    // Второй запрос идёт из кэша: файл не пересоздаётся.
+    const mtime = fs.statSync(preview2x).mtimeMs;
+    const again = await fetch(`${base}/api/files/${bigFile.id}/preview?size=2x`);
+    assert(again.status === 200, `повторный запрос: статус ${again.status}`);
+    await again.arrayBuffer();
+    assert(fs.statSync(preview2x).mtimeMs === mtime, 'крупное превью пересоздали вместо отдачи из кэша');
+
+    // Без параметра — по-прежнему обычные 600.
+    const plain = await fetch(`${base}/api/files/${bigFile.id}/preview`);
+    const plainMeta = await sharp(Buffer.from(await plain.arrayBuffer())).metadata();
+    assert(Math.max(plainMeta.width ?? 0, plainMeta.height ?? 0) === 600, 'обычное превью перестало быть 600px');
+
+    // Окончательное удаление уносит оба превью и оригинал.
+    await api<{ deleted: number }>('POST', '/api/files/delete', { fileIds: [bigFile.id] });
+    await api<{ purged: number }>('POST', '/api/files/purge', { fileIds: [bigFile.id] });
+    assert(!fs.existsSync(preview1x), 'обычное превью осталось на диске');
+    assert(!fs.existsSync(preview2x), 'крупное превью осталось на диске');
+  });
+
+  /**
+   * Дополнительно: FDB-05 — экспорт оригиналов в обычную папку. Проверяем то, ради
+   * чего эндпоинт и писался: имена как у оригиналов, совпадения разводятся
+   * суффиксом, папка назначения не может быть ни относительной, ни внутри
+   * библиотеки, а не выгруженные файлы возвращаются списком с причиной.
+   */
+  await check('FDB-05: экспорт в папку — имена, коллизии, отказы и проверки targetDir', async () => {
+    const outDir = path.join(scratch, 'export-out');
+    fs.mkdirSync(outDir, { recursive: true });
+
+    const alpha = await api<FileRecord>('GET', `/api/files/${idAlpha}`);
+    const beta = await api<FileRecord>('GET', `/api/files/${idBeta}`);
+
+    const first = await api<FileExportResponse>('POST', '/api/files/export', {
+      fileIds: [idAlpha, idBeta],
+      targetDir: outDir,
+    });
+    assert(first.exported === 2, `exported=${first.exported}, ожидалось 2`);
+    assert(first.failed.length === 0, `failed=${JSON.stringify(first.failed)}`);
+    assert(fs.existsSync(path.join(outDir, alpha.originalFilename)), 'первый файл не лёг под своим именем');
+    assert(fs.existsSync(path.join(outDir, beta.originalFilename)), 'второй файл не лёг под своим именем');
+    assert(
+      fs.statSync(path.join(outDir, alpha.originalFilename)).size === alpha.sizeBytes,
+      'размер копии не совпал с оригиналом',
+    );
+
+    // Повтор в ту же папку — имя занято, значит «имя (2).ext».
+    const again = await api<FileExportResponse>('POST', '/api/files/export', {
+      fileIds: [idAlpha],
+      targetDir: outDir,
+    });
+    assert(again.exported === 1, `повторный экспорт: exported=${again.exported}`);
+    const ext = path.extname(alpha.originalFilename);
+    const stem = alpha.originalFilename.slice(0, alpha.originalFilename.length - ext.length);
+    assert(fs.existsSync(path.join(outDir, `${stem} (2)${ext}`)), 'коллизия имён не развелась суффиксом «(2)»');
+
+    // Чужой id не роняет весь экспорт — он попадает в failed с причиной.
+    const partial = await api<FileExportResponse>('POST', '/api/files/export', {
+      fileIds: [idBeta, 999999],
+      targetDir: outDir,
+    });
+    assert(partial.exported === 1, `частичный экспорт: exported=${partial.exported}`);
+    assert(partial.failed.length === 1 && partial.failed[0]?.id === 999999, `failed=${JSON.stringify(partial.failed)}`);
+    assert((partial.failed[0]?.reason ?? '') !== '', 'у отказа нет причины');
+
+    // Относительный путь.
+    const relative = await fetch(`${base}/api/files/export`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileIds: [idAlpha], targetDir: 'export-out' }),
+    });
+    assert(relative.status === 400, `относительный путь приняли со статусом ${relative.status}`);
+    assert(((await relative.json()) as ApiError).code === 'invalid_target_dir', 'не тот код у относительного пути');
+
+    // Несуществующая папка.
+    const missing = await fetch(`${base}/api/files/export`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileIds: [idAlpha], targetDir: path.join(scratch, 'нет-такой-папки') }),
+    });
+    assert(missing.status === 400, `несуществующую папку приняли со статусом ${missing.status}`);
+    assert(((await missing.json()) as ApiError).code === 'target_dir_missing', 'не тот код у несуществующей папки');
+
+    // Внутрь самой библиотеки экспортировать нельзя: там раскладка originals/ab/cd.
+    const inside = await fetch(`${base}/api/files/export`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileIds: [idAlpha], targetDir: path.join(libraryPath, 'originals') }),
+    });
+    assert(inside.status === 400, `путь внутри библиотеки приняли со статусом ${inside.status}`);
+    assert(((await inside.json()) as ApiError).code === 'target_dir_in_library', 'не тот код у пути внутри библиотеки');
+
+    // Браузерный режим экспорта: тот же оригинал, но как вложение.
+    const plain = await fetch(`${base}/api/files/${idAlpha}/original`);
+    assert(plain.headers.get('content-disposition') === null, 'обычная отдача оригинала стала вложением');
+    const download = await fetch(`${base}/api/files/${idAlpha}/original?download=1`);
+    const disposition = download.headers.get('content-disposition') ?? '';
+    assert(disposition.startsWith('attachment;'), `Content-Disposition=${disposition}`);
+    assert(disposition.includes(encodeURIComponent(alpha.originalFilename)), 'в заголовке нет имени файла');
+
+    fs.rmSync(outDir, { recursive: true, force: true });
   });
 
   /**

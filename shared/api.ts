@@ -217,6 +217,33 @@ export interface BulkTagRequest extends BulkFileIdsRequest {
   remove?: string[];
 }
 
+/**
+ * FDB-05 — выгрузка оригиналов в обычную папку на диске. `targetDir` —
+ * абсолютный путь существующей папки вне библиотеки (её раскладку менять извне
+ * нельзя). Файлы кладутся под своими `originalFilename`, совпадения имён
+ * разводятся суффиксом: `имя (2).png`.
+ */
+export interface FileExportRequest extends BulkFileIdsRequest {
+  targetDir: string;
+}
+
+/** Один не выгруженный файл: имя и причина человеческим языком (для «Подробнее»). */
+export interface FileExportFailure {
+  id: number;
+  name: string;
+  reason: string;
+}
+
+export interface FileExportResponse {
+  exported: number;
+  failed: FileExportFailure[];
+}
+
+/** LIB-06 — показать в файловом менеджере произвольную папку (куда шёл экспорт). */
+export interface RevealPathRequest {
+  path: string;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Папки — ORG-02
 // ─────────────────────────────────────────────────────────────────────────────
@@ -404,6 +431,8 @@ export const API = {
   restoreFiles: 'POST /api/files/restore',
   purgeFiles: 'POST /api/files/purge', // окончательное удаление
   emptyTrash: 'POST /api/trash/empty',
+  /** FDB-05 — копия оригиналов в обычную папку на диске. */
+  exportFiles: 'POST /api/files/export',
 
   listFolders: 'GET /api/folders',
   createFolder: 'POST /api/folders',
@@ -415,4 +444,7 @@ export const API = {
   getSettings: 'GET /api/settings',
   updateSettings: 'PATCH /api/settings',
   completeOnboarding: 'POST /api/onboarding/complete',
+
+  /** FDB-05 — показать в файловом менеджере папку, куда только что выгрузили. */
+  revealPath: 'POST /api/system/reveal-path',
 } as const;

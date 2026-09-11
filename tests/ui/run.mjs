@@ -29,7 +29,10 @@ import contextMenu from './scenarios/08-context-menu.mjs';
 import detailView from './scenarios/09-detail-view.mjs';
 import settings from './scenarios/10-settings.mjs';
 import trash from './scenarios/11-trash.mjs';
-import consoleErrorsScenario from './scenarios/12-console-errors.mjs';
+import marqueeSelection from './scenarios/12-marquee-selection.mjs';
+import selectAll from './scenarios/13-select-all.mjs';
+import contextDeleteGroup from './scenarios/14-context-delete-group.mjs';
+import consoleErrorsScenario from './scenarios/15-console-errors.mjs';
 
 const TESTS_DIR = fileURLToPath(new URL('.', import.meta.url));
 const APP_DIR = path.resolve(TESTS_DIR, '..', '..');
@@ -52,6 +55,9 @@ const SCENARIOS = [
   { name: 'Детальный просмотр: открытие, список папок под полем, Esc/Esc', run: detailView },
   { name: 'Настройки: панель на всё окно, закрытие по Esc и по крестику', run: settings },
   { name: 'Корзина: удаление файла и восстановление обратно', run: trash },
+  { name: 'Рамка выделения: протяжка по пустому месту выделяет карточки, Esc снимает', run: marqueeSelection },
+  { name: 'Чекбокс панели выделения: «Выбраны все N» и снятие', run: selectAll },
+  { name: 'Контекстное «Удалить» при группе отправляет в корзину всё выделение', run: contextDeleteGroup },
   { name: 'Консоль браузера без ошибок за весь прогон', run: consoleErrorsScenario },
 ];
 

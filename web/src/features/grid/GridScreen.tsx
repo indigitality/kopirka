@@ -21,7 +21,7 @@ import { flattenFolders } from '@/lib/folders';
 import { plural } from '@/lib/format';
 import { Icon } from '@/lib/icons';
 import { DUR_FAST, EASE_OUT } from '@/lib/motion';
-import { platformStrings } from '@/lib/platform';
+import { isMacLike, platformStrings } from '@/lib/platform';
 import { EASE_IN } from '@/components/ui/motion-presets';
 import { Button } from '@/components/ui/Button';
 import { IconButton } from '@/components/ui/IconButton';
@@ -31,6 +31,7 @@ import { Popover, PopoverContent, PopoverItem, PopoverSeparator, PopoverTrigger 
 import { SelectionBar } from '@/components/ui/SelectionBar';
 import { useToast } from '@/components/ui/Toast';
 import { useLibrary } from '@/features/library/LibraryProvider';
+import { useExport } from '@/features/export';
 import { DropZone } from '@/features/import/DropZone';
 import { useImport } from '@/features/import/ImportProvider';
 import { getViewState, useViewSelector, viewActions } from '@/store/view';
@@ -42,6 +43,7 @@ import { GridEmpty, GridError } from './GridEmpty';
 import { useGridMetrics } from './metrics';
 import { TrashSelectionBar } from './TrashSelectionBar';
 import { useGridHotkeys } from './useGridHotkeys';
+import { useMarquee } from './useMarquee';
 import { useMasonry, type MasonryInput } from './useMasonry';
 
 /** Пропорции карточек-заглушек на первой загрузке — чтобы экран не был пустым. */
@@ -67,6 +69,7 @@ function shelfPortal(target: HTMLElement | null, shelf: ReactNode): ReactNode {
 export function GridScreen() {
   const library = useLibrary();
   const { startImport, importFromTransfer } = useImport();
+  const { exportFiles } = useExport();
   const { toast } = useToast();
 
   const scope = useViewSelector((s) => s.scope);
@@ -126,6 +129,17 @@ export function GridScreen() {
   const { ref: gridRef, layout } = useMasonry(masonryItems, masonryOptions);
   const boxById = useMemo(() => new Map(layout.boxes.map((box) => [box.id, box])), [layout.boxes]);
 
+  /*
+    FDB-08 — выделение рамкой по пустому месту сетки (D20). Живёт в координатах
+    контейнера, теми же, в которых `useMasonry` считает `layout.boxes`, поэтому
+    пересечение — обычная проверка прямоугольников, без пересчёта в окно.
+  */
+  const marquee = useMarquee({
+    boxes: showSkeleton ? [] : layout.boxes,
+    getSelection: () => getViewState().selectedIds,
+    onSelect: (ids) => viewActions.setSelection(ids, ids.at(-1) ?? null),
+  });
+
   // ── Подгрузка курсором ───────────────────────────────────────────────────
   const sentinelRef = useRef<HTMLDivElement>(null);
   const pickerRef = useRef<HTMLInputElement>(null);
@@ -156,6 +170,14 @@ export function GridScreen() {
   // ── Выделение ────────────────────────────────────────────────────────────
   const handleSelectClick = useCallback((file: FileRecord, event: MouseEvent) => {
     const state = getViewState();
+    /*
+      На macOS ctrl+клик — это правый клик: система шлёт и `contextmenu`, и обычный
+      `click` с `ctrlKey`, и ветка «модификатор → переключить» выбрасывала карточку
+      из выделения ровно в тот момент, когда по ней открывали меню. Отдаём такой
+      клик контекстному меню целиком. На Windows Ctrl — настоящий модификатор
+      выделения, поэтому ветка платформенная, а не общая.
+    */
+    if (event.ctrlKey && !event.metaKey && isMacLike()) return;
     if (event.metaKey || event.ctrlKey) {
       viewActions.toggleSelected(file.id);
       return;
@@ -172,6 +194,23 @@ export function GridScreen() {
     }
     viewActions.setSelection([file.id], file.id);
   }, []);
+
+  /** ⌘A и чекбокс панели выделения — одно и то же: все файлы текущего среза. */
+  const selectAllVisible = useCallback(() => {
+    viewActions.setSelection(filesRef.current.map((file) => file.id));
+  }, []);
+
+  /**
+   * Чекбокс панели (D21/D21b): выбрано всё, что загружено, — снимаем; иначе
+   * выбираем всё. Сверяемся с длиной списка, а не с `library.total`: при
+   * постраничной подгрузке в срезе может быть больше файлов, чем в сетке, и
+   * «выбрать все» честно означает «все видимые».
+   */
+  const toggleSelectAll = useCallback(() => {
+    const list = filesRef.current;
+    if (getViewState().selectedIds.length >= list.length) viewActions.clearSelection();
+    else selectAllVisible();
+  }, [selectAllVisible]);
 
   const handleToggle = useCallback((file: FileRecord) => viewActions.toggleSelected(file.id), []);
   const handleOpen = useCallback((file: FileRecord) => viewActions.openFile(file.id), []);
@@ -195,6 +234,16 @@ export function GridScreen() {
       viewActions.setSelection([file.id], file.id);
     }
     setBulkDialog('folder');
+  }, []);
+
+  /**
+   * FDB-12 — действие из меню карточки идёт на всё выделение, если карточка в него
+   * входит; иначе — только на неё саму. Тот же договор, что у `handleAddTag`
+   * и `handleMoveToFolder` выше, только там он ещё и переносит выделение.
+   */
+  const groupIds = useCallback((file: FileRecord): readonly number[] => {
+    const selected = getViewState().selectedIds;
+    return selected.includes(file.id) ? selected : [file.id];
   }, []);
 
   const handleDragStart = useCallback((file: FileRecord): readonly number[] => {
@@ -262,8 +311,15 @@ export function GridScreen() {
       if (id === undefined) return;
       try {
         await api.copyFile(id);
+        /*
+          Системный буфер держит ровно одну картинку — пачку туда не положить.
+          Говорим об этом прямо и показываем, чем её забрать (FDB-12, FDB-05).
+        */
         toast({
-          title: ids.length > 1 ? 'Скопирован первый выбранный файл' : 'Скопировано в буфер',
+          title:
+            ids.length > 1
+              ? `Скопирован первый из ${ids.length} — для пачки используйте Экспорт`
+              : 'Скопировано в буфер',
           tone: 'success',
         });
       } catch (cause) {
@@ -346,7 +402,7 @@ export function GridScreen() {
     hasSelection: selectedIds.length > 0,
     /* Слои сетки: пока открыт любой из них, Esc закрывает его, а не выделение. */
     layerOpen: bulkDialog !== null || confirm !== null || renaming !== null || folderMenuOpen,
-    selectAll: () => viewActions.setSelection(filesRef.current.map((file) => file.id)),
+    selectAll: selectAllVisible,
     clearSelection: () => viewActions.clearSelection(),
     closeDetail: () => viewActions.openFile(null),
     stepDetail: (delta) => {
@@ -361,6 +417,11 @@ export function GridScreen() {
       const state = getViewState();
       const ids = state.openFileId !== null ? [state.openFileId] : state.selectedIds;
       void copyIds(ids);
+    },
+    exportSelection: () => {
+      const state = getViewState();
+      // Открытый файл важнее выделения — так же ведут себя ⌘C и ⌫.
+      exportFiles(state.openFileId !== null ? [state.openFileId] : state.selectedIds);
     },
     deleteSelection: () => {
       const state = getViewState();
@@ -523,7 +584,11 @@ export function GridScreen() {
   })();
 
   return (
-    <DropZone className="flex min-h-full flex-col">
+    /*
+      FDB-08 (а) — протяжка по сетке не должна выделять текст чипов и заголовка.
+      Поля ввода исключены точечно: внутри них выделение текста обязано работать.
+    */
+    <DropZone className="flex min-h-full flex-col select-none [&_input]:select-text [&_textarea]:select-text">
       <AnimatePresence initial={false}>
         {headerTitle !== null ? (
           <motion.div
@@ -574,11 +639,27 @@ export function GridScreen() {
             ref={gridRef}
             className="relative w-full shrink-0"
             style={{ height: layout.height }}
+            onPointerDown={marquee.onPointerDown}
             onClick={(event) => {
-              // Клик по пустому месту снимает выделение.
+              // Клик по пустому месту снимает выделение — но не тот, что завершил протяжку рамки.
+              if (marquee.didDrag()) return;
               if (event.target === event.currentTarget) viewActions.clearSelection();
             }}
           >
+            {/* Рамка выделения — D20: заливка `brand-tint`, обводка 1 px `brand`, радиус 4. */}
+            {marquee.rect !== null ? (
+              <div
+                aria-hidden
+                data-marquee
+                style={{
+                  left: marquee.rect.x,
+                  top: marquee.rect.y,
+                  width: marquee.rect.width,
+                  height: marquee.rect.height,
+                }}
+                className="pointer-events-none absolute z-30 rounded-xs border border-brand bg-brand-tint"
+              />
+            ) : null}
             {showSkeleton
               ? layout.boxes.map((box) => (
                   <div
@@ -605,10 +686,10 @@ export function GridScreen() {
                       onContextSelect={handleContextSelect}
                       onAddTag={handleAddTag}
                       onMoveToFolder={handleMoveToFolder}
-                      onTrash={(item) => void trashIds([item.id])}
-                      onRestore={(item) => void restoreIds([item.id])}
-                      onPurge={(item) => setConfirm({ kind: 'purge', ids: [item.id] })}
-                      onCopy={(item) => void copyIds([item.id])}
+                      onTrash={(item) => void trashIds(groupIds(item))}
+                      onRestore={(item) => void restoreIds(groupIds(item))}
+                      onPurge={(item) => setConfirm({ kind: 'purge', ids: groupIds(item) })}
+                      onCopy={(item) => void copyIds(groupIds(item))}
                       onReveal={(item) => void revealFile(item)}
                     />
                   );
@@ -649,9 +730,12 @@ export function GridScreen() {
                 <SelectionBar
                   key="selection-bar"
                   count={selectedIds.length}
+                  total={library.total}
+                  onToggleAll={toggleSelectAll}
                   className="shelf-selection z-40"
                   onMoveToFolder={() => setBulkDialog('folder')}
                   onTag={() => setBulkDialog('tag')}
+                  onExport={() => exportFiles(selectedIds)}
                   onDelete={() => void trashIds(selectedIds)}
                   onCancel={() => viewActions.clearSelection()}
                 />

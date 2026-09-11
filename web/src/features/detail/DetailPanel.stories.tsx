@@ -137,6 +137,7 @@ const meta = {
     file,
     inTrash: false,
     onCopy: noop,
+    onExport: noop,
     onReveal: noop,
     onTrash: noop,
     onRestore: noop,

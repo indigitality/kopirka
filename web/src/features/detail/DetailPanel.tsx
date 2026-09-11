@@ -7,7 +7,7 @@
  * `control`; акцентных кнопок в панели нет вовсе, включая «Скопировать».
  */
 import { useEffect, useState } from 'react';
-import { Copy, ExternalLink, Folder, Globe, ImageOff, RotateCcw, Trash2 } from 'lucide-react';
+import { Copy, Download, ExternalLink, Folder, Globe, ImageOff, RotateCcw, Trash2 } from 'lucide-react';
 import type { FileRecord, SourceType } from '@shared/api';
 import { PHASH_MAX_DISTANCE } from '@shared/api';
 import * as api from '@/lib/api';
@@ -229,6 +229,8 @@ export interface DetailPanelProps {
   file: FileRecord;
   inTrash: boolean;
   onCopy: () => void;
+  /** FDB-05 — «Экспорт…»: выгрузить этот файл в папку на диске (D23). */
+  onExport: () => void;
   onReveal: () => void;
   onTrash: () => void;
   onRestore: () => void;
@@ -239,6 +241,7 @@ export function DetailPanel({
   file,
   inTrash,
   onCopy,
+  onExport,
   onReveal,
   onTrash,
   onRestore,
@@ -387,24 +390,29 @@ export function DetailPanel({
       {/* Линия подвала идёт от края до края панели цветом обводки (узел «Подвал панели», R09). */}
       <footer className="flex shrink-0 flex-col gap-4 pb-5">
         <div className="h-px w-full shrink-0 bg-line-strong" />
-        <div className="flex items-center gap-2 px-5">
-          {inTrash ? (
-            <>
-              <Button
-                variant="secondary"
-                className="flex-1"
-                icon={<Icon icon={RotateCcw} size={16} aria-hidden />}
-                onClick={onRestore}
-              >
-                Восстановить
-              </Button>
-              {/* Необратимое подтверждается модалкой — здесь мягкая опасная. */}
-              <Button variant="danger" onClick={onPurge}>
-                Удалить навсегда
-              </Button>
-            </>
-          ) : (
-            <>
+        {inTrash ? (
+          <div className="flex items-center gap-2 px-5">
+            <Button
+              variant="secondary"
+              className="flex-1"
+              icon={<Icon icon={RotateCcw} size={16} aria-hidden />}
+              onClick={onRestore}
+            >
+              Восстановить
+            </Button>
+            {/* Необратимое подтверждается модалкой — здесь мягкая опасная. */}
+            <Button variant="danger" onClick={onPurge}>
+              Удалить навсегда
+            </Button>
+          </div>
+        ) : (
+          /*
+            Подвал в два ряда — D23 (`MJP-0`): «Экспорт…» не влезал четвёртой
+            кнопкой в строку шириной 348, а прятать его в меню незачем — это
+            один из двух способов достать файл наружу.
+          */
+          <div className="flex flex-col gap-2 px-5">
+            <div className="flex items-center gap-2">
               <Button
                 variant="secondary"
                 className="flex-1 gap-1.5"
@@ -413,15 +421,25 @@ export function DetailPanel({
               >
                 Скопировать
               </Button>
-              <Button variant="secondary" onClick={onReveal}>
+              <Button
+                variant="secondary"
+                className="flex-1"
+                icon={<Icon icon={Download} size={16} aria-hidden />}
+                onClick={onExport}
+              >
+                Экспорт…
+              </Button>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="secondary" className="flex-1" onClick={onReveal}>
                 {platformStrings().revealButton}
               </Button>
               <IconButton label="В корзину" variant="danger" onClick={onTrash}>
                 <Icon icon={Trash2} size={16} aria-hidden />
               </IconButton>
-            </>
-          )}
-        </div>
+            </div>
+          </div>
+        )}
       </footer>
     </aside>
   );

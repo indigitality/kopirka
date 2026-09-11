@@ -8,9 +8,12 @@
  * `shape="round"` — выделение карточки сетки (R13 · «Карточка и чипы»):
  *   20×20, круг; в покое лежит на превью — тёмная вуаль и белая обводка 1,5 px,
  *   выбран — лайм с той же галкой.
+ *
+ * `indeterminate` — «выбрана часть» (D22 · панель выделения): та же лаймовая
+ * заливка, но вместо галки минус, и `aria-checked="mixed"`.
  */
 import { forwardRef, type ButtonHTMLAttributes } from 'react';
-import { Check } from 'lucide-react';
+import { Check, Minus } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { iconProps } from '@/lib/icons';
 
@@ -22,6 +25,8 @@ export interface CheckboxProps extends Omit<ButtonHTMLAttributes<HTMLButtonEleme
   label?: string;
   /** `round` — поверх карточки, `square` — в списке фильтров. */
   shape?: CheckboxShape;
+  /** Выбрана часть: лайм с минусом вместо галки, `aria-checked="mixed"`. */
+  indeterminate?: boolean;
 }
 
 const SHAPE: Record<CheckboxShape, string> = {
@@ -37,15 +42,18 @@ const IDLE: Record<CheckboxShape, string> = {
 };
 
 export const Checkbox = forwardRef<HTMLButtonElement, CheckboxProps>(function Checkbox(
-  { checked, onCheckedChange, label = 'Выделить', shape = 'round', className, onClick, ...rest },
+  { checked, onCheckedChange, label = 'Выделить', shape = 'round', indeterminate = false, className, onClick, ...rest },
   ref,
 ) {
+  /* Частичное состояние выглядит как выбранное: заливка одна, различается знак. */
+  const filled = checked || indeterminate;
+
   return (
     <button
       ref={ref}
       type="button"
       role="checkbox"
-      aria-checked={checked}
+      aria-checked={indeterminate ? 'mixed' : checked}
       aria-label={label}
       onClick={(event) => {
         event.stopPropagation();
@@ -56,13 +64,13 @@ export const Checkbox = forwardRef<HTMLButtonElement, CheckboxProps>(function Ch
         'inline-flex shrink-0 items-center justify-center',
         'transition-[color,background-color,border-color] duration-[var(--dur-fast)] ease-out',
         SHAPE[shape],
-        checked ? 'border-transparent bg-brand text-brand-ink' : IDLE[shape],
+        filled ? 'border-transparent bg-brand text-brand-ink' : IDLE[shape],
         className,
       )}
       {...rest}
     >
-      {/* Галка 12 px: `absoluteStrokeWidth` пересчитает толщину в 3 — как в макете. */}
-      <Check {...iconProps(12)} aria-hidden />
+      {/* Галка (или минус) 12 px: `absoluteStrokeWidth` пересчитает толщину в 3 — как в макете. */}
+      {indeterminate ? <Minus {...iconProps(12)} aria-hidden /> : <Check {...iconProps(12)} aria-hidden />}
     </button>
   );
 });

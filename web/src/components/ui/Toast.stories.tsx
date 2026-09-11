@@ -115,9 +115,12 @@ export const НаПолке: Story = {
         <div id="kopirka-shelf" className="absolute inset-x-0 bottom-6">
           <SelectionBar
             count={3}
+            total={12}
+            onToggleAll={() => {}}
             className="shelf-selection"
             onMoveToFolder={() => {}}
             onTag={() => {}}
+            onExport={() => {}}
             onDelete={() => {}}
             onCancel={() => {}}
           />

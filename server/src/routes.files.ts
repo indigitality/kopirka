@@ -7,6 +7,8 @@ import { promisify } from 'node:util';
 import type { Hono } from 'hono';
 import {
   ACCEPTED_EXTS,
+  type FileExportFailure,
+  type FileExportResponse,
   type FileExt,
   type FileListResponse,
   type RevealResponse,
@@ -27,16 +29,18 @@ import {
   type ListQuery,
 } from './files.js';
 import { assertFolderExists } from './folders.js';
-import { CONTENT_TYPES, toPngBuffer } from './images.js';
+import { CONTENT_TYPES, PREVIEW_2X_MAX_SIDE, PREVIEW_MAX_SIDE, renderPreview, toPngBuffer } from './images.js';
 import { parseId, parseJsonBody, sendFile } from './http.js';
 import { log } from './logger.js';
-import { resolveInLibrary } from './paths.js';
+import { ensureParentDir, preview2xRelpath, resolveInLibrary } from './paths.js';
 import {
   boolFlagSchema,
   bulkMoveSchema,
   bulkTagSchema,
   fileIdsSchema,
+  filesExportSchema,
   fileUpdateSchema,
+  revealPathSchema,
   scopeSchema,
   sortSchema,
 } from './schemas.js';
@@ -253,6 +257,81 @@ function removeTempDir(dir: string): void {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// FDB-05 — экспорт оригиналов в обычную папку на диске.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Сколько раз пытаемся развести совпадающие имена, прежде чем сдаться. */
+const EXPORT_MAX_SUFFIX = 9999;
+
+/** Сравнение путей: на Windows файловая система к регистру безразлична. */
+function samePathKey(value: string): string {
+  return process.platform === 'win32' ? value.toLowerCase() : value;
+}
+
+/**
+ * Папка назначения обязана быть абсолютной, существовать и лежать вне библиотеки:
+ * раскладку `originals/ab/cd/...` держит сервер, и складывать туда копии снаружи —
+ * верный способ получить сирот, которых никто не удалит.
+ */
+function resolveExportDir(libraryPath: string, raw: string): string {
+  const targetDir = raw.trim();
+  if (targetDir === '' || !path.isAbsolute(targetDir)) {
+    throw badRequest('Нужен абсолютный путь до папки', 'invalid_target_dir');
+  }
+  const resolved = path.resolve(targetDir);
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(resolved);
+  } catch {
+    throw badRequest(`Папка не найдена: ${resolved}`, 'target_dir_missing');
+  }
+  if (!stat.isDirectory()) throw badRequest(`Это не папка: ${resolved}`, 'target_dir_not_directory');
+
+  const root = path.resolve(libraryPath);
+  const rootKey = samePathKey(root.endsWith(path.sep) ? root : root + path.sep);
+  const targetKey = samePathKey(resolved);
+  if (targetKey === samePathKey(root) || targetKey.startsWith(rootKey)) {
+    throw badRequest('Экспортировать внутрь самой библиотеки нельзя', 'target_dir_in_library');
+  }
+  return resolved;
+}
+
+/**
+ * Имя файла на диске получателя. `original_filename` приехало снаружи (из браузера,
+ * из Finder), поэтому от него берём только базовое имя и вычищаем разделители:
+ * записать «../../.bashrc» мимо выбранной папки никто не должен.
+ */
+function exportFilename(originalFilename: string, sha256: string, ext: string): string {
+  const base = path.basename(originalFilename.replace(/[\\/]/g, '_')).trim();
+  if (base === '' || base === '.' || base === '..') return `${sha256}.${ext}`;
+  return base;
+}
+
+/** `имя.png` → `имя (2).png`, пока не найдётся свободное. */
+function uniqueTargetPath(dir: string, filename: string): string {
+  const ext = path.extname(filename);
+  const stem = ext === '' ? filename : filename.slice(0, -ext.length);
+  let candidate = path.join(dir, filename);
+  for (let index = 2; fs.existsSync(candidate) && index <= EXPORT_MAX_SUFFIX; index += 1) {
+    candidate = path.join(dir, `${stem} (${index})${ext}`);
+  }
+  if (fs.existsSync(candidate)) {
+    throw new Error('в папке слишком много файлов с таким именем');
+  }
+  return candidate;
+}
+
+/** Причина отказа человеческим языком: она попадает в «Подробнее» тоста ошибки (D25). */
+function exportFailureReason(error: unknown): string {
+  const code = (error as NodeJS.ErrnoException).code;
+  if (code === 'EACCES' || code === 'EPERM' || code === 'EROFS') return 'нет прав на запись';
+  if (code === 'ENOSPC') return 'на диске нет места';
+  if (code === 'ENOENT') return 'файл не найден';
+  if (code === 'ENAMETOOLONG') return 'слишком длинное имя файла';
+  return error instanceof Error ? error.message : String(error);
+}
+
 function multiParam(values: string[] | undefined): string[] {
   if (!values) return [];
   return values.flatMap((value) => value.split(',')).map((value) => value.trim()).filter((value) => value !== '');
@@ -335,6 +414,46 @@ function parseListQuery(url: URL): ListQuery {
   return query;
 }
 
+/**
+ * FDB-04 — путь к крупному превью, при необходимости сгенерировав его из оригинала.
+ * `null` — крупного нет и не будет (оригинал пропал, sharp не справился) либо оно
+ * не нужно вовсе: картинку меньше 600 px по большей стороне увеличивать нечем,
+ * обычное превью уже содержит её целиком.
+ *
+ * Пишем через временный файл и `rename`: два одновременных запроса за одной
+ * плиткой — обычное дело для сетки, и подсунуть друг другу недописанный webp они
+ * не должны.
+ */
+async function ensurePreview2x(
+  state: AppState,
+  row: { sha256: string; storage_relpath: string; width: number | null; height: number | null },
+): Promise<string | null> {
+  const longestSide = Math.max(row.width ?? 0, row.height ?? 0);
+  if (longestSide > 0 && longestSide <= PREVIEW_MAX_SIDE) return null;
+
+  const abs = resolveInLibrary(state.libraryPath, preview2xRelpath(row.sha256));
+  if (fs.existsSync(abs)) return abs;
+
+  const source = resolveInLibrary(state.libraryPath, row.storage_relpath);
+  if (!fs.existsSync(source)) return null;
+
+  const tmp = `${abs}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    ensureParentDir(abs);
+    fs.writeFileSync(tmp, await renderPreview(fs.readFileSync(source), PREVIEW_2X_MAX_SIDE));
+    fs.renameSync(tmp, abs);
+    return abs;
+  } catch (error) {
+    log.warn(`не удалось построить крупное превью для ${row.sha256}`, error);
+    try {
+      fs.unlinkSync(tmp);
+    } catch {
+      /* временного файла могло и не появиться */
+    }
+    return null;
+  }
+}
+
 function requireFileRow(state: AppState, id: number) {
   const row = getFileRow(state.db, id);
   if (!row) throw notFound(`Файл ${id} не найден`, 'file_not_found');
@@ -367,11 +486,25 @@ export function registerFileRoutes(app: Hono, state: AppState): void {
     return c.json(getFile(state.db, id));
   });
 
-  app.on(['GET', 'HEAD'], '/api/files/:id/preview', (c) => {
+  app.on(['GET', 'HEAD'], '/api/files/:id/preview', async (c) => {
     const row = requireFileRow(state, parseId(c.req.param('id')));
     if (!row.preview_relpath) throw notFound('Превью для этого файла нет', 'no_preview');
     const abs = resolveInLibrary(state.libraryPath, row.preview_relpath);
     if (!fs.existsSync(abs)) throw notFound('Файл превью пропал с диска', 'preview_missing');
+
+    // FDB-04 — крупная плитка на Retina. Обычные 600 px просили только увеличить.
+    if (c.req.query('size') === '2x') {
+      const hiDpi = await ensurePreview2x(state, row);
+      if (hiDpi !== null) {
+        return sendFile(c, hiDpi, {
+          contentType: 'image/webp',
+          etag: `${row.sha256}-preview-2x`,
+          sandbox: true,
+        });
+      }
+      // Не получилось (оригинал пропал, sharp не справился) — отдаём обычное.
+    }
+
     return sendFile(c, abs, { contentType: 'image/webp', etag: `${row.sha256}-preview`, sandbox: true });
   });
 
@@ -380,7 +513,18 @@ export function registerFileRoutes(app: Hono, state: AppState): void {
     const abs = resolveInLibrary(state.libraryPath, row.storage_relpath);
     if (!fs.existsSync(abs)) throw notFound('Оригинал пропал с диска', 'original_missing');
     const contentType = CONTENT_TYPES[row.ext as FileExt] ?? 'application/octet-stream';
-    return sendFile(c, abs, { contentType, etag: row.sha256, sandbox: true });
+    /*
+      `?download=1` — браузерный режим экспорта (FDB-05): в окне Tauri файлы
+      копирует сервер, а в обычном браузере их можно забрать только по одному,
+      и без `Content-Disposition` картинка просто открылась бы во вкладке.
+      Заголовок ставим строго по запросу: у обычного <img> он не нужен.
+    */
+    const download = boolFlagSchema.safeParse((c.req.query('download') ?? '').toLowerCase());
+    const downloadName =
+      download.success && download.data
+        ? exportFilename(row.original_filename, row.sha256, row.ext)
+        : undefined;
+    return sendFile(c, abs, { contentType, etag: row.sha256, sandbox: true, downloadName });
   });
 
   // LIB-06 — «Показать в Finder» (macOS) / «Показать в проводнике» (Windows).
@@ -460,6 +604,59 @@ export function registerFileRoutes(app: Hono, state: AppState): void {
     const purged = purgeFiles(state.db, state.libraryPath, body.fileIds);
     log.info(`окончательно удалено файлов: ${purged}`);
     return c.json({ ok: true, purged });
+  });
+
+  // FDB-05 — копия выбранных оригиналов в обычную папку на диске.
+  app.post('/api/files/export', async (c) => {
+    const body = await parseJsonBody(c, filesExportSchema);
+    const targetDir = resolveExportDir(state.libraryPath, body.targetDir);
+
+    const failed: FileExportFailure[] = [];
+    let exported = 0;
+
+    for (const id of body.fileIds) {
+      const row = getFileRow(state.db, id);
+      if (!row) {
+        failed.push({ id, name: `#${id}`, reason: 'файла нет в библиотеке' });
+        continue;
+      }
+      const name = exportFilename(row.original_filename, row.sha256, row.ext);
+      try {
+        const source = resolveInLibrary(state.libraryPath, row.storage_relpath);
+        if (!fs.existsSync(source)) {
+          failed.push({ id, name, reason: 'оригинал пропал с диска' });
+          continue;
+        }
+        // Копируем, а не переносим: библиотека остаётся источником правды.
+        fs.copyFileSync(source, uniqueTargetPath(targetDir, name));
+        exported += 1;
+      } catch (error) {
+        failed.push({ id, name, reason: exportFailureReason(error) });
+      }
+    }
+
+    if (failed.length > 0) log.warn(`экспорт: не удалось выгрузить файлов — ${failed.length}`);
+    log.info(`экспортировано файлов: ${exported} → ${targetDir}`);
+    const response: FileExportResponse = { exported, failed };
+    return c.json(response);
+  });
+
+  /*
+    FDB-05 — «Показать в Finder» для папки, куда только что выгрузили. Отдельный
+    маршрут, потому что показывать нужно не файл библиотеки, а произвольный путь;
+    ограничение то же, что у экспорта: абсолютный путь существующей папки.
+  */
+  app.post('/api/system/reveal-path', async (c) => {
+    const body = await parseJsonBody(c, revealPathSchema);
+    const target = body.path.trim();
+    if (target === '' || !path.isAbsolute(target)) {
+      throw badRequest('Нужен абсолютный путь', 'invalid_path');
+    }
+    const resolved = path.resolve(target);
+    if (!fs.existsSync(resolved)) throw notFound(`Путь не найден: ${resolved}`, 'path_missing');
+    await revealInFileManager(resolved);
+    const response: RevealResponse = { ok: true };
+    return c.json(response);
   });
 
   app.post('/api/trash/empty', (c) => {
