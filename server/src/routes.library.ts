@@ -8,6 +8,7 @@ import {
   type NotifyResponse,
   type SettingsResponse,
 } from '../../shared/api.js';
+import type { ShortcutStatus } from '../../shared/api.js';
 import { expandHome } from './config.js';
 import { badRequest } from './errors.js';
 import { createFolder, deleteFolder, listFolders, updateFolder } from './folders.js';
@@ -19,6 +20,7 @@ import {
   folderUpdateSchema,
   notifySchema,
   settingsPatchSchema,
+  shortcutStatusSchema,
 } from './schemas.js';
 import type { AppState } from './state.js';
 import { listTags } from './tags.js';
@@ -54,10 +56,12 @@ function settingsPayload(state: AppState): SettingsResponse {
     libraryPath: state.libraryPath,
     serverPort: state.config.serverPort,
     firstRunCompleted: state.config.firstRunCompleted,
+    captureShortcut: state.config.captureShortcut,
     schemaVersion: state.schemaVersion,
     logPath: log.path(),
     appVersion: VERSION,
     librarySizeBytes: directorySize(state.libraryPath),
+    captureShortcutStatus: state.captureShortcutStatus,
   };
 }
 
@@ -146,6 +150,16 @@ export function registerLibraryRoutes(app: Hono, state: AppState): void {
       patch.serverPort = body.serverPort;
     }
     if (body.firstRunCompleted !== undefined) patch.firstRunCompleted = body.firstRunCompleted;
+    /*
+      FDB-10. Сочетание уже приведено к канону схемой. Новый хоткей — это новый
+      вопрос «а он вообще свободен?», ответить на который может только оболочка,
+      поэтому прошлый отчёт сбрасываем: иначе интерфейс покажет старое «сохранено»
+      от предыдущего сочетания раньше, чем придёт настоящий ответ.
+    */
+    if (body.captureShortcut !== undefined && body.captureShortcut !== state.config.captureShortcut) {
+      patch.captureShortcut = body.captureShortcut;
+      state.captureShortcutStatus = null;
+    }
     state.patchConfig(patch);
     if (body.serverPort !== undefined) {
       log.info(`порт изменён на ${body.serverPort}, применится после перезапуска`);
@@ -160,5 +174,24 @@ export function registerLibraryRoutes(app: Hono, state: AppState): void {
   app.post('/api/onboarding/complete', (c) => {
     state.patchConfig({ firstRunCompleted: true });
     return c.json(settingsPayload(state));
+  });
+
+  /**
+   * FDB-10 — оболочка отчитывается, зарегистрировался ли глобальный хоткей.
+   * Сервер сам ничего не вешает: у него нет доступа к системным сочетаниям.
+   * Хранит последний отчёт в памяти и отдаёт его в `GET /api/settings`, чтобы
+   * настройки показали «Сохранено» или «занято другой программой».
+   */
+  app.post('/api/system/shortcut-status', async (c) => {
+    const body = await parseJsonBody(c, shortcutStatusSchema);
+    const status: ShortcutStatus = {
+      shortcut: body.shortcut,
+      ok: body.ok,
+      error: body.error ?? null,
+      at: new Date().toISOString(),
+    };
+    state.captureShortcutStatus = status;
+    if (!body.ok) log.info(`хоткей ${body.shortcut ?? '—'} не зарегистрирован: ${body.error ?? 'причина не указана'}`);
+    return c.json(status);
   });
 }

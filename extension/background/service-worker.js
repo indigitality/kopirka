@@ -3,8 +3,8 @@
  * (CAP-02, CAP-08) и уведомления. Модуль — чтобы переиспользовать lib/.
  */
 
-import { getServerUrl } from '../lib/config.js';
-import { importUrl } from '../lib/api.js';
+import { getServerUrl, getTargetFolderId } from '../lib/config.js';
+import { flattenFolders, importUrl, listFolders } from '../lib/api.js';
 import { TEXT, describeImport, describeFailure } from '../lib/messages.js';
 import { ensureTabAccess, buildCaptureFilename } from '../lib/tabs.js';
 import { cropDataUrl, measureDataUrl, MIN_AREA_SIDE_CSS_PX } from '../lib/capture.js';
@@ -12,37 +12,141 @@ import { setPendingCapture } from '../lib/pending.js';
 import { MSG } from '../lib/protocol.js';
 
 const MENU_ID = 'kopirka-save-image';
+/** FDB-03 — пункт подменю «Не разобрано». Папки идут как `folder:<id>`. */
+const MENU_UNSORTED_ID = 'kopirka-folder-none';
+const MENU_FOLDER_PREFIX = 'folder:';
 const AREA_SELECT_SCRIPT = 'content/area-select.js';
 const NOTIFICATION_ICON = 'icons/icon128.png';
+
+/**
+ * Как часто пересобираем подменю папок при живом сервере. Минуты хватает: папки
+ * заводят руками, а не пачками, и каждый лишний запрос будит service worker.
+ */
+const MENU_REFRESH_MS = 60_000;
+const MENU_ALARM = 'kopirka-menu-refresh';
+
+/** Отступ уровня в подменю Chrome: вложенность там рисовать нечем, кроме текста. */
+const MENU_INDENT = '\u2007\u2007'; // figure space — не схлопывается и шириной с цифру
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CAP-01 — контекстное меню на изображении
 // ─────────────────────────────────────────────────────────────────────────────
 
-function installContextMenu() {
-  // removeAll перед созданием: пункт переживает перезапуск браузера,
-  // повторный create с тем же id иначе падает.
-  chrome.contextMenus.removeAll(() => {
-    chrome.contextMenus.create({
-      id: MENU_ID,
-      title: 'Сохранить в Копирку',
-      contexts: ['image'],
+/**
+ * FDB-03, вариант 2 (решение Сергея 11.09): родительский пункт «Сохранить в
+ * Копирку» и подменю с «Не разобрано» и деревом папок. Клик по самому
+ * родительскому пункту кладёт в папку, выбранную в popup, — так привычный
+ * однокликовый сценарий не подорожал.
+ *
+ * Дерево перестраивается целиком (`removeAll` + `create`): пункт переживает
+ * перезапуск браузера, и повторный `create` с тем же id иначе падает, а
+ * выборочная синхронизация ради десятка пунктов не стоит своей сложности.
+ *
+ * @param {Array<{id:number,name:string,depth:number}>} folders
+ */
+function installContextMenu(folders = []) {
+  return new Promise((resolve) => {
+    chrome.contextMenus.removeAll(() => {
+      chrome.contextMenus.create({
+        id: MENU_ID,
+        title: 'Сохранить в Копирку',
+        contexts: ['image'],
+      });
+      chrome.contextMenus.create({
+        id: MENU_UNSORTED_ID,
+        parentId: MENU_ID,
+        title: 'Не разобрано',
+        contexts: ['image'],
+      });
+      if (folders.length > 0) {
+        chrome.contextMenus.create({
+          id: 'kopirka-folder-separator',
+          parentId: MENU_ID,
+          type: 'separator',
+          contexts: ['image'],
+        });
+      }
+      for (const folder of folders) {
+        chrome.contextMenus.create({
+          id: `${MENU_FOLDER_PREFIX}${folder.id}`,
+          parentId: MENU_ID,
+          title: `${MENU_INDENT.repeat(folder.depth)}${folder.name}`,
+          contexts: ['image'],
+        });
+      }
+      // lastError читаем, иначе Chrome напишет о нём в консоль расширения сам.
+      void chrome.runtime.lastError;
+      resolve();
     });
   });
 }
 
-chrome.runtime.onInstalled.addListener(installContextMenu);
-chrome.runtime.onStartup.addListener(installContextMenu);
+/**
+ * Сходить за папками и пересобрать подменю. Сервер не отвечает — оставляем
+ * подменю с одним «Не разобрано»: пункт должен работать и без приложения,
+ * человек увидит осмысленное «Копирка не запущена», а не пустое меню.
+ */
+async function refreshContextMenu() {
+  let folders = [];
+  try {
+    const serverUrl = await getServerUrl();
+    folders = flattenFolders(await listFolders(serverUrl));
+  } catch {
+    folders = [];
+  }
+  await installContextMenu(folders);
+  return folders.length;
+}
+
+/*
+  Будильник, а не setInterval: service worker MV3 засыпает, и интервал умрёт
+  вместе с ним, а будильник сон переживает и сам поднимает воркер. Заводим его
+  только на установке и на старте браузера: `create` с тем же именем на каждом
+  пробуждении обнулял бы отсчёт, и минута никогда бы не истекла.
+*/
+function scheduleMenuRefresh() {
+  chrome.alarms.create(MENU_ALARM, { periodInMinutes: MENU_REFRESH_MS / 60_000 });
+}
+
+chrome.runtime.onInstalled.addListener(() => {
+  scheduleMenuRefresh();
+  void refreshContextMenu();
+});
+chrome.runtime.onStartup.addListener(() => {
+  scheduleMenuRefresh();
+  void refreshContextMenu();
+});
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === MENU_ALARM) void refreshContextMenu();
+});
 
 chrome.contextMenus.onClicked.addListener((info) => {
-  if (info.menuItemId !== MENU_ID) return;
-  void saveImageFromPage(info);
+  const id = String(info.menuItemId);
+  if (id === MENU_ID) {
+    /*
+      Запасной путь. Пункт с подменю Chrome сам по себе не нажимается — он только
+      раскрывается, — но если подменю по какой-то причине не собралось, клик по
+      родителю придёт сюда, и файл уйдёт в папку из popup, как раньше.
+    */
+    void saveImageFromPage(info, undefined);
+    return;
+  }
+  if (id === MENU_UNSORTED_ID) {
+    void saveImageFromPage(info, null);
+    return;
+  }
+  if (id.startsWith(MENU_FOLDER_PREFIX)) {
+    void saveImageFromPage(info, Number(id.slice(MENU_FOLDER_PREFIX.length)));
+  }
 });
 
 /**
  * @param {chrome.contextMenus.OnClickData} info
+ * @param {number | null | undefined} folderId `undefined` — взять папку из popup,
+ *   `null` — «Не разобрано», число — конкретная папка из подменю.
  */
-async function saveImageFromPage(info) {
+async function saveImageFromPage(info, folderId) {
   const imageUrl = info.srcUrl;
 
   if (!imageUrl) {
@@ -58,7 +162,12 @@ async function saveImageFromPage(info) {
 
   try {
     const serverUrl = await getServerUrl();
-    const response = await importUrl(serverUrl, { imageUrl, pageUrl: info.pageUrl });
+    const target = folderId === undefined ? await getTargetFolderId() : folderId;
+    const response = await importUrl(serverUrl, {
+      imageUrl,
+      pageUrl: info.pageUrl,
+      folderId: target,
+    });
     const result = describeImport(response);
     // Успех и дубль расширение больше не объявляет: приложение «Копирка» само
     // показывает системное уведомление по ленте событий сервера (с этой сборки —
@@ -231,6 +340,8 @@ const ROUTES = {
   [MSG.START_AREA_SELECT]: startAreaSelect,
   [MSG.AREA_SELECTED]: handleAreaSelected,
   [MSG.AREA_CANCELLED]: async () => ({ ok: true }),
+  // FDB-03 — popup открылся: он уже сходил за папками, повод обновить и подменю.
+  [MSG.REFRESH_MENU]: async () => ({ ok: true, folders: await refreshContextMenu() }),
 };
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {

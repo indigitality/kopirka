@@ -56,31 +56,53 @@ page load and does not persist on any site.
 
 ## `contextMenus`
 
-**RU:** Нужен для одного пункта контекстного меню — «Сохранить в
-Копирку» — на правом клике по изображению. Это основной способ
+**RU:** Нужен для пункта контекстного меню «Сохранить в Копирку» на правом
+клике по изображению и его подменю — «Не разобрано» и папки библиотеки, чтобы
+картинку можно было сразу положить в нужную папку. Это основной способ
 сохранить картинку без открытия popup.
 
-**EN:** Used for a single context-menu item — "Save to Kopirka" — shown
-when right-clicking an image. This is the primary way to save a picture
-without opening the popup.
+**EN:** Used for the context-menu item "Save to Kopirka" shown when
+right-clicking an image, and its submenu — "Unsorted" plus the library's
+folders, so a picture can go straight into the right folder. This is the
+primary way to save a picture without opening the popup.
 
 ## `storage`
 
-**RU:** Используется для двух вещей: (1) `storage.sync` хранит адрес
+**RU:** Используется для трёх вещей: (1) `storage.sync` хранит адрес
 локального сервера приложения (по умолчанию `http://127.0.0.1:43117`),
-чтобы не вводить его заново при каждом действии; (2) `storage.session`
+чтобы не вводить его заново при каждом действии; (1а) `storage.local` помнит
+выбранную папку библиотеки («Сохранять в») — идентификатор папки имеет смысл
+только рядом с этой библиотекой, поэтому между профилями он не синхронизируется;
+(2) `storage.session`
 временно держит уже снятый, но ещё не сохранённый кадр между закрытием
 popup (во время выделения области на странице) и его повторным
 открытием — на диск ничего не пишется, запись стирается после
 сохранения или сама, максимум через 10 минут.
 
-**EN:** Used for two things: (1) `storage.sync` remembers the local
+**EN:** Used for three things: (1) `storage.sync` remembers the local
 server address (default `http://127.0.0.1:43117`) so the user doesn't
-re-enter it every time; (2) `storage.session` temporarily holds a
+re-enter it every time; (1a) `storage.local` remembers the chosen library
+folder ("Save to"), which is meaningful only next to that one library and is
+deliberately not synced across profiles; (2) `storage.session` temporarily holds a
 capture that was taken but not yet saved, bridging the popup being
 closed (during on-page area selection) and reopened — nothing is
 written to disk, and the entry is cleared after saving or automatically
 after at most 10 minutes.
+
+## `alarms`
+
+**RU:** Единственный будильник расширения раз в минуту обновляет список папок
+библиотеки в подменю «Сохранить в Копирку» — чтобы папка, только что заведённая
+в приложении, появлялась в меню сама. Будильник, а не таймер, потому что
+service worker в Manifest V3 засыпает и обычный `setInterval` умирает вместе с
+ним. Ничего, кроме локального сервера приложения, расширение при этом не
+опрашивает.
+
+**EN:** The extension's single alarm refreshes the list of library folders in the
+"Save to Kopirka" submenu once a minute, so a folder just created in the app
+shows up in the menu on its own. An alarm rather than a timer because a
+Manifest V3 service worker sleeps and a plain `setInterval` dies with it. The
+refresh talks only to the app's local server, nothing else.
 
 ## `notifications`
 

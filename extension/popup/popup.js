@@ -4,8 +4,8 @@
  * а не разбросаны по условиям.
  */
 
-import { getServerUrl } from '../lib/config.js';
-import { checkHealth, importCapture } from '../lib/api.js';
+import { getServerUrl, getTargetFolderId, serverPort, setTargetFolderId } from '../lib/config.js';
+import { checkHealth, flattenFolders, importCapture, listFolders } from '../lib/api.js';
 import { describeImport, describeFailure } from '../lib/messages.js';
 import { getPendingCapture, clearPendingCapture } from '../lib/pending.js';
 import { MSG } from '../lib/protocol.js';
@@ -48,6 +48,12 @@ const VIEW_OF_STATE = {
 
 const SUCCESS_CLOSE_DELAY_MS = 1200;
 
+/** FDB-03 — поле фильтра появляется, когда список перестаёт читаться глазом. */
+const FILTER_FROM_FOLDERS = 8;
+
+/** Псевдопапка «Не разобрано»: первая строка списка, folderId === null. */
+const UNSORTED = { id: null, name: 'Не разобрано', depth: 0 };
+
 const dom = {
   sections: Array.from(document.querySelectorAll('[data-view]')),
   previewImage: document.getElementById('preview-image'),
@@ -65,6 +71,14 @@ const dom = {
   errorRetake: document.getElementById('error-retake'),
   openOptions: document.getElementById('open-options'),
   openOptions2: document.getElementById('open-options-2'),
+  statusPort: document.getElementById('status-port'),
+  folderTrigger: document.getElementById('folder-trigger'),
+  folderName: document.getElementById('folder-name'),
+  folderIcon: document.getElementById('folder-icon'),
+  folderList: document.getElementById('folder-list'),
+  folderOptions: document.getElementById('folder-options'),
+  folderFilterRow: document.getElementById('folder-filter-row'),
+  folderFilter: document.getElementById('folder-filter'),
 };
 
 const context = {
@@ -73,6 +87,12 @@ const context = {
   capture: null,
   serverUrl: '',
   message: '',
+  /** FDB-03 — плоский список папок с уровнями вложенности. */
+  /** @type {Array<{id:number,name:string,depth:number}>} */
+  folders: [],
+  /** @type {number | null} */
+  folderId: null,
+  folderOpen: false,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -126,6 +146,156 @@ function render() {
   if (context.state === State.SERVER_DOWN) {
     dom.serverAddress.textContent = context.serverUrl;
   }
+
+  if (view === 'idle') {
+    dom.statusPort.textContent = `· порт ${serverPort(context.serverUrl)}`;
+    dom.folderName.textContent = currentFolderName();
+    // Иконка поля повторяет иконку выбранной строки: лоток или папка.
+    const icon = folderIcon(context.folderId === null);
+    icon.removeAttribute('class');
+    dom.folderIcon.replaceChildren(icon);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FDB-03 — «Сохранять в»
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Имя выбранной папки. Папку могли удалить — тогда честно «Не разобрано». */
+function currentFolderName() {
+  if (context.folderId === null) return UNSORTED.name;
+  const folder = context.folders.find((item) => item.id === context.folderId);
+  return folder ? folder.name : UNSORTED.name;
+}
+
+/** Иконка строки: «Не разобрано» — лоток, папка — папка. */
+function folderIcon(isUnsorted) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('class', 'picker__icon');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '2.25');
+  svg.setAttribute('stroke-linecap', 'round');
+  svg.setAttribute('stroke-linejoin', 'round');
+  svg.setAttribute('aria-hidden', 'true');
+  const paths = isUnsorted
+    ? [
+        'M22 12h-6l-2 3h-4l-2-3H2',
+        'M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z',
+      ]
+    : ['M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z'];
+  for (const d of paths) {
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', d);
+    svg.append(path);
+  }
+  return svg;
+}
+
+/** Лаймовая галка выбранной строки. */
+function checkIcon() {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('class', 'picker__check');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '2.57');
+  svg.setAttribute('stroke-linecap', 'round');
+  svg.setAttribute('stroke-linejoin', 'round');
+  svg.setAttribute('aria-hidden', 'true');
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  path.setAttribute('d', 'M20 6 9 17l-5-5');
+  svg.append(path);
+  return svg;
+}
+
+/**
+ * @param {{ id: number | null, name: string, depth: number }} folder
+ * @returns {HTMLButtonElement}
+ */
+function folderRow(folder) {
+  const selected = context.folderId === folder.id;
+  const row = document.createElement('button');
+  row.type = 'button';
+  row.className = 'picker__option';
+  row.setAttribute('role', 'option');
+  row.setAttribute('aria-selected', String(selected));
+  // Вложенность показываем отступом слева, а не значком: так же, как в сайдбаре.
+  row.style.paddingLeft = `${10 + folder.depth * 12}px`;
+
+  const name = document.createElement('span');
+  name.className = 'picker__name';
+  name.textContent = folder.name;
+
+  row.append(folderIcon(folder.id === null), name);
+  if (selected) row.append(checkIcon());
+  row.addEventListener('click', () => void chooseFolder(folder.id));
+  return row;
+}
+
+/** Перерисовать список по текущему фильтру. */
+function renderFolderOptions() {
+  const query = dom.folderFilter.value.trim().toLowerCase();
+  const matches = query
+    ? context.folders.filter((folder) => folder.name.toLowerCase().includes(query))
+    : context.folders;
+
+  dom.folderOptions.replaceChildren();
+  // «Не разобрано» всегда первым и всегда видно: это не папка, а срез библиотеки.
+  dom.folderOptions.append(folderRow(UNSORTED));
+  if (matches.length > 0) {
+    const separator = document.createElement('div');
+    separator.className = 'picker__separator';
+    dom.folderOptions.append(separator);
+    for (const folder of matches) dom.folderOptions.append(folderRow(folder));
+  } else if (query) {
+    const empty = document.createElement('p');
+    empty.className = 'picker__empty';
+    empty.textContent = 'Папок с таким именем нет';
+    dom.folderOptions.append(empty);
+  }
+}
+
+function openFolderList() {
+  context.folderOpen = true;
+  dom.folderFilter.value = '';
+  const filtered = context.folders.length > FILTER_FROM_FOLDERS;
+  dom.folderFilterRow.hidden = !filtered;
+  dom.folderList.hidden = false;
+  dom.folderTrigger.setAttribute('aria-expanded', 'true');
+  renderFolderOptions();
+  if (filtered) dom.folderFilter.focus();
+}
+
+function closeFolderList() {
+  context.folderOpen = false;
+  dom.folderList.hidden = true;
+  dom.folderTrigger.setAttribute('aria-expanded', 'false');
+}
+
+/** @param {number | null} folderId */
+async function chooseFolder(folderId) {
+  context.folderId = folderId;
+  closeFolderList();
+  render();
+  await setTargetFolderId(folderId);
+}
+
+/**
+ * Папки нужны и popup, и подменю контекстного меню — поэтому заодно просим
+ * service worker пересобрать своё дерево: он всё равно не знает, когда человек
+ * завёл новую папку в приложении.
+ */
+async function loadFolders() {
+  context.folderId = await getTargetFolderId();
+  try {
+    context.folders = flattenFolders(await listFolders(context.serverUrl));
+  } catch {
+    // Сервер не ответил — список останется пустым, «Не разобрано» никуда не денется.
+    context.folders = [];
+  }
+  void sendToWorker({ type: MSG.REFRESH_MENU });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -144,6 +314,7 @@ async function checkServer() {
     return;
   }
 
+  await loadFolders();
   setState(context.capture ? State.PREVIEW : State.IDLE);
 }
 
@@ -189,6 +360,8 @@ async function saveCapture() {
       pageUrl: context.capture.pageUrl,
       suggestedFilename: context.capture.suggestedFilename,
       sourceType: context.capture.sourceType,
+      // FDB-03 — та же папка, что выбрана в блоке «Сохранять в».
+      folderId: context.folderId,
     });
 
     const result = describeImport(response);
@@ -271,6 +444,29 @@ dom.retrySave.addEventListener('click', () => void retryAfterError());
 dom.errorRetake.addEventListener('click', () => void retake());
 dom.openOptions.addEventListener('click', openOptions);
 dom.openOptions2.addEventListener('click', openOptions);
+
+dom.folderTrigger.addEventListener('click', () => {
+  if (context.folderOpen) closeFolderList();
+  else openFolderList();
+});
+dom.folderFilter.addEventListener('input', renderFolderOptions);
+
+// Esc закрывает сначала список, потом сам popup — как слои в приложении.
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && context.folderOpen) {
+    event.preventDefault();
+    closeFolderList();
+    dom.folderTrigger.focus();
+  }
+});
+
+// Клик мимо списка его закрывает; клик по самому полю обрабатывает триггер.
+document.addEventListener('pointerdown', (event) => {
+  if (!context.folderOpen) return;
+  const target = /** @type {Node} */ (event.target);
+  if (dom.folderList.contains(target) || dom.folderTrigger.contains(target)) return;
+  closeFolderList();
+});
 
 (async function start() {
   // Значок на иконке ставится, когда кадр снят, а popup открыть не удалось.

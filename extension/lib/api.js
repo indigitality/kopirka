@@ -112,9 +112,42 @@ export async function checkHealth(serverUrl) {
 }
 
 /**
+ * GET /api/folders — FDB-03, дерево папок для блока «Сохранять в» и для
+ * подменю контекстного меню. Сервер отдаёт голый массив корней, вложенные —
+ * в поле `children` (контракт `FolderRecord`).
+ *
+ * @param {string} serverUrl
+ * @returns {Promise<Array<{id:number,name:string,children:Array<any>}>>}
+ */
+export async function listFolders(serverUrl) {
+  const response = await request(serverUrl, '/api/folders', { timeoutMs: HEALTH_TIMEOUT_MS });
+  return Array.isArray(response) ? response : [];
+}
+
+/**
+ * Дерево папок → плоский список с уровнями вложенности: в такой форме его
+ * рисует и селект popup (отступами), и подменю Chrome (у него вложенность
+ * ограничена одним уровнем, поэтому уровень показывается отступом в тексте).
+ *
+ * @param {Array<{id:number,name:string,children?:Array<any>}>} folders
+ * @returns {Array<{id:number,name:string,depth:number}>}
+ */
+export function flattenFolders(folders, depth = 0) {
+  const flat = [];
+  for (const folder of folders) {
+    if (!folder || typeof folder.id !== 'number') continue;
+    flat.push({ id: folder.id, name: String(folder.name ?? ''), depth });
+    if (Array.isArray(folder.children) && folder.children.length > 0) {
+      flat.push(...flattenFolders(folder.children, depth + 1));
+    }
+  }
+  return flat;
+}
+
+/**
  * POST /api/import/url — CAP-01, контекстное меню.
  * @param {string} serverUrl
- * @param {{ imageUrl: string, pageUrl?: string }} payload
+ * @param {{ imageUrl: string, pageUrl?: string, folderId?: number | null }} payload
  * @returns {Promise<ImportResponse>}
  */
 export async function importUrl(serverUrl, payload) {
@@ -125,6 +158,8 @@ export async function importUrl(serverUrl, payload) {
       imageUrl: payload.imageUrl,
       pageUrl: payload.pageUrl,
       sourceType: 'context_menu',
+      // FDB-03. null — «Не разобрано»; сервер так же понимает и отсутствие поля.
+      folderId: payload.folderId ?? null,
     },
   });
   return asImportResponse(response);
@@ -133,7 +168,7 @@ export async function importUrl(serverUrl, payload) {
 /**
  * POST /api/import/capture — CAP-02 и CAP-08, скриншоты.
  * @param {string} serverUrl
- * @param {{ dataUrl: string, pageUrl?: string, suggestedFilename?: string, sourceType: 'tab_screenshot'|'area_screenshot' }} payload
+ * @param {{ dataUrl: string, pageUrl?: string, suggestedFilename?: string, sourceType: 'tab_screenshot'|'area_screenshot', folderId?: number | null }} payload
  * @returns {Promise<ImportResponse>}
  */
 export async function importCapture(serverUrl, payload) {
@@ -145,6 +180,8 @@ export async function importCapture(serverUrl, payload) {
       pageUrl: payload.pageUrl,
       suggestedFilename: payload.suggestedFilename,
       sourceType: payload.sourceType,
+      // FDB-03 — папка из блока «Сохранять в».
+      folderId: payload.folderId ?? null,
     },
   });
   return asImportResponse(response);

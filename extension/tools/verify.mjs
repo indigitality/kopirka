@@ -54,7 +54,15 @@ for (const pattern of manifest.host_permissions ?? []) {
   if (host.includes(':')) problems.push(`host_permissions: порт в шаблоне не поддерживается — ${pattern}`);
 }
 
-const ALLOWED_PERMISSIONS = ['activeTab', 'scripting', 'contextMenus', 'storage', 'notifications'];
+// `alarms` — FDB-03: будильник раз в минуту пересобирает подменю папок.
+const ALLOWED_PERMISSIONS = [
+  'activeTab',
+  'scripting',
+  'contextMenus',
+  'storage',
+  'notifications',
+  'alarms',
+];
 for (const permission of manifest.permissions ?? []) {
   if (!ALLOWED_PERMISSIONS.includes(permission)) {
     problems.push(`лишнее разрешение: ${permission}`);

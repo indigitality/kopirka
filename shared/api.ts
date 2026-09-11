@@ -177,6 +177,8 @@ export interface ImportUrlRequest {
   /** Страница, с которой сохранили. Пишется в sourceUrl. */
   pageUrl?: string;
   sourceType: Extract<SourceType, 'context_menu'>;
+  /** FDB-03 — куда класть. null и отсутствие поля равны: «Не разобрано». */
+  folderId?: number | null;
 }
 
 /** POST /api/import/capture — CAP-02, CAP-08, скриншоты из расширения. */
@@ -186,6 +188,8 @@ export interface ImportCaptureRequest {
   pageUrl?: string;
   suggestedFilename?: string;
   sourceType: Extract<SourceType, 'tab_screenshot' | 'area_screenshot'>;
+  /** FDB-03 — куда класть. null и отсутствие поля равны: «Не разобрано». */
+  folderId?: number | null;
 }
 
 /**
@@ -241,6 +245,50 @@ export interface AppConfig {
   /** SET-03 */
   serverPort: number;
   firstRunCompleted: boolean;
+  /**
+   * FDB-10 — глобальный хоткей снимка области (CAP-08) в нотации
+   * tauri-plugin-global-shortcut: модификаторы `Alt`/`Control`/`Shift`/`Super`
+   * и одна клавиша через `+`, например `Alt+Super+C` (это же значение по
+   * умолчанию — ⌥⌘C). `null` — хоткей выключен, съёмка остаётся в трее и меню.
+   *
+   * Оболочка читает поле из config.json при старте и перерегистрирует сочетание,
+   * когда оно изменилось: сервер хоткеи не вешает, он только хранит значение.
+   */
+  captureShortcut: string | null;
+}
+
+/** FDB-10 — ⌥⌘C в нотации плагина. Значение по умолчанию и цель кнопки сброса. */
+export const DEFAULT_CAPTURE_SHORTCUT = 'Alt+Super+C';
+
+/** Модификаторы, которые понимает tauri-plugin-global-shortcut. Порядок канонический. */
+export const SHORTCUT_MODIFIERS = ['Control', 'Alt', 'Shift', 'Super'] as const;
+export type ShortcutModifier = (typeof SHORTCUT_MODIFIERS)[number];
+
+/**
+ * FDB-10 — чем кончилась регистрация хоткея в оболочке. Кладётся туда
+ * `POST /api/system/shortcut-status`, живёт в памяти сервера (как лента событий)
+ * и отдаётся в `GET /api/settings`. Веб по нему показывает «Сочетание сохранено»
+ * или ошибку «занято другой программой»: сам он о занятости узнать не может —
+ * регистрирует не он, а Rust.
+ *
+ * `null` в `SettingsResponse` — оболочка ещё не отчиталась (браузер без
+ * приложения, только что стартовали, Windows-сборка без плагина).
+ */
+export interface ShortcutStatus {
+  /** Сочетание, о котором отчитались, в нотации плагина. */
+  shortcut: string | null;
+  ok: boolean;
+  /** Для `ok: false` — причина от плагина, как есть. */
+  error?: string | null;
+  /** ISO 8601, момент отчёта. Проставляет сервер. */
+  at: string;
+}
+
+/** Тело `POST /api/system/shortcut-status`. `at` сервер ставит сам. */
+export interface ShortcutStatusRequest {
+  shortcut: string | null;
+  ok: boolean;
+  error?: string | null;
 }
 
 export interface SettingsResponse extends AppConfig {
@@ -250,6 +298,8 @@ export interface SettingsResponse extends AppConfig {
   appVersion: string;
   /** Место на диске, занятое библиотекой, байт. */
   librarySizeBytes: number;
+  /** FDB-10 — последний отчёт оболочки о регистрации хоткея. */
+  captureShortcutStatus: ShortcutStatus | null;
 }
 
 /**
@@ -269,7 +319,9 @@ export type SettingsErrorCode =
   /** Порт вне допустимого диапазона. */
   | 'invalid_port'
   /** SVC-06 — новый порт занят другой программой, менять его нельзя. */
-  | 'port_busy';
+  | 'port_busy'
+  /** FDB-10 — сочетание не разбирается в нотации плагина. */
+  | 'invalid_shortcut';
 
 /** LIB-06 — «выход в работу». */
 export interface RevealResponse {
@@ -415,4 +467,6 @@ export const API = {
   getSettings: 'GET /api/settings',
   updateSettings: 'PATCH /api/settings',
   completeOnboarding: 'POST /api/onboarding/complete',
+  /** FDB-10 — оболочка отчитывается, зарегистрировался ли хоткей. */
+  shortcutStatus: 'POST /api/system/shortcut-status',
 } as const;

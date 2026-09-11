@@ -15,4 +15,6 @@ export const MSG = {
   AREA_SELECTED: 'area-selected',
   /** content script → SW: выделение отменено (Esc). */
   AREA_CANCELLED: 'area-cancelled',
+  /** popup → SW: пересобрать подменю папок контекстного меню (FDB-03). */
+  REFRESH_MENU: 'refresh-menu',
 };

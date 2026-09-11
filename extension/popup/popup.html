@@ -64,25 +64,71 @@
         <p class="view__text">Проверяем связь с Копиркой…</p>
       </section>
 
-      <!-- Состояние: исходное -->
+      <!-- Состояние: исходное — D30 с правками Сергея от 11.09 -->
       <section class="view" data-view="idle" hidden>
-        <button id="capture-visible" class="btn btn--primary btn--block" type="button">
-          <svg class="btn__icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
-            <rect x="1.6" y="2.6" width="12.8" height="9" rx="1.6" />
-            <path d="M5.2 14h5.6" stroke-linecap="round" />
-          </svg>
-          Снять скриншот видимой области
-        </button>
-        <button id="capture-area" class="btn btn--secondary btn--block" type="button">
-          <svg class="btn__icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
-            <path d="M4.3 1.3v10.4h10.4" stroke-linecap="round" stroke-linejoin="round" />
-            <path d="M1.3 4.3h10.4v10.4" stroke-linecap="round" stroke-linejoin="round" />
-          </svg>
-          Снять область
-        </button>
-        <p class="view__hint">
-          Правый клик по картинке на странице — «Сохранить в Копирку».
+        <p class="status">
+          <span class="status__dot" aria-hidden="true"></span>
+          <span class="status__text">Сервер подключён</span>
+          <span id="status-port" class="status__port text-technical"></span>
         </p>
+        <div class="stack">
+          <button id="capture-visible" class="btn btn--primary btn--block btn--tall" type="button">
+            <svg class="btn__icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
+              <rect x="1.6" y="2.6" width="12.8" height="9" rx="1.6" />
+              <path d="M5.2 14h5.6" stroke-linecap="round" />
+            </svg>
+            Снять скриншот видимой области
+          </button>
+          <button id="capture-area" class="btn btn--secondary btn--block btn--tall" type="button">
+            <svg class="btn__icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
+              <path d="M4.3 1.3v10.4h10.4" stroke-linecap="round" stroke-linejoin="round" />
+              <path d="M1.3 4.3h10.4v10.4" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            Снять область
+          </button>
+        </div>
+
+        <!-- FDB-03 — «Сохранять в»: D30 (покой) и D31 (список раскрыт) -->
+        <div class="folder">
+          <span class="label-section" id="folder-label">Сохранять в</span>
+          <div class="folder__anchor">
+            <button
+              id="folder-trigger"
+              class="select"
+              type="button"
+              aria-haspopup="listbox"
+              aria-expanded="false"
+              aria-labelledby="folder-label folder-name"
+            >
+              <!-- Иконку рисует popup.js: лоток у «Не разобрано», папка у папки. -->
+              <span id="folder-icon" class="select__slot" aria-hidden="true"></span>
+              <span id="folder-name" class="select__name">Не разобрано</span>
+              <svg class="select__chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.57" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </button>
+            <div id="folder-list" class="picker" role="listbox" aria-label="Папка для сохранения" hidden>
+              <div id="folder-options" class="picker__options"></div>
+              <div id="folder-filter-row" class="picker__filter" hidden>
+                <svg class="picker__search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" aria-hidden="true">
+                  <circle cx="11" cy="11" r="8" />
+                  <path d="m21 21-4.3-4.3" />
+                </svg>
+                <input
+                  id="folder-filter"
+                  class="picker__input"
+                  type="text"
+                  placeholder="Фильтр по имени папки"
+                  autocomplete="off"
+                  spellcheck="false"
+                />
+              </div>
+            </div>
+          </div>
+          <p class="view__hint">
+            Правый клик по картинке на странице — «Сохранить в Копирку».
+          </p>
+        </div>
       </section>
 
       <!-- Состояние: выбор области на странице (popup закрывается сразу после) -->

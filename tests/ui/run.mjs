@@ -29,7 +29,8 @@ import contextMenu from './scenarios/08-context-menu.mjs';
 import detailView from './scenarios/09-detail-view.mjs';
 import settings from './scenarios/10-settings.mjs';
 import trash from './scenarios/11-trash.mjs';
-import consoleErrorsScenario from './scenarios/12-console-errors.mjs';
+import hotkeySettings from './scenarios/12-hotkey-settings.mjs';
+import consoleErrorsScenario from './scenarios/13-console-errors.mjs';
 
 const TESTS_DIR = fileURLToPath(new URL('.', import.meta.url));
 const APP_DIR = path.resolve(TESTS_DIR, '..', '..');
@@ -52,6 +53,8 @@ const SCENARIOS = [
   { name: 'Детальный просмотр: открытие, список папок под полем, Esc/Esc', run: detailView },
   { name: 'Настройки: панель на всё окно, закрытие по Esc и по крестику', run: settings },
   { name: 'Корзина: удаление файла и восстановление обратно', run: trash },
+  { name: 'Горячая клавиша: тогл прячет поле, рекордер принимает ⌃⌥K и сохраняет', run: hotkeySettings },
+  // Итог по консоли — всегда последним: он подводит черту под всеми сценариями выше.
   { name: 'Консоль браузера без ошибок за весь прогон', run: consoleErrorsScenario },
 ];
 

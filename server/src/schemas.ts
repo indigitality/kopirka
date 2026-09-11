@@ -1,6 +1,7 @@
 /** Схемы входных данных. Всё, что приходит снаружи, проходит через zod. */
 import { z } from 'zod';
 import { ACCEPTED_EXTS, NOTIFY_MAX_BODY, NOTIFY_MAX_TITLE } from '../../shared/api.js';
+import { normalizeShortcut } from './config.js';
 
 const positiveId = z.number().int().positive();
 
@@ -39,6 +40,8 @@ export const importUrlSchema = z.object({
   imageUrl: z.string().min(1),
   pageUrl: z.string().optional(),
   sourceType: z.literal('context_menu').default('context_menu'),
+  /** FDB-03 — папка из popup или из подменю контекстного меню. */
+  folderId: positiveId.nullable().optional(),
 });
 
 export const importCaptureSchema = z.object({
@@ -46,6 +49,8 @@ export const importCaptureSchema = z.object({
   pageUrl: z.string().optional(),
   suggestedFilename: z.string().optional(),
   sourceType: z.enum(['tab_screenshot', 'area_screenshot']),
+  /** FDB-03 — папка из popup. */
+  folderId: positiveId.nullable().optional(),
 });
 
 /** Вариант CAP-05 для клиента, который присылает локальные пути, а не байты. */
@@ -70,6 +75,40 @@ export const settingsPatchSchema = z.object({
   libraryPath: z.string().min(1).optional(),
   serverPort: z.number().int().min(1024).max(65535).optional(),
   firstRunCompleted: z.boolean().optional(),
+  /**
+   * FDB-10. `null` — выключить хоткей; строка — сочетание в нотации
+   * tauri-plugin-global-shortcut. Формат проверяет `normalizeShortcut` — одна
+   * функция на конфиг и на схему, иначе сервер принял бы то, что оболочка
+   * не зарегистрирует. Значение приводится к канону прямо здесь: дальше
+   * по коду сравнивается строками.
+   */
+  captureShortcut: z
+    .string()
+    .min(1)
+    .transform((value, ctx) => {
+      const normalized = normalizeShortcut(value);
+      if (normalized === null) {
+        ctx.addIssue({
+          code: 'custom',
+          message: '1–3 модификатора (Alt, Control, Shift, Super) и одна клавиша, например Alt+Super+C',
+          params: { code: 'invalid_shortcut' },
+        });
+        return z.NEVER;
+      }
+      return normalized;
+    })
+    .nullable()
+    .optional(),
+});
+
+/**
+ * FDB-10 — `POST /api/system/shortcut-status`. Кладёт оболочка после попытки
+ * зарегистрировать сочетание; сервер только запоминает последний отчёт.
+ */
+export const shortcutStatusSchema = z.object({
+  shortcut: z.string().min(1).nullable(),
+  ok: z.boolean(),
+  error: z.string().max(500).nullable().optional(),
 });
 
 export const scopeSchema = z.enum(['library', 'untagged', 'trash']);
