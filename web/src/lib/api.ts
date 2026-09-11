@@ -28,6 +28,8 @@ import type {
   ImportUrlRequest,
   RevealPathRequest,
   RevealResponse,
+  SearchQuery,
+  SearchResponse,
   SettingsResponse,
   SourceType,
   StatsResponse,
@@ -100,7 +102,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       headers: init?.body instanceof FormData ? undefined : { 'Content-Type': 'application/json' },
       ...init,
     });
-  } catch {
+  } catch (cause) {
+    // Запрос отменили сами (устаревшая выдача поиска) — это не «сервер недоступен».
+    if (cause instanceof DOMException && cause.name === 'AbortError') throw cause;
     throw new ApiRequestError('Сервер «Копирки» недоступен', 0, 'offline');
   }
 
@@ -298,6 +302,24 @@ export const moveFolder = (id: number, body: FolderMoveRequest) =>
   request<FolderRecord>(`/folders/${id}/move`, patch(body));
 
 export const listTags = () => request<TagRecord[]>('/tags');
+
+// ── Поиск-модалка ──────────────────────────────────────────────────────────
+
+/**
+ * NEW-02 — один запрос на всю модалку. `signal` обязателен на практике: пока
+ * пользователь печатает, ответы приходят вразнобой, и устаревший должен быть
+ * отменён, а не «победить» свежий (отмена прилетает как AbortError, не как ошибка API).
+ */
+export function search(query: SearchQuery = {}, signal?: AbortSignal): Promise<SearchResponse> {
+  const path = `/search${buildQuery({
+    q: query.q,
+    tags: query.tags,
+    exts: query.exts,
+    folderId: query.folderId,
+    limit: query.limit,
+  })}`;
+  return request<SearchResponse>(path, signal ? { signal } : undefined);
+}
 
 // ── Настройки ──────────────────────────────────────────────────────────────
 

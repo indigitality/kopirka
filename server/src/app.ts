@@ -10,6 +10,7 @@ import { log } from './logger.js';
 import { registerFileRoutes } from './routes.files.js';
 import { registerImportRoutes } from './routes.import.js';
 import { registerLibraryRoutes } from './routes.library.js';
+import { registerSearchRoutes } from './routes.search.js';
 import type { AppState } from './state.js';
 
 /** Корень собранного интерфейса, уже без хвостового разделителя (на Windows он `\`). */
@@ -97,6 +98,7 @@ export function createApp(state: AppState): Hono {
   registerLibraryRoutes(app, state);
   registerFileRoutes(app, state);
   registerImportRoutes(app, state);
+  registerSearchRoutes(app, state);
 
   app.all('/api/*', (c) => {
     const error: ApiError = { error: `Неизвестный эндпоинт: ${c.req.method} ${new URL(c.req.url).pathname}`, code: 'not_found' };

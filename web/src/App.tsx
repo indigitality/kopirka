@@ -13,6 +13,7 @@ import { LibraryProvider, useLibrary } from '@/features/library/LibraryProvider'
 import { SettingsModal, fetchSettings, patchSettings, completeOnboarding } from '@/features/settings';
 import { OnboardingScreen } from '@/features/onboarding';
 import { FilterPanel, countActiveFilters } from '@/features/filters';
+import { SearchPalette, useSearchHotkey } from '@/features/search';
 import { plural } from '@/lib/format';
 import { getViewState, useViewSelector, viewActions } from '@/store/view';
 import { ToastProvider, useToast } from '@/components/ui/Toast';
@@ -36,9 +37,13 @@ function Shell({ settings, onSettingsChange }: ShellProps) {
   const [folderToDelete, setFolderToDelete] = useState<FolderRecord | null>(null);
   const [filterOpen, setFilterOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // NEW-02 — поиск-модалка: ⌘K, `/` и кнопка «Поиск ⌘K» в верхней панели.
+  const [searchOpen, setSearchOpen] = useState(false);
 
   const filters = useViewSelector((s) => s.filters);
   const sort = useViewSelector((s) => s.sort);
+
+  useSearchHotkey(useCallback(() => setSearchOpen(true), []));
 
   // Панель фильтров говорит на языке FileListQuery, стор — на своём. Здесь стык.
   const filterQuery = useMemo<FileListQuery>(
@@ -227,6 +232,7 @@ function Shell({ settings, onSettingsChange }: ShellProps) {
         onMoveFolder={handleMoveFolder}
         onImportFiles={(folderId, files) => void startImport(files, 'drag_drop', folderId)}
         onOpenSettings={() => setSettingsOpen(true)}
+        onOpenSearch={() => setSearchOpen(true)}
         onOpenFilter={() => setFilterOpen((open) => !open)}
         filterCount={countActiveFilters(filterQuery)}
         filterOpen={filterOpen}
@@ -250,6 +256,9 @@ function Shell({ settings, onSettingsChange }: ShellProps) {
         подтверждения (R14). Оболочка при этом остаётся на месте: вместе с ней
         остаётся и зона перетаскивания окна.
       */}
+      {/* NEW-02 — поиск-модалка. Стоит над оболочкой: у неё свой скрим (R14). */}
+      <SearchPalette open={searchOpen} onOpenChange={setSearchOpen} />
+
       <DetailView />
 
       {/* Груз под курсором. Портал в body: сетка скроллится, призрак — нет. */}

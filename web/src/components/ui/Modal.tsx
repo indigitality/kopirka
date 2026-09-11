@@ -91,6 +91,14 @@ export interface ModalContentProps
   width?: number;
   /** Классы прокручиваемого тела: например, свой отступ снизу. */
   bodyClassName?: string;
+  /**
+   * Голая коробка: ни шапки с крестиком, ни полей, ни подвала — только скрим,
+   * центрирование, движение и размер. Нужна тем диалогам, у которых шапка своя:
+   * поиск-модалка NEW-02 вместо заголовка несёт поле ввода. Заголовок всё равно
+   * обязателен — он уходит в `sr-only` ради Radix и скринридера, а фон и обводку
+   * коробке даёт `className` вызывающего (у палитры это `.glass`).
+   */
+  bare?: boolean;
 }
 
 export const ModalContent = forwardRef<ElementRef<typeof DialogPrimitive.Content>, ModalContentProps>(
@@ -104,6 +112,7 @@ export const ModalContent = forwardRef<ElementRef<typeof DialogPrimitive.Content
       width,
       className,
       bodyClassName,
+      bare,
       children,
       ...rest
     },
@@ -113,6 +122,8 @@ export const ModalContent = forwardRef<ElementRef<typeof DialogPrimitive.Content
     const reduced = useReducedMotion();
     /* Панель на всё окно живёт по метрикам R10, а не по метрикам диалога R14. */
     const isPanel = size === 'panel';
+    /* Голая коробка и панель во всё окно — взаимоисключающие режимы; панель главнее. */
+    const isBare = bare === true && !isPanel;
     const showDivider = footerDivider ?? (Boolean(footer) && Boolean(children));
 
     return (
@@ -132,6 +143,13 @@ export const ModalContent = forwardRef<ElementRef<typeof DialogPrimitive.Content
               Обёртка прозрачна для мыши, чтобы клик мимо доходил до скрима.
             */}
             <div
+              /*
+                Якорь для структурной проверки прогона (tests/ui): слой диалога обязан
+                лежать прямо в портале `document.body`, а не внутри панели контента —
+                иначе на WebKit `position: fixed` считался бы от смещённого containing
+                block (та же причина, что в коммите 54c6287).
+              */
+              data-modal-layer=""
               className={cn(
                 'pointer-events-none fixed inset-0 z-50 grid',
                 /*
@@ -166,10 +184,26 @@ export const ModalContent = forwardRef<ElementRef<typeof DialogPrimitive.Content
                     isPanel
                       ? /* R10: панель во всё окно, без обводки и тени — она не парит над оболочкой. */
                         'h-full w-full overflow-hidden rounded-panel bg-panel'
-                      : 'max-h-full w-full max-w-[calc(100vw-48px)] gap-4 rounded-panel border border-line-strong bg-raised p-6 shadow-modal',
+                      : isBare
+                        ? /* Голая коробка: радиус, тень и обрезка — своё содержимое рисует вызывающий. */
+                          'max-h-full w-full max-w-[calc(100vw-48px)] overflow-hidden rounded-panel shadow-modal'
+                        : 'max-h-full w-full max-w-[calc(100vw-48px)] gap-4 rounded-panel border border-line-strong bg-raised p-6 shadow-modal',
                     className,
                   )}
                 >
+                  {isBare ? (
+                    <>
+                      {/* Radix требует заголовок; в голой коробке он только для скринридера. */}
+                      <DialogPrimitive.Title className="sr-only">{title}</DialogPrimitive.Title>
+                      {description ? (
+                        <DialogPrimitive.Description className="sr-only">
+                          {description}
+                        </DialogPrimitive.Description>
+                      ) : null}
+                      {children}
+                    </>
+                  ) : (
+                    <>
                   {/*
                     Шапка панели закрывает верхнюю панель оболочки вместе с её зоной
                     перетаскивания, поэтому несёт её сама (`deep` — тянуть можно за фон,
@@ -239,6 +273,8 @@ export const ModalContent = forwardRef<ElementRef<typeof DialogPrimitive.Content
                       {footer}
                     </div>
                   ) : null}
+                    </>
+                  )}
                 </motion.div>
               </DialogPrimitive.Content>
             </div>

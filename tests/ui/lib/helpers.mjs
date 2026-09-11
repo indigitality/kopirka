@@ -278,15 +278,18 @@ export async function dispatchWheelDefaultPrevented(page, selector, { deltaY = 4
  * структурную причину независимо от того, во что она превращается в
  * конкретном движке.
  */
-export async function checkContainingBlock(page, selector) {
-  return page.evaluate((sel) => {
+export async function checkContainingBlock(page, selector, wrapperSelector = '[data-radix-popper-content-wrapper]') {
+  return page.evaluate((sel, wrapSel) => {
     const el = document.querySelector(sel);
     if (!el) return { found: false, notFound: true };
-    const wrapper = el.closest('[data-radix-popper-content-wrapper]');
+    const wrapper = el.closest(wrapSel);
     if (!wrapper) return { found: false, wrapperMissing: true };
 
     const parentIsBody = wrapper.parentElement === document.body;
     const parentTag = wrapper.parentElement ? wrapper.parentElement.tagName.toLowerCase() : null;
+    // Слой модалки живёт в обёртке портала Radix (body > div > слой), поэтому для него
+    // важен не прямой родитель, а то, что он вообще не попал внутрь панели контента.
+    const insideAppShell = wrapper.closest('#kopirka-content') !== null;
 
     let offending = null;
     for (let node = wrapper.parentElement; node; node = node.parentElement) {
@@ -309,21 +312,35 @@ export async function checkContainingBlock(page, selector) {
       }
     }
 
-    return { found: true, parentTag, parentIsBody, offending };
-  }, selector);
+    return { found: true, parentTag, parentIsBody, insideAppShell, offending };
+  }, selector, wrapperSelector);
 }
 
-/** Бросает понятную ошибку, если у слоя за `selector` неверный containing block. */
-export async function assertContainingBlockClean(page, selector, label) {
-  const result = await checkContainingBlock(page, selector);
+/**
+ * Бросает понятную ошибку, если у слоя за `selector` неверный containing block.
+ *
+ * `wrapperSelector` — что считать самим слоем: по умолчанию обёртка Radix Popper
+ * (поповеры, меню, выпадающие списки), для модалки — её собственный
+ * `[data-modal-layer]`. У модалки прямой родитель не `document.body`, а обёртка
+ * портала Radix, поэтому `requireBodyParent` для неё выключается, а вместо этого
+ * проверяется, что слой не уехал внутрь панели контента.
+ */
+export async function assertContainingBlockClean(page, selector, label, options = {}) {
+  const { wrapperSelector = '[data-radix-popper-content-wrapper]', requireBodyParent = true } = options;
+  const result = await checkContainingBlock(page, selector, wrapperSelector);
   if (!result.found) {
     throw new Error(
-      `containing-block(${label}): ${result.wrapperMissing ? `у "${selector}" нет предка [data-radix-popper-content-wrapper]` : `селектор "${selector}" не нашёл элемент`}`,
+      `containing-block(${label}): ${result.wrapperMissing ? `у "${selector}" нет предка ${wrapperSelector}` : `селектор "${selector}" не нашёл элемент`}`,
     );
   }
-  if (!result.parentIsBody) {
+  if (requireBodyParent && !result.parentIsBody) {
     throw new Error(
       `containing-block(${label}): обёртка портализована в <${result.parentTag}>, а не в document.body — Floating UI на WebKit не подстроится под смещённый containing block`,
+    );
+  }
+  if (!requireBodyParent && result.insideAppShell) {
+    throw new Error(
+      `containing-block(${label}): слой портализован внутрь #kopirka-content — position:fixed будет считаться от панели контента, а не от окна`,
     );
   }
   if (result.offending) {
@@ -331,6 +348,40 @@ export async function assertContainingBlockClean(page, selector, label) {
       `containing-block(${label}): между обёрткой и <html> есть <${result.offending.tag} class="${result.offending.className}"> с ${result.offending.reasons.join(', ')} — это containing block для position:fixed`,
     );
   }
+}
+
+/**
+ * Вернуть верхнюю панель в покой: снять строку запроса (её показывает кнопка
+ * поиска — features/search/SearchButton.tsx) и сбросить фильтры, если после
+ * «⌘↵ применить как фильтр» на сетке остались чипы. Поля поиска в панели больше
+ * нет (NEW-02), поэтому очистить запрос `setFieldValue` уже нельзя.
+ */
+export async function clearSearchAndFilters(page) {
+  const clear = await page.$('button[aria-label="Очистить поиск"]');
+  if (clear) {
+    await clear.click();
+    await clear.dispose();
+    await waitFor(async () => (await page.$('button[aria-label="Очистить поиск"]')) === null, {
+      timeout: 3000,
+      message: 'строка запроса не снялась с кнопки поиска',
+    });
+  }
+
+  const filterTrigger = await page.$('button[aria-label^="Фильтр, активных"]');
+  if (!filterTrigger) return;
+  await filterTrigger.click();
+  await filterTrigger.dispose();
+  await page.waitForSelector('[role="dialog"][aria-label="Фильтры"]', { timeout: 3000 });
+  await clickText(page, 'Сбросить');
+  await waitFor(async () => (await page.$('button[aria-label^="Фильтр, активных"]')) === null, {
+    timeout: 3000,
+    message: 'фильтры не сбросились',
+  });
+  await page.keyboard.press('Escape');
+  await waitFor(async () => (await page.$('[role="dialog"][aria-label="Фильтры"]')) === null, {
+    timeout: 3000,
+    message: 'панель фильтров не закрылась после сброса',
+  });
 }
 
 /** scrollTop элемента. */
