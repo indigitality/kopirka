@@ -15,6 +15,7 @@ import sharp from 'sharp';
 import type {
   ApiError,
   EventsResponse,
+  FileExportResponse,
   FileListResponse,
   FileRecord,
   FolderRecord,
@@ -644,6 +645,89 @@ async function main(): Promise<void> {
     } finally {
       fs.renameSync(parked, original);
     }
+  });
+
+  /**
+   * Дополнительно: FDB-05 — экспорт оригиналов в обычную папку. Проверяем то, ради
+   * чего эндпоинт и писался: имена как у оригиналов, совпадения разводятся
+   * суффиксом, папка назначения не может быть ни относительной, ни внутри
+   * библиотеки, а не выгруженные файлы возвращаются списком с причиной.
+   */
+  await check('FDB-05: экспорт в папку — имена, коллизии, отказы и проверки targetDir', async () => {
+    const outDir = path.join(scratch, 'export-out');
+    fs.mkdirSync(outDir, { recursive: true });
+
+    const alpha = await api<FileRecord>('GET', `/api/files/${idAlpha}`);
+    const beta = await api<FileRecord>('GET', `/api/files/${idBeta}`);
+
+    const first = await api<FileExportResponse>('POST', '/api/files/export', {
+      fileIds: [idAlpha, idBeta],
+      targetDir: outDir,
+    });
+    assert(first.exported === 2, `exported=${first.exported}, ожидалось 2`);
+    assert(first.failed.length === 0, `failed=${JSON.stringify(first.failed)}`);
+    assert(fs.existsSync(path.join(outDir, alpha.originalFilename)), 'первый файл не лёг под своим именем');
+    assert(fs.existsSync(path.join(outDir, beta.originalFilename)), 'второй файл не лёг под своим именем');
+    assert(
+      fs.statSync(path.join(outDir, alpha.originalFilename)).size === alpha.sizeBytes,
+      'размер копии не совпал с оригиналом',
+    );
+
+    // Повтор в ту же папку — имя занято, значит «имя (2).ext».
+    const again = await api<FileExportResponse>('POST', '/api/files/export', {
+      fileIds: [idAlpha],
+      targetDir: outDir,
+    });
+    assert(again.exported === 1, `повторный экспорт: exported=${again.exported}`);
+    const ext = path.extname(alpha.originalFilename);
+    const stem = alpha.originalFilename.slice(0, alpha.originalFilename.length - ext.length);
+    assert(fs.existsSync(path.join(outDir, `${stem} (2)${ext}`)), 'коллизия имён не развелась суффиксом «(2)»');
+
+    // Чужой id не роняет весь экспорт — он попадает в failed с причиной.
+    const partial = await api<FileExportResponse>('POST', '/api/files/export', {
+      fileIds: [idBeta, 999999],
+      targetDir: outDir,
+    });
+    assert(partial.exported === 1, `частичный экспорт: exported=${partial.exported}`);
+    assert(partial.failed.length === 1 && partial.failed[0]?.id === 999999, `failed=${JSON.stringify(partial.failed)}`);
+    assert((partial.failed[0]?.reason ?? '') !== '', 'у отказа нет причины');
+
+    // Относительный путь.
+    const relative = await fetch(`${base}/api/files/export`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileIds: [idAlpha], targetDir: 'export-out' }),
+    });
+    assert(relative.status === 400, `относительный путь приняли со статусом ${relative.status}`);
+    assert(((await relative.json()) as ApiError).code === 'invalid_target_dir', 'не тот код у относительного пути');
+
+    // Несуществующая папка.
+    const missing = await fetch(`${base}/api/files/export`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileIds: [idAlpha], targetDir: path.join(scratch, 'нет-такой-папки') }),
+    });
+    assert(missing.status === 400, `несуществующую папку приняли со статусом ${missing.status}`);
+    assert(((await missing.json()) as ApiError).code === 'target_dir_missing', 'не тот код у несуществующей папки');
+
+    // Внутрь самой библиотеки экспортировать нельзя: там раскладка originals/ab/cd.
+    const inside = await fetch(`${base}/api/files/export`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileIds: [idAlpha], targetDir: path.join(libraryPath, 'originals') }),
+    });
+    assert(inside.status === 400, `путь внутри библиотеки приняли со статусом ${inside.status}`);
+    assert(((await inside.json()) as ApiError).code === 'target_dir_in_library', 'не тот код у пути внутри библиотеки');
+
+    // Браузерный режим экспорта: тот же оригинал, но как вложение.
+    const plain = await fetch(`${base}/api/files/${idAlpha}/original`);
+    assert(plain.headers.get('content-disposition') === null, 'обычная отдача оригинала стала вложением');
+    const download = await fetch(`${base}/api/files/${idAlpha}/original?download=1`);
+    const disposition = download.headers.get('content-disposition') ?? '';
+    assert(disposition.startsWith('attachment;'), `Content-Disposition=${disposition}`);
+    assert(disposition.includes(encodeURIComponent(alpha.originalFilename)), 'в заголовке нет имени файла');
+
+    fs.rmSync(outDir, { recursive: true, force: true });
   });
 
   /**

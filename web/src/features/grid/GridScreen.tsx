@@ -31,6 +31,7 @@ import { Popover, PopoverContent, PopoverItem, PopoverSeparator, PopoverTrigger 
 import { SelectionBar } from '@/components/ui/SelectionBar';
 import { useToast } from '@/components/ui/Toast';
 import { useLibrary } from '@/features/library/LibraryProvider';
+import { useExport } from '@/features/export';
 import { DropZone } from '@/features/import/DropZone';
 import { useImport } from '@/features/import/ImportProvider';
 import { getViewState, useViewSelector, viewActions } from '@/store/view';
@@ -68,6 +69,7 @@ function shelfPortal(target: HTMLElement | null, shelf: ReactNode): ReactNode {
 export function GridScreen() {
   const library = useLibrary();
   const { startImport, importFromTransfer } = useImport();
+  const { exportFiles } = useExport();
   const { toast } = useToast();
 
   const scope = useViewSelector((s) => s.scope);
@@ -416,6 +418,11 @@ export function GridScreen() {
       const ids = state.openFileId !== null ? [state.openFileId] : state.selectedIds;
       void copyIds(ids);
     },
+    exportSelection: () => {
+      const state = getViewState();
+      // Открытый файл важнее выделения — так же ведут себя ⌘C и ⌫.
+      exportFiles(state.openFileId !== null ? [state.openFileId] : state.selectedIds);
+    },
     deleteSelection: () => {
       const state = getViewState();
       const ids = state.openFileId !== null ? [state.openFileId] : state.selectedIds;
@@ -728,6 +735,7 @@ export function GridScreen() {
                   className="shelf-selection z-40"
                   onMoveToFolder={() => setBulkDialog('folder')}
                   onTag={() => setBulkDialog('tag')}
+                  onExport={() => exportFiles(selectedIds)}
                   onDelete={() => void trashIds(selectedIds)}
                   onCancel={() => viewActions.clearSelection()}
                 />

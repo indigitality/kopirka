@@ -120,6 +120,7 @@ export const НаПолке: Story = {
             className="shelf-selection"
             onMoveToFolder={() => {}}
             onTag={() => {}}
+            onExport={() => {}}
             onDelete={() => {}}
             onCancel={() => {}}
           />

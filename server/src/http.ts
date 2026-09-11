@@ -53,6 +53,22 @@ export interface SendFileOptions {
    * этот CSP заблокирует её же JS и CSS, и приложение не запустится.
    */
   sandbox?: boolean;
+  /**
+   * Имя файла для скачивания: ставит `Content-Disposition: attachment`.
+   * Нужно браузерному режиму экспорта (FDB-05) — там файлы забираются по одному
+   * через `?download=1`, и без заголовка браузер просто открыл бы картинку.
+   */
+  downloadName?: string;
+}
+
+/**
+ * Заголовок вложения с двумя написаниями имени: ASCII-запасное для древних
+ * клиентов и RFC 5987 (`filename*`) для настоящего — имена файлов у нас
+ * сплошь и рядом кириллические.
+ */
+function contentDisposition(name: string): string {
+  const ascii = name.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`;
 }
 
 export function sendFile(c: Context, absPath: string, options: SendFileOptions): Response {
@@ -66,6 +82,10 @@ export function sendFile(c: Context, absPath: string, options: SendFileOptions):
     'Cache-Control': options.cacheControl ?? 'private, max-age=86400',
     'X-Content-Type-Options': 'nosniff',
   };
+
+  if (options.downloadName !== undefined && options.downloadName !== '') {
+    baseHeaders['Content-Disposition'] = contentDisposition(options.downloadName);
+  }
 
   if (options.sandbox) {
     baseHeaders['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'; sandbox";

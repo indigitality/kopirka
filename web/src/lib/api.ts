@@ -12,6 +12,8 @@ import type {
   BulkMoveRequest,
   BulkTagRequest,
   EventsResponse,
+  FileExportRequest,
+  FileExportResponse,
   FileListQuery,
   FileListResponse,
   FileRecord,
@@ -23,6 +25,7 @@ import type {
   ImportConfirmRequest,
   ImportResponse,
   ImportUrlRequest,
+  RevealPathRequest,
   RevealResponse,
   SettingsResponse,
   SourceType,
@@ -150,6 +153,12 @@ export const updateFile = (id: number, body: FileUpdateRequest) =>
 /** Прямые URL для <img>. Запросов не делают. */
 export const filePreviewUrl = (id: number) => `${BASE}/files/${id}/preview`;
 export const fileOriginalUrl = (id: number) => `${BASE}/files/${id}/original`;
+/**
+ * FDB-05 — тот же оригинал, но вложением (`Content-Disposition: attachment`).
+ * Нужен браузерному режиму экспорта: там нативного диалога папки нет, и файлы
+ * забираются по одному в «Загрузки».
+ */
+export const fileDownloadUrl = (id: number) => `${BASE}/files/${id}/original?download=1`;
 
 /** LIB-06 — «Показать в Finder». */
 export const revealFile = (id: number) => request<RevealResponse>(`/files/${id}/reveal`, json({}));
@@ -268,6 +277,12 @@ export const restoreFiles = (body: BulkFileIdsRequest) =>
 /** Окончательное удаление. */
 export const purgeFiles = (body: BulkFileIdsRequest) => request<OkResponse>('/files/purge', json(body));
 export const emptyTrash = () => request<OkResponse>('/trash/empty', json({}));
+/** FDB-05 — копия оригиналов в обычную папку на диске. */
+export const exportFiles = (body: FileExportRequest) =>
+  request<FileExportResponse>('/files/export', json(body));
+/** FDB-05 — показать в файловом менеджере папку, куда выгрузили. */
+export const revealPath = (body: RevealPathRequest) =>
+  request<RevealResponse>('/system/reveal-path', json(body));
 
 // ── Папки и теги ───────────────────────────────────────────────────────────
 

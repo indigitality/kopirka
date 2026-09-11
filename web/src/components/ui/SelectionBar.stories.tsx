@@ -16,6 +16,7 @@ const meta = {
     onToggleAll: () => {},
     onMoveToFolder: () => {},
     onTag: () => {},
+    onExport: () => {},
     onDelete: () => {},
     onCancel: () => {},
   },

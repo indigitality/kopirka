@@ -57,6 +57,12 @@ export interface ToastOptions {
   tone?: ToastTone;
   /** мс; 0 — не скрывать автоматически. */
   duration?: number;
+  /**
+   * Построчная расшифровка под «Подробнее» — D25 · `N2B-0` (тост ошибки
+   * экспорта: «имя файла — причина»). Кнопка «Подробнее» появляется сама,
+   * `action` при этом не нужен: раскрытие и есть действие.
+   */
+  details?: readonly string[];
 }
 
 interface ToastRecord extends ToastOptions {
@@ -102,6 +108,13 @@ const TITLE_TONE: Record<ToastTone, string> = {
 /** Глубже трёх стопка не бледнеет: иначе четвёртый тост стал бы невидимым. */
 const MAX_STACK_DEPTH = 3;
 
+/** Кнопка действия тоста — призрачная 32 px с полями 8 (R14). */
+const TOAST_ACTION = cn(
+  'flex h-[var(--size-row)] shrink-0 items-center rounded-md px-2',
+  'text-md leading-[18px] font-medium text-ink-muted',
+  'transition-colors duration-[var(--dur-fast)] ease-out hover:bg-control hover:text-ink',
+);
+
 function ToastRow({
   record,
   depth,
@@ -117,6 +130,8 @@ function ToastRow({
   onResume: () => void;
 }) {
   const reduced = useReducedMotion();
+  const [expanded, setExpanded] = useState(false);
+  const details = record.details ?? [];
   /* Пауза таймера под курсором: прочитать сводку из шести чисел за 5 секунд нельзя. */
   const hold = () => onPause();
   const release = () => onResume();
@@ -128,6 +143,61 @@ function ToastRow({
   */
   const layer = glassLayerMotion({ from: 'bottom', reduced });
   const tone = record.tone ?? 'default';
+
+  const toneIcon =
+    tone === 'success' ? (
+      <Icon icon={Check} size={16} className="shrink-0 text-brand" aria-hidden />
+    ) : tone === 'danger' ? (
+      <Icon icon={TriangleAlert} size={16} className="shrink-0 text-danger" aria-hidden />
+    ) : null;
+
+  const closeButton = (
+    <button
+      type="button"
+      aria-label="Закрыть уведомление"
+      onClick={onDismiss}
+      className={cn(
+        'flex shrink-0 items-center justify-center text-ink-muted',
+        'transition-colors duration-[var(--dur-fast)] ease-out hover:text-ink',
+      )}
+    >
+      <Icon icon={X} size={14} aria-hidden />
+    </button>
+  );
+
+  /* Раскрытая ошибка (D25): заголовок, линия, строки «имя — причина» 11/15. */
+  if (details.length > 0 && expanded) {
+    return (
+      <motion.div
+        layout
+        initial={layer.initial}
+        animate={{ ...layer.animate, ...toastStackMotion(Math.min(depth, MAX_STACK_DEPTH), reduced) }}
+        exit={layer.exit}
+        role="status"
+        onMouseEnter={hold}
+        onMouseLeave={release}
+        onFocusCapture={hold}
+        onBlurCapture={release}
+        className="glass pointer-events-auto flex w-90 max-w-full flex-col gap-2.5 rounded-card px-3.5 py-3"
+      >
+        <div className="flex items-center gap-2.5">
+          {toneIcon}
+          <span className={cn('min-w-0 flex-1 text-base leading-4 font-medium', TITLE_TONE[tone])}>
+            {record.title}
+          </span>
+          {closeButton}
+        </div>
+        <div className="h-px w-full shrink-0 bg-line-strong" aria-hidden />
+        <div className="flex flex-col gap-1.5">
+          {details.map((line, index) => (
+            <span key={`${index}-${line}`} className="text-xs leading-[15px] text-ink-muted tabular-nums">
+              {line}
+            </span>
+          ))}
+        </div>
+      </motion.div>
+    );
+  }
 
   return (
     <motion.div
@@ -145,10 +215,7 @@ function ToastRow({
         'rounded-card px-3.5',
       )}
     >
-      {tone === 'success' ? <Icon icon={Check} size={16} className="shrink-0 text-brand" aria-hidden /> : null}
-      {tone === 'danger' ? (
-        <Icon icon={TriangleAlert} size={16} className="shrink-0 text-danger" aria-hidden />
-      ) : null}
+      {toneIcon}
 
       {record.title ? (
         <span className={cn('shrink-0 text-base leading-4 font-medium', TITLE_TONE[tone])}>
@@ -169,36 +236,28 @@ function ToastRow({
         </span>
       ) : null}
 
-      {/* Действие — призрачная кнопка 32 px с полями 8 (R14 · «действие с отменой»). */}
-      {record.action ? (
+      {/*
+        Действие — призрачная кнопка 32 px с полями 8 (R14 · «действие с отменой»).
+        У тоста с расшифровкой это «Подробнее»: оно раскрывает список, а не закрывает
+        тост. Крестик стоит рядом всегда — так нарисованы D24 и D25.
+      */}
+      {details.length > 0 ? (
+        <button type="button" onClick={() => setExpanded(true)} className={TOAST_ACTION}>
+          {record.action?.label ?? 'Подробнее'}
+        </button>
+      ) : record.action ? (
         <button
           type="button"
           onClick={() => {
             record.action?.onClick();
             onDismiss();
           }}
-          className={cn(
-            'flex h-[var(--size-row)] shrink-0 items-center rounded-md px-2',
-            'text-md leading-[18px] font-medium text-ink-muted',
-            'transition-colors duration-[var(--dur-fast)] ease-out hover:bg-control hover:text-ink',
-          )}
+          className={TOAST_ACTION}
         >
           {record.action.label}
         </button>
-      ) : (
-        /* Без действия закрывают крестиком — не дожидаясь пяти секунд. */
-        <button
-          type="button"
-          aria-label="Закрыть уведомление"
-          onClick={onDismiss}
-          className={cn(
-            'flex shrink-0 items-center justify-center text-ink-muted',
-            'transition-colors duration-[var(--dur-fast)] ease-out hover:text-ink',
-          )}
-        >
-          <Icon icon={X} size={14} aria-hidden />
-        </button>
-      )}
+      ) : null}
+      {closeButton}
     </motion.div>
   );
 }

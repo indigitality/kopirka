@@ -454,6 +454,7 @@ export function KitPage() {
                 onToggleAll={() => setSelectionCount((current) => (current >= 12 ? 0 : 12))}
                 onMoveToFolder={() => toast({ title: 'Выбор папки для 3 файлов' })}
                 onTag={() => toast({ title: 'Добавление тега к 3 файлам' })}
+                onExport={() => toast({ title: 'Экспорт 3 файлов в папку' })}
                 onDelete={() =>
                   toast({
                     title: 'Файлы удалены',

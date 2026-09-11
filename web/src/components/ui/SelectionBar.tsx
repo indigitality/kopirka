@@ -12,14 +12,16 @@
  * Панель стоит у нижнего края экрана — приезжает снизу (`from="bottom"`).
  */
 import { motion } from 'motion/react';
-import { Folder, Tag as TagIcon, Trash2 } from 'lucide-react';
+import { Download, Folder, Tag as TagIcon, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { selectionLabel } from '@/lib/format';
 import { Icon } from '@/lib/icons';
+import { hotkeyLabel } from '@/lib/platform';
 import { useReducedMotion } from '@/lib/useReducedMotion';
 import { glassLayerMotion } from './motion-presets';
 import { Checkbox } from './Checkbox';
 import { IconButton } from './IconButton';
+import { Tooltip } from './Tooltip';
 
 export interface SelectionBarProps {
   count: number;
@@ -29,6 +31,8 @@ export interface SelectionBarProps {
   onToggleAll: () => void;
   onMoveToFolder: () => void;
   onTag: () => void;
+  /** FDB-05 — выгрузить выбранное в папку на диске (D22 · сегмент «Экспорт»). */
+  onExport: () => void;
   onDelete: () => void;
   onCancel: () => void;
   className?: string;
@@ -50,6 +54,7 @@ export function SelectionBar({
   onToggleAll,
   onMoveToFolder,
   onTag,
+  onExport,
   onDelete,
   onCancel,
   className,
@@ -87,6 +92,16 @@ export function SelectionBar({
         <Icon icon={TagIcon} size={16} aria-hidden />
         Тег
       </button>
+      {/*
+        Тултип стоит сверху, а не снизу как в листе состояний D22: панель живёт
+        у нижнего края окна, и снизу подсказке просто некуда встать.
+      */}
+      <Tooltip content="Экспортировать в папку…" hotkey={hotkeyLabel('⇧⌘E')} side="top">
+        <button type="button" className={SEGMENT} onClick={onExport}>
+          <Icon icon={Download} size={16} aria-hidden />
+          Экспорт
+        </button>
+      </Tooltip>
       <IconButton label="Удалить" variant="danger" size="sm" onClick={onDelete}>
         <Icon icon={Trash2} size={16} aria-hidden />
       </IconButton>

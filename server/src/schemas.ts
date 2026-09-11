@@ -72,6 +72,21 @@ export const settingsPatchSchema = z.object({
   firstRunCompleted: z.boolean().optional(),
 });
 
+/**
+ * FDB-05 — экспорт в папку. Сам путь проверяется в маршруте (абсолютность,
+ * существование, «не внутри библиотеки»): это вопросы файловой системы,
+ * а не формы запроса.
+ */
+export const filesExportSchema = z.object({
+  fileIds: z.array(positiveId).min(1, 'нужен хотя бы один файл'),
+  targetDir: z.string().min(1, 'нужна папка назначения'),
+});
+
+/** FDB-05 — «Показать в Finder» для произвольной папки. */
+export const revealPathSchema = z.object({
+  path: z.string().min(1, 'нужен путь'),
+});
+
 export const scopeSchema = z.enum(['library', 'untagged', 'trash']);
 export const sortSchema = z.enum(['added_desc', 'added_asc', 'name_asc', 'name_desc']);
 export const extSchema = z.enum(ACCEPTED_EXTS);
