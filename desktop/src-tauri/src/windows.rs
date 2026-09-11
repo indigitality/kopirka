@@ -91,6 +91,26 @@ const INIT_SCRIPT: &str = r#"
     document.documentElement.dataset.kopirkaInset = String(STRIP);
   }
 
+  // FDB-06/07 — родное меню WKWebView («Перезагрузить», «Показать веб-инспектор»,
+  // «Службы») поверх карточки выглядит как чужое и перекрывает наше контекстное
+  // меню Radix. Гасим его везде, кроме полей ввода: там «Вставить» — штатный
+  // способ импорта (CAP-04, ⌘V), и отбирать его нельзя.
+  //
+  // Слушатель в фазе перехвата: preventDefault не мешает всплытию, и Radix
+  // (он вешает свой обработчик на саму карточку) получает событие как обычно —
+  // гасится только действие браузера по умолчанию, а не доставка события.
+  document.addEventListener(
+    'contextmenu',
+    function (event) {
+      var target = event.target;
+      if (target && target.closest && target.closest('input, textarea, [contenteditable="true"], [contenteditable=""]')) {
+        return;
+      }
+      event.preventDefault();
+    },
+    true,
+  );
+
   // Пункт трея «Не разобрано» открывает соответствующий раздел. Стора наружу нет,
   // поэтому жмём ту же кнопку сайдбара, что и пользователь.
   window.__kopirkaShowUntagged = function () {
