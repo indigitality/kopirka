@@ -48,9 +48,12 @@ export interface FileDragSnapshot {
 /** Насколько далеко надо увести указатель, чтобы это стало переносом, а не кликом. */
 export const DRAG_THRESHOLD = 6;
 
-/** Автопрокрутка списка папок: полоса у края и шаг за кадр. */
-const SCROLL_EDGE = 44;
-const SCROLL_STEP = 14;
+/**
+ * Автопрокрутка у края: ширина полосы и шаг за кадр. Экспортируется — теми же
+ * порогами живёт протяжка рамки выделения (`useMarquee`), жест по ощущению общий.
+ */
+export const SCROLL_EDGE = 44;
+export const SCROLL_STEP = 14;
 
 /** Сколько превью показываем в стопке призрака. */
 const GHOST_STACK = 3;

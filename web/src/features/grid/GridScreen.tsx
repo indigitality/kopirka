@@ -42,6 +42,7 @@ import { GridEmpty, GridError } from './GridEmpty';
 import { useGridMetrics } from './metrics';
 import { TrashSelectionBar } from './TrashSelectionBar';
 import { useGridHotkeys } from './useGridHotkeys';
+import { useMarquee } from './useMarquee';
 import { useMasonry, type MasonryInput } from './useMasonry';
 
 /** Пропорции карточек-заглушек на первой загрузке — чтобы экран не был пустым. */
@@ -126,6 +127,17 @@ export function GridScreen() {
   const { ref: gridRef, layout } = useMasonry(masonryItems, masonryOptions);
   const boxById = useMemo(() => new Map(layout.boxes.map((box) => [box.id, box])), [layout.boxes]);
 
+  /*
+    FDB-08 — выделение рамкой по пустому месту сетки (D20). Живёт в координатах
+    контейнера, теми же, в которых `useMasonry` считает `layout.boxes`, поэтому
+    пересечение — обычная проверка прямоугольников, без пересчёта в окно.
+  */
+  const marquee = useMarquee({
+    boxes: showSkeleton ? [] : layout.boxes,
+    getSelection: () => getViewState().selectedIds,
+    onSelect: (ids) => viewActions.setSelection(ids, ids.at(-1) ?? null),
+  });
+
   // ── Подгрузка курсором ───────────────────────────────────────────────────
   const sentinelRef = useRef<HTMLDivElement>(null);
   const pickerRef = useRef<HTMLInputElement>(null);
@@ -180,6 +192,23 @@ export function GridScreen() {
     }
     viewActions.setSelection([file.id], file.id);
   }, []);
+
+  /** ⌘A и чекбокс панели выделения — одно и то же: все файлы текущего среза. */
+  const selectAllVisible = useCallback(() => {
+    viewActions.setSelection(filesRef.current.map((file) => file.id));
+  }, []);
+
+  /**
+   * Чекбокс панели (D21/D21b): выбрано всё, что загружено, — снимаем; иначе
+   * выбираем всё. Сверяемся с длиной списка, а не с `library.total`: при
+   * постраничной подгрузке в срезе может быть больше файлов, чем в сетке, и
+   * «выбрать все» честно означает «все видимые».
+   */
+  const toggleSelectAll = useCallback(() => {
+    const list = filesRef.current;
+    if (getViewState().selectedIds.length >= list.length) viewActions.clearSelection();
+    else selectAllVisible();
+  }, [selectAllVisible]);
 
   const handleToggle = useCallback((file: FileRecord) => viewActions.toggleSelected(file.id), []);
   const handleOpen = useCallback((file: FileRecord) => viewActions.openFile(file.id), []);
@@ -371,7 +400,7 @@ export function GridScreen() {
     hasSelection: selectedIds.length > 0,
     /* Слои сетки: пока открыт любой из них, Esc закрывает его, а не выделение. */
     layerOpen: bulkDialog !== null || confirm !== null || renaming !== null || folderMenuOpen,
-    selectAll: () => viewActions.setSelection(filesRef.current.map((file) => file.id)),
+    selectAll: selectAllVisible,
     clearSelection: () => viewActions.clearSelection(),
     closeDetail: () => viewActions.openFile(null),
     stepDetail: (delta) => {
@@ -548,7 +577,11 @@ export function GridScreen() {
   })();
 
   return (
-    <DropZone className="flex min-h-full flex-col">
+    /*
+      FDB-08 (а) — протяжка по сетке не должна выделять текст чипов и заголовка.
+      Поля ввода исключены точечно: внутри них выделение текста обязано работать.
+    */
+    <DropZone className="flex min-h-full flex-col select-none [&_input]:select-text [&_textarea]:select-text">
       <AnimatePresence initial={false}>
         {headerTitle !== null ? (
           <motion.div
@@ -599,11 +632,27 @@ export function GridScreen() {
             ref={gridRef}
             className="relative w-full shrink-0"
             style={{ height: layout.height }}
+            onPointerDown={marquee.onPointerDown}
             onClick={(event) => {
-              // Клик по пустому месту снимает выделение.
+              // Клик по пустому месту снимает выделение — но не тот, что завершил протяжку рамки.
+              if (marquee.didDrag()) return;
               if (event.target === event.currentTarget) viewActions.clearSelection();
             }}
           >
+            {/* Рамка выделения — D20: заливка `brand-tint`, обводка 1 px `brand`, радиус 4. */}
+            {marquee.rect !== null ? (
+              <div
+                aria-hidden
+                data-marquee
+                style={{
+                  left: marquee.rect.x,
+                  top: marquee.rect.y,
+                  width: marquee.rect.width,
+                  height: marquee.rect.height,
+                }}
+                className="pointer-events-none absolute z-30 rounded-xs border border-brand bg-brand-tint"
+              />
+            ) : null}
             {showSkeleton
               ? layout.boxes.map((box) => (
                   <div
@@ -674,6 +723,8 @@ export function GridScreen() {
                 <SelectionBar
                   key="selection-bar"
                   count={selectedIds.length}
+                  total={library.total}
+                  onToggleAll={toggleSelectAll}
                   className="shelf-selection z-40"
                   onMoveToFolder={() => setBulkDialog('folder')}
                   onTag={() => setBulkDialog('tag')}

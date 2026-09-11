@@ -1,9 +1,11 @@
 /**
- * Плавающая панель массового выделения. Канон — R06 · «Панель выделения»
- * и R13 · «Стекло и движение».
+ * Плавающая панель массового выделения. Канон — R06 · «Панель выделения»,
+ * R13 · «Стекло и движение» и доработки 11.09.2026: D21 · `LB5-0`,
+ * D21b · `M0T-0`, D22 · `MGL-0`.
  *
  * Стекло `.glass`, высота 44, радиус `--radius-card`, тень `--shadow-glass`,
- * поля 16, зазор 12. Слева счётчик 14/18 · 500 `ink`, дальше разделители
+ * поля 16, зазор 12. Слева квадратный чекбокс 16 «выбрать все», за ним счётчик
+ * «Выбрано 7 из 142» 14/18 · 500 `ink` табличными цифрами, дальше разделители
  * 1×20 цветом обводки, призрачные кнопки 32 px (иконка 16 + текст `ink-muted`),
  * корзина — квадрат 28 `danger-tint`.
  *
@@ -12,13 +14,19 @@
 import { motion } from 'motion/react';
 import { Folder, Tag as TagIcon, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { selectionLabel } from '@/lib/format';
 import { Icon } from '@/lib/icons';
 import { useReducedMotion } from '@/lib/useReducedMotion';
 import { glassLayerMotion } from './motion-presets';
+import { Checkbox } from './Checkbox';
 import { IconButton } from './IconButton';
 
 export interface SelectionBarProps {
   count: number;
+  /** Сколько файлов в текущем срезе всего — вторая половина «Выбрано 7 из 142». */
+  total: number;
+  /** Клик по чекбоксу: выбрать все видимые в срезе либо снять выделение. */
+  onToggleAll: () => void;
   onMoveToFolder: () => void;
   onTag: () => void;
   onDelete: () => void;
@@ -38,6 +46,8 @@ const SEGMENT = cn(
 /** ORG-04 — плавающая панель массового выделения. */
 export function SelectionBar({
   count,
+  total,
+  onToggleAll,
   onMoveToFolder,
   onTag,
   onDelete,
@@ -45,6 +55,8 @@ export function SelectionBar({
   className,
 }: SelectionBarProps) {
   const reduced = useReducedMotion();
+  /* Выбрано всё, что есть в срезе — тогда галка сплошная, иначе минус (D22). */
+  const all = total > 0 && count >= total;
 
   return (
     <motion.div
@@ -56,8 +68,15 @@ export function SelectionBar({
         className,
       )}
     >
-      <span className="shrink-0 text-md leading-[18px] font-medium text-ink">
-        <span className="tabular-nums">{count}</span> выбрано
+      <Checkbox
+        shape="square"
+        checked={all}
+        indeterminate={!all}
+        label={all ? 'Снять выделение' : 'Выбрать все'}
+        onCheckedChange={onToggleAll}
+      />
+      <span className="shrink-0 text-md leading-[18px] font-medium text-ink tabular-nums">
+        {selectionLabel(count, total)}
       </span>
       <Divider />
       <button type="button" className={SEGMENT} onClick={onMoveToFolder}>
