@@ -7,8 +7,9 @@
 Файлы физически лежат на диске владельца, сервер локальный, облака нет.
 
 Десктопное приложение для macOS (Tauri) поверх локального сервера и веб-интерфейса,
-есть и версия для Windows. Версия 0.2.0, раздаётся бесплатно участникам
-дизайн-клуба Сергея Оршака.
+есть и версия для Windows. Версия 0.3.0, раздаётся бесплатно участникам
+дизайн-клуба Сергея Оршака. Что изменилось в этой и прошлых версиях —
+[`CHANGELOG.md`](./CHANGELOG.md).
 
 ## Установка для пользователя
 
@@ -64,8 +65,8 @@ PATH="$HOME/.cargo/bin:$PATH" npm run app:build:intel   # под Intel (x86_64)
 
 ```
 desktop/src-tauri/target.noindex/release/bundle/macos/Копирка.app
-desktop/src-tauri/target.noindex/release/bundle/dmg/Копирка_0.2.0_aarch64.dmg
-desktop/src-tauri/target.noindex/x86_64-apple-darwin/release/bundle/dmg/Копирка_0.2.0_x64.dmg
+desktop/src-tauri/target.noindex/release/bundle/dmg/Копирка_0.3.0_aarch64.dmg
+desktop/src-tauri/target.noindex/x86_64-apple-darwin/release/bundle/dmg/Копирка_0.3.0_x64.dmg
 ```
 
 Каталог называется `target.noindex`, а не `target`, — чтобы Spotlight не
@@ -84,7 +85,9 @@ desktop/src-tauri/target.noindex/x86_64-apple-darwin/release/bundle/dmg/Копи
 можно выбрать любую). Workflow — [`.github/workflows/build-windows.yml`](./.github/workflows/build-windows.yml),
 раннер `windows-latest`, цель `x86_64-pc-windows-msvc`. На каждый push он не
 запускается намеренно: минуты Windows-раннера тратятся втрое против Linux,
-а сборка нужна не на каждый коммит. Тег `vX.Y.Z` сборку запускает.
+а сборка нужна не на каждый коммит. Тег `vX.Y.Z` сборку запускает — и, если все
+проверки прошли, кладёт установщик в GitHub Release этого тега: оттуда его можно
+забрать с Мака обычным `curl`, без токена и без `gh`.
 
 Кнопка «Run workflow» появляется только после того, как файл workflow'а попал в
 `main` — так устроен GitHub. Пока не попал, запуск делается push'ем в ветку
@@ -93,7 +96,7 @@ desktop/src-tauri/target.noindex/x86_64-apple-darwin/release/bundle/dmg/Копи
 Артефакты появляются внизу страницы законченного прогона:
 
 ```
-kopirka-windows-x64-installer   Kopirka_0.2.0_x64-setup.exe    ← установщик
+kopirka-windows-x64-installer   Kopirka_0.3.0_x64-setup.exe    ← установщик
 kopirka-windows-x64-logs        build-windows.log, payload-listing.txt
 ```
 
@@ -184,6 +187,7 @@ node extension/tools/verify.mjs      # целостность манифеста
 
 ## Документация
 
+- [`CHANGELOG.md`](./CHANGELOG.md) — история версий: что появилось и что изменилось
 - [`docs/install-guide.md`](./docs/install-guide.md) — установка и первый запуск для участников клуба
 - [`web/DESIGN-SPEC.md`](./web/DESIGN-SPEC.md) — визуальная спека интерфейса
 - [`desktop/README.md`](./desktop/README.md) — десктопная оболочка: сборка, установка, устройство

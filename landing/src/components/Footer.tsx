@@ -6,11 +6,15 @@
  * // Оршак · дизайн-клуб ORSHAQ» снята 08.09.2026: лендинг публичный, клуб на
  * // нём не упоминается. Строка «[?] адрес GitHub · домен лендинга · канал
  * // доната…» из макета на сайт не переносится: это рабочая пометка, а не
- * // текст страницы; всё неизвестное помечено в `links.ts`. Версия 0.2.0
+ * // текст страницы; всё неизвестное помечено в `links.ts`. Версия 0.3.0
  * // вместо 0.1.0 — по факту сборки.
+ *
+ * Рядом с версией — «Что нового»: история версий живёт в Notion (`CHANGELOG`
+ * в `links.ts`), и в подвал она просится к номеру версии, а не в общий ряд
+ * ссылок. Пока адрес — заглушка `'#'`, ссылка не рисуется вовсе (`isLive`).
  */
 import { Logo } from './Logo';
-import { GITHUB, GITHUB_PUBLIC, PLATFORMS, RELEASE, TELEGRAM } from '@/links';
+import { CHANGELOG, GITHUB, GITHUB_PUBLIC, PLATFORMS, RELEASE, TELEGRAM, isLive } from '@/links';
 import { usePlatform, type Platform } from '@/platform';
 
 /**
@@ -56,6 +60,19 @@ export function Footer() {
 
         <p className="eyebrow m-0">
           v{RELEASE.version} · {RELEASE.date}
+          {isLive(CHANGELOG) && (
+            <>
+              {' · '}
+              <a
+                href={CHANGELOG}
+                target="_blank"
+                rel="noreferrer"
+                className="text-inherit no-underline transition-colors duration-[120ms] hover:text-display"
+              >
+                что нового
+              </a>
+            </>
+          )}
         </p>
       </div>
     </footer>

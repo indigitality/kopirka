@@ -4,9 +4,9 @@
  * // Расхождение с макетом: вместо одной кнопки «Скачать для macOS» и приписки
  * // «Intel и Windows — позже [?]» — кнопки-строки по сборкам, сгруппированные
  * // по системам. Сборок три, и с 09.09.2026 каждая качается архивом
- * // «установщик + инструкция» (`Kopirka_0.2.0_macOS_AppleSilicon.zip`,
+ * // «установщик + инструкция» (`Kopirka_0.3.0_macOS_AppleSilicon.zip`,
  * // `..._macOS_Intel.zip`, `..._Windows_x64.zip` — собирает
- * // `work/лендинг (это сделал клод)/деплой/pack-downloads.sh`). Версия 0.2.0,
+ * // `work/лендинг (это сделал клод)/деплой/pack-downloads.sh`). Версия 0.3.0,
  * // а не 0.1.0 из макета — по той же причине.
  *
  * Порядок групп зависит от системы гостя (`usePlatform`): гость с Windows видит
@@ -22,7 +22,7 @@
  */
 import { Apple, Chrome, FileText, LayoutGrid, type LucideIcon } from 'lucide-react';
 import { Reveal } from './Reveal';
-import { DOWNLOAD, PLATFORMS, RELEASE, platformOrder } from '@/links';
+import { CHANGELOG, DOWNLOAD, PLATFORMS, RELEASE, isLive, platformOrder } from '@/links';
 import { usePlatform, type PlatformId } from '@/platform';
 
 /**
@@ -144,6 +144,19 @@ export function Download() {
         <Reveal index={3}>
           <p className="eyebrow mt-8 mb-0">
             {RELEASE.version}
+            {isLive(CHANGELOG) && (
+              <>
+                {' · '}
+                <a
+                  href={CHANGELOG}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-inherit no-underline transition-colors hover:text-display"
+                >
+                  что нового
+                </a>
+              </>
+            )}
             {known ? ` · ${HINT[known]}` : ''}
           </p>
         </Reveal>

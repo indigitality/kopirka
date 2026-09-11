@@ -47,7 +47,7 @@ npm run app:dev           # запуск без сборки бандла
 
 ```
 desktop/src-tauri/target.noindex/release/bundle/macos/Копирка.app          135 МБ
-desktop/src-tauri/target.noindex/release/bundle/dmg/Копирка_0.2.0_aarch64.dmg   46 МБ
+desktop/src-tauri/target.noindex/release/bundle/dmg/Копирка_0.3.0_aarch64.dmg   46 МБ
 ```
 
 Из них ~104 МБ — бинарник Node. Остальное: libvips для `sharp` (18 МБ), сама оболочка
@@ -73,7 +73,7 @@ desktop/src-tauri/target.noindex/release/bundle/dmg/Копирка_0.2.0_aarch64
 
 ```
 desktop/src-tauri/target.noindex/x86_64-apple-darwin/release/bundle/macos/Копирка.app        140 МБ
-desktop/src-tauri/target.noindex/x86_64-apple-darwin/release/bundle/dmg/Копирка_0.2.0_x64.dmg  48 МБ
+desktop/src-tauri/target.noindex/x86_64-apple-darwin/release/bundle/dmg/Копирка_0.3.0_x64.dmg  48 МБ
 ```
 
 Проверить Intel-образ на Apple Silicon можно только наполовину. Оболочку — нельзя, а payload
@@ -431,8 +431,8 @@ rm -rf ~/Library/Services/Добавить\ в\ Копирку.workflow   # пу
 
 ## Известные ограничения
 
-- **Два образа, оба собираются здесь.** `Копирка_0.2.0_aarch64.dmg` — Apple Silicon,
-  `Копирка_0.2.0_x64.dmg` — Intel (`npm run app:build:intel`). Universal-бандла нет и не
+- **Два образа, оба собираются здесь.** `Копирка_0.3.0_aarch64.dmg` — Apple Silicon,
+  `Копирка_0.3.0_x64.dmg` — Intel (`npm run app:build:intel`). Universal-бандла нет и не
   планируется: внутри целый Node, склейка удвоила бы вес ради машин, которых у клуба почти нет.
 - **Intel-сборку живьём на Intel-Mac никто не проверял.** 04.09.2026 проверен только payload:
   сервер из готового бандла поднят под Rosetta на этой же машине — `/api/health`, импорт

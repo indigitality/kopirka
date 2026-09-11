@@ -16,7 +16,7 @@ import type { PlatformId } from '@/platform';
 
 /** Версия и месяц сборки — общие для обеих платформ. `confirmed`. */
 export const RELEASE = {
-  version: '0.2.0',
+  version: '0.3.0',
   /** Месяц сборки, для подвала. */
   date: 'сентябрь 2026',
 } as const;
@@ -68,6 +68,11 @@ export interface PlatformRelease {
  * Архивы собирает `work/лендинг (это сделал клод)/деплой/pack-downloads.sh`,
  * он же печатает их размеры — цифры `size` ниже взяты из его вывода.
  *
+ * ВНИМАНИЕ (11.09.2026): версия поднята до 0.3.0, а все `size` ниже остались от
+ * 0.2.0 — архивы 0.3.0 ещё не собраны, и выдумывать вес нельзя. Пересчитать по
+ * выводу `pack-downloads.sh` сразу после упаковки; до тех пор цифры в требованиях
+ * под кнопками врут на несколько мегабайт.
+ *
  * macOS — `wiki/RELEASE.md`: два образа, минимум macOS 13. Архивы —
  * 47 742 308 байт (Apple Silicon) и 50 347 556 (Intel), отсюда «48–50 МБ».
  * Windows — `desktop/src-tauri/tauri.windows.conf.json` и
@@ -82,21 +87,22 @@ export const PLATFORMS: Record<PlatformId, PlatformRelease> = {
     label: 'macOS',
     minOS: 'macOS 13+',
     arch: 'Apple Silicon и Intel',
+    /** [!] Вес архивов 0.2.0 — ждёт пересчёта после упаковки 0.3.0. */
     size: '48–50 МБ',
     builds: [
       {
         id: 'aarch64',
         title: 'Apple Silicon',
         note: 'M1 и новее',
-        href: '/downloads/Kopirka_0.2.0_macOS_AppleSilicon.zip',
-        file: 'Kopirka_0.2.0_macOS_AppleSilicon.zip',
+        href: '/downloads/Kopirka_0.3.0_macOS_AppleSilicon.zip',
+        file: 'Kopirka_0.3.0_macOS_AppleSilicon.zip',
       },
       {
         id: 'mac-x64',
         title: 'Intel',
         note: 'Mac до 2020 года',
-        href: '/downloads/Kopirka_0.2.0_macOS_Intel.zip',
-        file: 'Kopirka_0.2.0_macOS_Intel.zip',
+        href: '/downloads/Kopirka_0.3.0_macOS_Intel.zip',
+        file: 'Kopirka_0.3.0_macOS_Intel.zip',
       },
     ],
     /** Источник — `app/docs/install-guide.md`. На сервере лежит под этим именем. */
@@ -107,15 +113,18 @@ export const PLATFORMS: Record<PlatformId, PlatformRelease> = {
     label: 'Windows',
     minOS: 'Windows 10 (1809) и 11',
     arch: 'x64',
-    /** Вес архива — 34 359 357 байт, из вывода `pack-downloads.sh` (09.09.2026). */
+    /**
+     * [!] Вес архива 0.2.0 — 34 359 357 байт, из вывода `pack-downloads.sh`
+     * (09.09.2026). Ждёт пересчёта после упаковки 0.3.0.
+     */
     size: '34 МБ',
     builds: [
       {
         id: 'win-x64',
         title: 'Windows x64',
         note: 'Установщик, без прав администратора',
-        href: '/downloads/Kopirka_0.2.0_Windows_x64.zip',
-        file: 'Kopirka_0.2.0_Windows_x64.zip',
+        href: '/downloads/Kopirka_0.3.0_Windows_x64.zip',
+        file: 'Kopirka_0.3.0_Windows_x64.zip',
       },
     ],
     /** Отдельная инструкция для Windows — тот же образец имени, что у macOS. */
@@ -139,7 +148,7 @@ export function platformOrder(guest: PlatformId | 'other'): PlatformId[] {
  */
 export const DOWNLOAD = {
   /** Zip расширения Chrome: ставится распакованным, автообновлений нет. */
-  extensionZip: '/downloads/Kopirka_Chrome_Extension_0.2.0.zip',
+  extensionZip: '/downloads/Kopirka_Chrome_Extension_0.3.0.zip',
 } as const;
 
 /**
@@ -156,6 +165,19 @@ export const GITHUB_PUBLIC = true;
 
 /** «Сообщить об ошибке» — тот же адрес, что зашит в приложении. `confirmed`. */
 export const TELEGRAM = 'https://t.me/orshaks';
+
+/**
+ * «Что нового в Копирке» — история версий в Notion, зеркало `app/CHANGELOG.md`
+ * для тех, кто на GitHub не ходит.
+ *
+ * Адрес пока рабочий, из адресной строки Сергея: страница не опубликована в веб,
+ * и по этой ссылке посторонний увидит форму входа в Notion. Публичный адрес
+ * появится, когда Сергей нажмёт на странице «Опубликовать в веб», — тогда
+ * заменить значение здесь, больше нигде править не нужно. Пока страница закрыта,
+ * ссылку можно снять привычным способом: поставить `'#'` — `isLive` ниже погасит
+ * её и в подвале, и в блоке «Скачать».
+ */
+export const CHANGELOG = 'https://app.notion.com/p/3d83cc69e07e817f9b80ef03f97c313d';
 
 /**
  * Канал доната — DonationAlerts студии. Адрес дал Сергей 09.09.2026. `confirmed`.
