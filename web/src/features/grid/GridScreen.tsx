@@ -21,7 +21,7 @@ import { flattenFolders } from '@/lib/folders';
 import { plural } from '@/lib/format';
 import { Icon } from '@/lib/icons';
 import { DUR_FAST, EASE_OUT } from '@/lib/motion';
-import { platformStrings } from '@/lib/platform';
+import { isMacLike, platformStrings } from '@/lib/platform';
 import { EASE_IN } from '@/components/ui/motion-presets';
 import { Button } from '@/components/ui/Button';
 import { IconButton } from '@/components/ui/IconButton';
@@ -156,6 +156,14 @@ export function GridScreen() {
   // ── Выделение ────────────────────────────────────────────────────────────
   const handleSelectClick = useCallback((file: FileRecord, event: MouseEvent) => {
     const state = getViewState();
+    /*
+      На macOS ctrl+клик — это правый клик: система шлёт и `contextmenu`, и обычный
+      `click` с `ctrlKey`, и ветка «модификатор → переключить» выбрасывала карточку
+      из выделения ровно в тот момент, когда по ней открывали меню. Отдаём такой
+      клик контекстному меню целиком. На Windows Ctrl — настоящий модификатор
+      выделения, поэтому ветка платформенная, а не общая.
+    */
+    if (event.ctrlKey && !event.metaKey && isMacLike()) return;
     if (event.metaKey || event.ctrlKey) {
       viewActions.toggleSelected(file.id);
       return;
@@ -195,6 +203,16 @@ export function GridScreen() {
       viewActions.setSelection([file.id], file.id);
     }
     setBulkDialog('folder');
+  }, []);
+
+  /**
+   * FDB-12 — действие из меню карточки идёт на всё выделение, если карточка в него
+   * входит; иначе — только на неё саму. Тот же договор, что у `handleAddTag`
+   * и `handleMoveToFolder` выше, только там он ещё и переносит выделение.
+   */
+  const groupIds = useCallback((file: FileRecord): readonly number[] => {
+    const selected = getViewState().selectedIds;
+    return selected.includes(file.id) ? selected : [file.id];
   }, []);
 
   const handleDragStart = useCallback((file: FileRecord): readonly number[] => {
@@ -262,8 +280,15 @@ export function GridScreen() {
       if (id === undefined) return;
       try {
         await api.copyFile(id);
+        /*
+          Системный буфер держит ровно одну картинку — пачку туда не положить.
+          Говорим об этом прямо и показываем, чем её забрать (FDB-12, FDB-05).
+        */
         toast({
-          title: ids.length > 1 ? 'Скопирован первый выбранный файл' : 'Скопировано в буфер',
+          title:
+            ids.length > 1
+              ? `Скопирован первый из ${ids.length} — для пачки используйте Экспорт`
+              : 'Скопировано в буфер',
           tone: 'success',
         });
       } catch (cause) {
@@ -605,10 +630,10 @@ export function GridScreen() {
                       onContextSelect={handleContextSelect}
                       onAddTag={handleAddTag}
                       onMoveToFolder={handleMoveToFolder}
-                      onTrash={(item) => void trashIds([item.id])}
-                      onRestore={(item) => void restoreIds([item.id])}
-                      onPurge={(item) => setConfirm({ kind: 'purge', ids: [item.id] })}
-                      onCopy={(item) => void copyIds([item.id])}
+                      onTrash={(item) => void trashIds(groupIds(item))}
+                      onRestore={(item) => void restoreIds(groupIds(item))}
+                      onPurge={(item) => setConfirm({ kind: 'purge', ids: groupIds(item) })}
+                      onCopy={(item) => void copyIds(groupIds(item))}
                       onReveal={(item) => void revealFile(item)}
                     />
                   );
