@@ -29,10 +29,10 @@ import {
   type ListQuery,
 } from './files.js';
 import { assertFolderExists } from './folders.js';
-import { CONTENT_TYPES, toPngBuffer } from './images.js';
+import { CONTENT_TYPES, PREVIEW_2X_MAX_SIDE, PREVIEW_MAX_SIDE, renderPreview, toPngBuffer } from './images.js';
 import { parseId, parseJsonBody, sendFile } from './http.js';
 import { log } from './logger.js';
-import { resolveInLibrary } from './paths.js';
+import { ensureParentDir, preview2xRelpath, resolveInLibrary } from './paths.js';
 import {
   boolFlagSchema,
   bulkMoveSchema,
@@ -414,6 +414,46 @@ function parseListQuery(url: URL): ListQuery {
   return query;
 }
 
+/**
+ * FDB-04 — путь к крупному превью, при необходимости сгенерировав его из оригинала.
+ * `null` — крупного нет и не будет (оригинал пропал, sharp не справился) либо оно
+ * не нужно вовсе: картинку меньше 600 px по большей стороне увеличивать нечем,
+ * обычное превью уже содержит её целиком.
+ *
+ * Пишем через временный файл и `rename`: два одновременных запроса за одной
+ * плиткой — обычное дело для сетки, и подсунуть друг другу недописанный webp они
+ * не должны.
+ */
+async function ensurePreview2x(
+  state: AppState,
+  row: { sha256: string; storage_relpath: string; width: number | null; height: number | null },
+): Promise<string | null> {
+  const longestSide = Math.max(row.width ?? 0, row.height ?? 0);
+  if (longestSide > 0 && longestSide <= PREVIEW_MAX_SIDE) return null;
+
+  const abs = resolveInLibrary(state.libraryPath, preview2xRelpath(row.sha256));
+  if (fs.existsSync(abs)) return abs;
+
+  const source = resolveInLibrary(state.libraryPath, row.storage_relpath);
+  if (!fs.existsSync(source)) return null;
+
+  const tmp = `${abs}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    ensureParentDir(abs);
+    fs.writeFileSync(tmp, await renderPreview(fs.readFileSync(source), PREVIEW_2X_MAX_SIDE));
+    fs.renameSync(tmp, abs);
+    return abs;
+  } catch (error) {
+    log.warn(`не удалось построить крупное превью для ${row.sha256}`, error);
+    try {
+      fs.unlinkSync(tmp);
+    } catch {
+      /* временного файла могло и не появиться */
+    }
+    return null;
+  }
+}
+
 function requireFileRow(state: AppState, id: number) {
   const row = getFileRow(state.db, id);
   if (!row) throw notFound(`Файл ${id} не найден`, 'file_not_found');
@@ -446,11 +486,25 @@ export function registerFileRoutes(app: Hono, state: AppState): void {
     return c.json(getFile(state.db, id));
   });
 
-  app.on(['GET', 'HEAD'], '/api/files/:id/preview', (c) => {
+  app.on(['GET', 'HEAD'], '/api/files/:id/preview', async (c) => {
     const row = requireFileRow(state, parseId(c.req.param('id')));
     if (!row.preview_relpath) throw notFound('Превью для этого файла нет', 'no_preview');
     const abs = resolveInLibrary(state.libraryPath, row.preview_relpath);
     if (!fs.existsSync(abs)) throw notFound('Файл превью пропал с диска', 'preview_missing');
+
+    // FDB-04 — крупная плитка на Retina. Обычные 600 px просили только увеличить.
+    if (c.req.query('size') === '2x') {
+      const hiDpi = await ensurePreview2x(state, row);
+      if (hiDpi !== null) {
+        return sendFile(c, hiDpi, {
+          contentType: 'image/webp',
+          etag: `${row.sha256}-preview-2x`,
+          sandbox: true,
+        });
+      }
+      // Не получилось (оригинал пропал, sharp не справился) — отдаём обычное.
+    }
+
     return sendFile(c, abs, { contentType: 'image/webp', etag: `${row.sha256}-preview`, sandbox: true });
   });
 

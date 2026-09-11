@@ -5,6 +5,12 @@ import rawPhash from 'sharp-phash';
 import { RASTER_EXTS, type FileExt } from '../../shared/api.js';
 
 export const PREVIEW_MAX_SIDE = 600;
+/**
+ * FDB-04 — второй размер превью. Колонка «L» — 560 CSS px, на Retina это 1120
+ * физических: 600-пиксельная картинка растягивалась почти вдвое и мылила.
+ * 1400 закрывает и колонку L, и её же на дисплее с масштабом 2,5×.
+ */
+export const PREVIEW_2X_MAX_SIDE = 1400;
 export const PREVIEW_QUALITY = 80;
 
 export function sha256(buffer: Buffer): string {
@@ -106,13 +112,16 @@ export function hammingDistance(a: string, b: string): number {
   return distance;
 }
 
-/** WebP-превью, 600px по большей стороне. Для GIF — статичный первый кадр. */
-export async function renderPreview(buffer: Buffer): Promise<Buffer> {
+/**
+ * WebP-превью, по умолчанию 600px по большей стороне. Для GIF — статичный первый
+ * кадр. `maxSide` задаётся явно ради второго размера (FDB-04, `PREVIEW_2X_MAX_SIDE`).
+ */
+export async function renderPreview(buffer: Buffer, maxSide: number = PREVIEW_MAX_SIDE): Promise<Buffer> {
   return sharp(buffer, { animated: false })
     .rotate()
     .resize({
-      width: PREVIEW_MAX_SIDE,
-      height: PREVIEW_MAX_SIDE,
+      width: maxSide,
+      height: maxSide,
       fit: 'inside',
       withoutEnlargement: true,
     })
