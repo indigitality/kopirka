@@ -14,7 +14,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
 
-import { makeApiClient, cardIds, clickScope, setFieldValue, waitFor } from './lib/helpers.mjs';
+import { makeApiClient, cardIds, clearSearchAndFilters, clickScope, waitFor } from './lib/helpers.mjs';
 import { spawnServer, spawnVite, waitServerHealth, waitViteReady, stopAll } from './lib/processes.mjs';
 import { seedLibrary } from './lib/seed.mjs';
 
@@ -38,12 +38,11 @@ const APP_DIR = path.resolve(TESTS_DIR, '..', '..');
 const FORBIDDEN_PORTS = new Set([43117, 5173, 6006, 43118, 5174, 43120, 5176]);
 
 const CHROME_DEFAULT = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const SEARCH_INPUT = 'input[aria-label="Поиск по названию"]';
 
 const SCENARIOS = [
   { name: 'Сетка загрузилась: число карточек и папки сайдбара', run: gridLoad },
   { name: 'Клик по папке фильтрует сетку, «Вся библиотека» возвращает всё', run: folderFilter },
-  { name: 'Поиск по имени сужает сетку и очищается обратно', run: search },
+  { name: 'Поиск-модалка: ⌘K, сужение выдачи, чип тега, ⌘↵ и Esc', run: search },
   { name: 'Поповер сортировки открывается под кнопкой и меняет порядок карточек', run: sortPopover },
   { name: '«Переместить в папку»: позиция списка, высота диалога, скролл, Esc/Esc', run: moveDialogPosition },
   { name: '«Переместить в папку»: выбор папки и сам перенос файла', run: moveDialogAction },
@@ -204,6 +203,16 @@ async function main() {
     // тексте сообщения, поэтому ловим сам факт неудачного запроса на favicon
     // через network-события и гасим ровно одно совпавшее по времени сообщение.
     const failedFaviconRequests = [];
+    /*
+      Тот же запрос, но пойманный на отправке. Событие `response` и сообщение консоли
+      приходят из CDP независимо, и порядок между ними не гарантирован: на одном прогоне
+      из трёх фильтр ниже не находил ещё не записанного фаворита и считал безобидный 404
+      ошибкой приложения. `request` же заведомо раньше обоих — по нему и страхуемся.
+    */
+    const faviconRequests = [];
+    page.on('request', (request) => {
+      if (/favicon/i.test(request.url())) faviconRequests.push(request.url());
+    });
     page.on('response', (response) => {
       if (response.status() >= 400 && /favicon/i.test(response.url())) failedFaviconRequests.push(response.url());
     });
@@ -211,8 +220,9 @@ async function main() {
       if (msg.type() !== 'error') return;
       const text = msg.text();
       if (/favicon/i.test(text)) return;
-      if (/failed to load resource/i.test(text) && failedFaviconRequests.length > 0) {
-        failedFaviconRequests.pop();
+      if (/failed to load resource/i.test(text) && (failedFaviconRequests.length > 0 || faviconRequests.length > 0)) {
+        if (failedFaviconRequests.length > 0) failedFaviconRequests.pop();
+        else faviconRequests.pop();
         return;
       }
       consoleErrors.push({ kind: 'console.error', text });
@@ -240,7 +250,9 @@ async function main() {
         message: 'не дождался закрытия диалога, оставшегося от предыдущего сценария',
       });
       await clickScope(page, 'Вся библиотека');
-      await setFieldValue(page, SEARCH_INPUT, '');
+      // Поиска в верхней панели больше нет (NEW-02): запрос и чипы после «⌘↵ применить
+      // как фильтр» снимаются кнопкой поиска и панелью фильтров.
+      await clearSearchAndFilters(page);
       await waitFor(async () => (await cardIds(page)).length > 0, {
         timeout: 6000,
         message: 'сетка не вернулась к базовому состоянию (resetToLibraryRoot)',

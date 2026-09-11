@@ -193,6 +193,33 @@ export const viewActions = {
       openFileId: null,
     });
   },
+  /**
+   * NEW-02 — «применить как фильтр» (⌘↵) из поиск-модалки: строка запроса и
+   * закреплённые чипы разом ложатся на сетку. Одним действием, а не тремя:
+   * иначе список успел бы съездить трижды, а выделение — сброситься дважды.
+   * Даты панель фильтров держит сама, поэтому здесь их нет: модалка их не ставит,
+   * но и не имеет права молча стереть — `dateFrom`/`dateTo` остаются как были.
+   */
+  applySearch(next: {
+    query: string;
+    tags: readonly string[];
+    exts: readonly FileExt[];
+    folderId?: number | null;
+  }): void {
+    setState({
+      scope: 'library',
+      folderId: next.folderId ?? null,
+      query: next.query,
+      filters: {
+        ...state.filters,
+        tags: [...next.tags],
+        exts: [...next.exts],
+      },
+      selectedIds: [],
+      selectionAnchorId: null,
+      openFileId: null,
+    });
+  },
   setFilters(filters: ViewFilters): void {
     setState({ filters, selectedIds: [], selectionAnchorId: null });
   },

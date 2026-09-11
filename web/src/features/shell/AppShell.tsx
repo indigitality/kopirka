@@ -21,6 +21,7 @@ export interface AppShellProps extends Omit<SidebarProps, 'folders' | 'stats'> {
    * панель фильтров (06 §1 — фильтры это состояние сетки, а не отдельный экран).
    */
   overlay?: ReactNode;
+  onOpenSearch?: TopBarProps['onOpenSearch'];
   onOpenFilter?: TopBarProps['onOpenFilter'];
   filterCount?: TopBarProps['filterCount'];
   filterOpen?: TopBarProps['filterOpen'];
@@ -31,6 +32,7 @@ export function AppShell({
   stats,
   children,
   overlay,
+  onOpenSearch,
   onOpenFilter,
   filterCount,
   filterOpen,
@@ -64,7 +66,12 @@ export function AppShell({
 
       {/* Колонка контента: вуаль под верхней панелью, радиус панели (узел «Контент» R01). */}
       <div className="flex min-w-0 flex-1 flex-col rounded-[var(--radius-panel)] bg-panel-veil">
-        <TopBar onOpenFilter={onOpenFilter} filterCount={filterCount} filterOpen={filterOpen} />
+        <TopBar
+          onOpenSearch={onOpenSearch}
+          onOpenFilter={onOpenFilter}
+          filterCount={filterCount}
+          filterOpen={filterOpen}
+        />
         {/*
           Якорь и скролл разведены нарочно: скроллится внутренний <main>, а
           позиционируется overlay относительно внешнего блока. Иначе панель

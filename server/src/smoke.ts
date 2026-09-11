@@ -12,6 +12,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import sharp from 'sharp';
+import { ACCEPTED_EXTS } from '../../shared/api.js';
 import type {
   ApiError,
   EventsResponse,
@@ -24,6 +25,7 @@ import type {
   NotifyResponse,
   RevealResponse,
   SettingsResponse,
+  SearchResponse,
   SettingsUpdateResponse,
   StatsResponse,
   TagRecord,
@@ -538,6 +540,70 @@ async function main(): Promise<void> {
     assert(nextPage.files.length > 0, 'вторая страница пустая');
     const firstIds = new Set(sorted.files.map((file) => file.id));
     assert(nextPage.files.every((file) => !firstIds.has(file.id)), 'страницы пересекаются');
+  });
+
+  // 14b ──────────────────────────────────────────────────────────────────────
+  await check('NEW-02: GET /api/search — файлы с путём папки, теги, форматы, папки и чипы', async () => {
+    const folder = await api<FolderRecord>('POST', '/api/folders', { name: 'Поиск' });
+    const child = await api<FolderRecord>('POST', '/api/folders', {
+      name: 'Вложенная',
+      parentFolderId: folder.id,
+    });
+    await api<{ moved: number }>('POST', '/api/files/move', { fileIds: [idBeta], folderId: child.id });
+
+    // Без `q` — «что тут вообще есть»: частые теги, все форматы со счётчиками, корневые папки.
+    const overview = await api<SearchResponse>('GET', '/api/search');
+    assert(
+      overview.exts.length === ACCEPTED_EXTS.length,
+      `форматов ${overview.exts.length} вместо ${ACCEPTED_EXTS.length}`,
+    );
+    assert(overview.exts.find((hit) => hit.ext === 'png')?.count === 3, 'счётчик png не сошёлся');
+    assert(overview.exts.find((hit) => hit.ext === 'jpg')?.count === 2, 'счётчик jpg не сошёлся');
+    assert(overview.exts.find((hit) => hit.ext === 'svg')?.count === 0, 'формат без файлов пропал из списка');
+    assert(overview.folders.length === 1, `корневых папок ${overview.folders.length} вместо 1`);
+    assert(overview.folders[0]?.name === 'Поиск', 'корневая папка не та');
+    assert(overview.folders[0]?.count === 1, 'счётчик папки считается без поддерева');
+    for (const name of ['дизайн', 'веб дизайн', 'вдохновение']) {
+      assert(overview.tags.some((tag) => tag.name === name), `в частых тегах нет «${name}»`);
+    }
+    assert(overview.tags.every((tag) => tag.count > 0), 'в подсказки попал тег без файлов');
+    // Топ отсортирован по числу файлов — иначе «частые» были бы просто алфавитными.
+    assert(
+      overview.tags.every((tag, i) => i === 0 || (overview.tags[i - 1]?.count ?? 0) >= tag.count),
+      'частые теги отданы не по убыванию счётчика',
+    );
+
+    // Файлы ищутся по имени — тем же условием, что и в сетке, плюс готовый путь папки.
+    const byName = await api<SearchResponse>('GET', '/api/search?q=BETA');
+    assert(byName.total === 1 && byName.files[0]?.id === idBeta, `поиск по имени вернул ${byName.total}`);
+    assert(byName.files[0]?.folderPath === 'Поиск / Вложенная', `путь папки «${byName.files[0]?.folderPath}»`);
+    assert(byName.files[0]?.previewUrl === `/api/files/${idBeta}/preview`, 'в строке нет ссылки на превью');
+    assert(byName.files[0]?.ext === 'png', 'формат в строке не тот');
+
+    // Теги и папки ищутся по подстроке имени.
+    const byTagText = await api<SearchResponse>('GET', `/api/search?q=${encodeURIComponent('диз')}`);
+    assert(
+      byTagText.tags.some((tag) => tag.name === 'дизайн') && byTagText.tags.some((tag) => tag.name === 'веб дизайн'),
+      'подстрока не нашла теги',
+    );
+    const byFolderText = await api<SearchResponse>('GET', `/api/search?q=${encodeURIComponent('влож')}`);
+    assert(byFolderText.folders.length === 1, `папок по подстроке ${byFolderText.folders.length} вместо 1`);
+    assert(byFolderText.folders[0]?.path === 'Поиск / Вложенная', 'у найденной папки неверный путь');
+
+    // Чипы-фильтры сужают файлы: тег, формат, папка (вместе с поддеревом).
+    const byTagChip = await api<SearchResponse>('GET', `/api/search?tags=${encodeURIComponent('дизайн')}`);
+    assert(byTagChip.total === 1 && byTagChip.files[0]?.id === idBeta, `чип-тег вернул ${byTagChip.total}`);
+    const byExtChip = await api<SearchResponse>('GET', '/api/search?exts=jpg');
+    assert(byExtChip.total === 2, `чип-формат вернул ${byExtChip.total} вместо 2`);
+    assert(byExtChip.files.every((file) => file.ext === 'jpg'), 'в выдаче не только jpg');
+    const inFolder = await api<SearchResponse>('GET', `/api/search?folderId=${folder.id}`);
+    assert(inFolder.total === 1 && inFolder.files[0]?.id === idBeta, 'папка в поиске не показывает поддерево');
+
+    const unknownExt = await fetch(`${base}/api/search?exts=tiff`);
+    assert(unknownExt.status === 400, `неизвестный формат принят со статусом ${unknownExt.status}`);
+
+    // Возвращаем состояние: папки нет, файл снова вне папок — следующие проверки считают файлы.
+    await api<{ ok: boolean }>('DELETE', `/api/folders/${folder.id}`);
   });
 
   // Дополнительно: защита от постинга со стороннего сайта.

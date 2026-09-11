@@ -2,13 +2,14 @@
  * Верхняя панель — узел «Верхняя панель» R01 и полка R13.
  *
  * Своего фона у панели нет: она лежит на вуали колонки контента (см. `AppShell`).
- * Слева поле поиска 280 × 32, справа пульт «на одной подложке» — сортировка,
- * размер, фильтр: у каждого своя заливка `control`, тон один, зазор 8.
+ * Слева кнопка поиска «Поиск ⌘K» (NEW-02, артборд D05 — она заменила поле 280 ×
+ * 32), справа пульт «на одной подложке» — сортировка, размер, фильтр: у каждого
+ * своя заливка `control`, тон один, зазор 8.
  */
 import { Grid2x2, Grid3x3, Square } from 'lucide-react';
 import { Icon } from '@/lib/icons';
 import { hotkeyLabel } from '@/lib/platform';
-import { SearchField } from '@/components/ui/SearchField';
+import { SearchButton } from '@/features/search/SearchButton';
 import { SegmentedControl, type SegmentedOption } from '@/components/ui/SegmentedControl';
 import { FilterButton } from '@/features/filters/FilterButton';
 import { SortButton } from '@/features/filters/SortButton';
@@ -32,6 +33,8 @@ function gridSizeOptions(): readonly SegmentedOption<GridSize>[] {
 }
 
 export interface TopBarProps {
+  /** NEW-02 — открытие поиск-модалки: кнопка «Поиск ⌘K», хоткеи ⌘K и `/`. */
+  onOpenSearch?: () => void;
   /** Открытие панели фильтров — SEARCH-01/03/04. */
   onOpenFilter?: () => void;
   /** Сколько фильтров активно; 0 — бейдж не показываем. */
@@ -41,11 +44,11 @@ export interface TopBarProps {
 }
 
 export function TopBar({
+  onOpenSearch,
   onOpenFilter,
   filterCount = 0,
   filterOpen = false,
 }: TopBarProps) {
-  const query = useViewSelector((s) => s.query);
   const sort = useViewSelector((s) => s.sort);
   const gridSize = useViewSelector((s) => s.gridSize);
 
@@ -64,7 +67,7 @@ export function TopBar({
       data-tauri-drag-region="deep"
       className="flex h-[var(--size-topbar)] shrink-0 items-center gap-[var(--panel-pad)] px-[var(--panel-pad)]"
     >
-      <SearchField value={query} onValueChange={viewActions.setQuery} />
+      <SearchButton onOpen={() => onOpenSearch?.()} />
 
       <div className="flex-1" />
 

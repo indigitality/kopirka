@@ -129,6 +129,70 @@ export interface StatsResponse {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Поиск-модалка — GET /api/search (NEW-02, решение Сергея 11.09.2026)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Один запрос на всю модалку: файлы, теги, форматы и папки разом. `GET /api/files`
+ * остаётся источником для сетки — здесь короткие строки для списка, без тегов,
+ * размеров и дат, зато с готовым путём папки («Интерфейсы / Дашборды»).
+ */
+export interface FileSummary {
+  id: number;
+  originalFilename: string;
+  ext: FileExt;
+  folderId: number | null;
+  /** Путь папки от корня через « / ». null — файл вне папок («Не разобрано»). */
+  folderPath: string | null;
+  /** Готовые URL для <img>, как в `FileRecord`. */
+  previewUrl: string | null;
+  originalUrl: string;
+}
+
+export interface SearchTagHit {
+  name: string;
+  /** Файлов с этим тегом, не считая корзину. */
+  count: number;
+}
+
+export interface SearchExtHit {
+  ext: FileExt;
+  /** Файлов этого формата в библиотеке; 0 — формат есть в контракте, но не в библиотеке. */
+  count: number;
+}
+
+export interface SearchFolderHit {
+  id: number;
+  name: string;
+  /** Полный путь от корня: «Интерфейсы / Дашборды». */
+  path: string;
+  /** Файлы в папке и всех подпапках, не считая корзину. */
+  count: number;
+}
+
+/** Параметры `GET /api/search`. Чипы-фильтры (`tags`, `exts`, `folderId`) сужают только файлы. */
+export interface SearchQuery {
+  /** Подстрока: имя файла, имя тега, имя папки. Пусто — «что тут вообще есть». */
+  q?: string;
+  tags?: string[];
+  exts?: FileExt[];
+  folderId?: number | null;
+  limit?: number;
+}
+
+export interface SearchResponse {
+  files: FileSummary[];
+  /** С `q` — теги, чьё имя содержит запрос; без `q` — самые частые (top 10). */
+  tags: SearchTagHit[];
+  /** Всегда весь `ACCEPTED_EXTS` со счётчиками: пустой формат показывается выключенным. */
+  exts: SearchExtHit[];
+  /** С `q` — папки, чьё имя содержит запрос; без `q` — корневые. */
+  folders: SearchFolderHit[];
+  /** Сколько файлов подходит под запрос целиком, а не сколько влезло в `limit`. */
+  total: number;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Импорт — IMP-01, IMP-05, SVC-02, SVC-03
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -415,4 +479,7 @@ export const API = {
   getSettings: 'GET /api/settings',
   updateSettings: 'PATCH /api/settings',
   completeOnboarding: 'POST /api/onboarding/complete',
+
+  /** NEW-02 — поиск-модалка: файлы, теги, форматы и папки одним запросом. */
+  search: 'GET /api/search',
 } as const;
