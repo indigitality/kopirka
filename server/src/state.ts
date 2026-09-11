@@ -2,7 +2,7 @@
  * Состояние приложения: конфиг + открытая библиотека.
  * Смена libraryPath (SET-02) не переносит файлы — просто переоткрывает БД по новому пути.
  */
-import type { AppConfig } from '../../shared/api.js';
+import type { AppConfig, ShortcutStatus } from '../../shared/api.js';
 import { saveConfig } from './config.js';
 import { openDatabase, schemaVersion, type Db } from './db.js';
 import { EventLog } from './events.js';
@@ -19,6 +19,13 @@ export class AppState {
   readonly events = new EventLog();
   /** Порт, на котором сервер реально слушает: он важнее конфига при проверке origin. */
   boundPort: number | null = null;
+  /**
+   * FDB-10 — последний отчёт оболочки о регистрации глобального хоткея. Живёт в
+   * памяти, как лента событий: это «что случилось при последней попытке», а не
+   * настройка. После перезапуска сервера оболочка отчитается заново — её поллер
+   * ходит сюда каждые две секунды.
+   */
+  captureShortcutStatus: ShortcutStatus | null = null;
 
   constructor(config: AppConfig) {
     this.config = config;

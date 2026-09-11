@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { DEFAULT_PORT, type AppConfig } from '../../shared/api.js';
+import { DEFAULT_CAPTURE_SHORTCUT, DEFAULT_PORT, type AppConfig } from '../../shared/api.js';
 
 export interface AppPaths {
   supportDir: string;
@@ -67,6 +67,53 @@ export function defaultLibraryPath(): string {
   return defaultLibraryPathFor(os.homedir());
 }
 
+/**
+ * FDB-10 — сочетание в нотации tauri-plugin-global-shortcut: 1–3 модификатора из
+ * Alt / Control / Shift / Super и ровно одна обычная клавиша, всё через `+`.
+ * Регистр модификаторов приводим к каноническому, саму клавишу оставляем как есть —
+ * плагин разбирает её кодом (`KeyC`, `F5`, `Digit4`), а не буквой.
+ *
+ * Проверка одна на сервер и на его схемы (`schemas.ts`) — расходиться им нельзя:
+ * конфиг пишет одна сторона, а регистрирует другая.
+ */
+export function normalizeShortcut(raw: string): string | null {
+  const parts = raw
+    .split('+')
+    .map((part) => part.trim())
+    .filter((part) => part !== '');
+  if (parts.length < 2 || parts.length > 4) return null;
+
+  const canonical: Record<string, string> = {
+    alt: 'Alt',
+    option: 'Alt',
+    control: 'Control',
+    ctrl: 'Control',
+    shift: 'Shift',
+    super: 'Super',
+    meta: 'Super',
+    command: 'Super',
+    cmd: 'Super',
+  };
+
+  const modifiers: string[] = [];
+  for (const part of parts.slice(0, -1)) {
+    const name = canonical[part.toLowerCase()];
+    // Модификатор либо известен, либо это не модификатор — второй клавиши не бывает.
+    if (name === undefined || modifiers.includes(name)) return null;
+    modifiers.push(name);
+  }
+
+  const key = parts[parts.length - 1] as string;
+  // Клавиша не может быть модификатором и не может быть пустой или с пробелами.
+  if (canonical[key.toLowerCase()] !== undefined) return null;
+  if (!/^[A-Za-z0-9]+$/.test(key)) return null;
+
+  // Порядок канонический: с ним сравнение «изменилось ли сочетание» честное.
+  const order = ['Control', 'Alt', 'Shift', 'Super'];
+  modifiers.sort((a, b) => order.indexOf(a) - order.indexOf(b));
+  return [...modifiers, key].join('+');
+}
+
 function sanitize(raw: unknown): AppConfig {
   const obj = (raw ?? {}) as Record<string, unknown>;
   const libraryPath = typeof obj['libraryPath'] === 'string' && obj['libraryPath'].trim() !== ''
@@ -76,10 +123,25 @@ function sanitize(raw: unknown): AppConfig {
   const serverPort = typeof portRaw === 'number' && Number.isInteger(portRaw) && portRaw >= 0 && portRaw <= 65535
     ? portRaw
     : DEFAULT_PORT;
+  /*
+    Поля в конфиге может не быть вовсе (config.json от прежней версии) — тогда
+    берём умолчание ⌥⌘C. Явный `null` — это «выключено», и его надо сохранить:
+    иначе выключенный хоткей возвращался бы сам при каждом чтении конфига.
+  */
+  const shortcutRaw = obj['captureShortcut'];
+  let captureShortcut: string | null = DEFAULT_CAPTURE_SHORTCUT;
+  if (shortcutRaw === null) captureShortcut = null;
+  // Битую строку не превращаем в «выключено» — это молча отняло бы хоткей;
+  // ведём себя как с портом и путём: откатываемся на умолчание.
+  else if (typeof shortcutRaw === 'string') {
+    captureShortcut = normalizeShortcut(shortcutRaw) ?? DEFAULT_CAPTURE_SHORTCUT;
+  }
+
   return {
     libraryPath: expandHome(libraryPath),
     serverPort,
     firstRunCompleted: obj['firstRunCompleted'] === true,
+    captureShortcut,
   };
 }
 

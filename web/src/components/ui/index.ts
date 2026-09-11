@@ -12,6 +12,7 @@ export { Chip, type ChipProps, type ChipVariant } from './Chip';
 export { Tag, type TagProps } from './Tag';
 export { Badge, type BadgeProps, type BadgeVariant } from './Badge';
 export { Checkbox, type CheckboxProps, type CheckboxShape } from './Checkbox';
+export { Switch, type SwitchProps } from './Switch';
 export {
   Popover,
   PopoverTrigger,

@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, userEvent, within } from 'storybook/test';
 import type { SettingsResponse } from '@shared/api';
-import { DEFAULT_PORT } from '@shared/api';
+import { DEFAULT_CAPTURE_SHORTCUT, DEFAULT_PORT } from '@shared/api';
 import { SettingsModal } from './SettingsModal';
 
 /**
@@ -20,6 +20,9 @@ const settings: SettingsResponse = {
   logPath: '/Users/designer/Library/Application Support/Kopirka/kopirka.log',
   appVersion: '0.1.0',
   librarySizeBytes: 1_503_238_553,
+  // FDB-10 — ⌥⌘C, как в конфиге по умолчанию; отчёта оболочки в браузере нет.
+  captureShortcut: DEFAULT_CAPTURE_SHORTCUT,
+  captureShortcutStatus: null,
 };
 
 /**

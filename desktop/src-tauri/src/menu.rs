@@ -37,8 +37,14 @@ pub fn setup(app: &tauri::AppHandle) -> tauri::Result<()> {
         .item(&quit)
         .build()?;
 
-    // Пункты правки нужны не для красоты: без них ⌘V, ⌘C и ⌘A не доходят до вебвью,
+    // Пункты правки нужны не для красоты: без них ⌘V и ⌘C не доходят до вебвью,
     // а вставка из буфера — штатный способ импорта (CAP-04).
+    //
+    // «Выбрать всё» здесь НЕТ намеренно (11.09.2026). AppKit отдаёт ⌘A меню через
+    // `performKeyEquivalent:` раньше первого ответчика: пункт съедал сочетание,
+    // в страницу `keydown` не приходил вовсе, и ⌘A из `useGridHotkeys.ts`
+    // («выбрать все карточки») в окне Tauri не работал — вместо этого выделялся
+    // текст документа. Своего пункта у выбора всего нет, он живёт в вебвью.
     let edit_menu = SubmenuBuilder::new(app, "Правка")
         .item(&P::undo(app, Some("Отменить"))?)
         .item(&P::redo(app, Some("Повторить"))?)
@@ -46,7 +52,6 @@ pub fn setup(app: &tauri::AppHandle) -> tauri::Result<()> {
         .item(&P::cut(app, Some("Вырезать"))?)
         .item(&P::copy(app, Some("Копировать"))?)
         .item(&P::paste(app, Some("Вставить"))?)
-        .item(&P::select_all(app, Some("Выбрать всё"))?)
         .build()?;
 
     let window_menu = SubmenuBuilder::new(app, "Окно")

@@ -17,6 +17,9 @@ mod menu;
 mod notify;
 #[cfg(target_os = "macos")]
 mod quickaction;
+// Глобальный хоткей (FDB-10) — там же, где и съёмка области: только macOS.
+#[cfg(target_os = "macos")]
+mod shortcut;
 mod tray;
 mod windows;
 
@@ -187,13 +190,18 @@ fn html_page(body: String) -> tauri::http::Response<Vec<u8>> {
 /// Порт передаётся явно — он может быть и не наш, если мы подключились к чужому серверу.
 fn start_ui(app: &AppHandle, port: u16) -> tauri::Result<()> {
     windows::open_main(app, port)?;
-    tray::setup(app)?;
     // Хоткей и пункт Finder — только macOS: в Windows-версии съёмки области нет, а
     // раскладывать `~/Library/Services` там некуда (при заданном `HOME` — а его заводит
     // Git Bash — получилась бы папка `%USERPROFILE%\Library\Services`).
+    //
+    // Хоткей вешаем до трея, а не после (FDB-10): пункт «Снять область» подписывает
+    // себя тем, что и правда зарегистрировано, и поллер трея, стартующий внутри
+    // `tray::setup`, не должен застать плагин неустановленным.
+    #[cfg(target_os = "macos")]
+    register_hotkey(app)?;
+    tray::setup(app)?;
     #[cfg(target_os = "macos")]
     {
-        register_hotkey(app)?;
         // Пункт Finder «Добавить в Копирку» — в фоне и после окна: он никому не нужен
         // раньше, чем приложение видно, а его отсутствие — не повод не запускаться.
         quickaction::ensure_installed();
@@ -203,27 +211,23 @@ fn start_ui(app: &AppHandle, port: u16) -> tauri::Result<()> {
     Ok(())
 }
 
-/// ⌥⌘C в любом приложении — снимок выделенной области.
+/// Снимок выделенной области по глобальному сочетанию. FDB-10: само сочетание
+/// больше не константа — оно живёт в `config.json` (умолчание ⌥⌘C) и меняется из
+/// настроек. Перерегистрацией занимается поллер трея, здесь — только первый заход.
 #[cfg(target_os = "macos")]
 fn register_hotkey(app: &AppHandle) -> tauri::Result<()> {
-    use tauri_plugin_global_shortcut::{
-        Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState,
-    };
+    use tauri_plugin_global_shortcut::ShortcutState;
 
-    let hotkey = Shortcut::new(Some(Modifiers::ALT | Modifiers::SUPER), Code::KeyC);
     app.plugin(
         tauri_plugin_global_shortcut::Builder::new()
-            .with_handler(move |_app, shortcut, event| {
-                if event.state() == ShortcutState::Pressed && shortcut == &hotkey {
+            .with_handler(|_app, pressed, event| {
+                if event.state() == ShortcutState::Pressed && shortcut::is_current(pressed) {
                     capture::start();
                 }
             })
             .build(),
     )?;
-    if let Err(error) = app.global_shortcut().register(hotkey) {
-        // Хоткей мог занять кто-то другой — это не повод не запускаться.
-        crate::diag!("не удалось зарегистрировать ⌥⌘C: {error}");
-    }
+    shortcut::apply(app, backend::configured_capture_shortcut());
     Ok(())
 }
 

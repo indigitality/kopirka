@@ -16,6 +16,11 @@ use tauri::{AppHandle, Manager};
 use crate::http;
 
 pub const DEFAULT_PORT: u16 = 43117;
+/// FDB-10 — ⌥⌘C в нотации tauri-plugin-global-shortcut. Дубль
+/// `DEFAULT_CAPTURE_SHORTCUT` из `shared/api.ts`: Rust не читает TS-контракт,
+/// значение держим синхронно руками (как и `DEFAULT_PORT` выше).
+#[cfg(target_os = "macos")]
+pub const DEFAULT_CAPTURE_SHORTCUT: &str = "Alt+Super+C";
 const HEALTH_TIMEOUT: Duration = Duration::from_secs(30);
 const HEALTH_INTERVAL: Duration = Duration::from_millis(200);
 
@@ -104,6 +109,30 @@ pub fn reset_port() -> Result<(), String> {
         .map_err(|error| format!("{} не записывается: {error}", temporary.display()))?;
     std::fs::rename(&temporary, &path)
         .map_err(|error| format!("{} не переименовывается: {error}", temporary.display()))
+}
+
+/// FDB-10 — сочетание глобального хоткея из конфига. `None` — хоткей выключен.
+///
+/// Читается каждый раз заново, без кэша: поллер трея зовёт эту функцию и по ней
+/// узнаёт, что человек поменял сочетание в настройках. Ходить за тем же значением
+/// в `GET /api/settings` нельзя — тот эндпоинт считает размер библиотеки обходом
+/// всей папки, а здесь запрос идёт каждые две секунды.
+///
+/// Поля нет вовсе (конфиг от прежней версии) — берём умолчание, ровно как сервер
+/// в `server/src/config.ts`. Явный `null` — это «выключено» и так и остаётся.
+#[cfg(target_os = "macos")]
+pub fn configured_capture_shortcut() -> Option<String> {
+    let default = || Some(DEFAULT_CAPTURE_SHORTCUT.to_string());
+    let Some(path) = config_file() else { return default() };
+    let Ok(raw) = std::fs::read(path) else { return default() };
+    let Ok(parsed) = serde_json::from_slice::<serde_json::Value>(&raw) else { return default() };
+    match parsed.get("captureShortcut") {
+        None => default(),
+        Some(serde_json::Value::Null) => None,
+        Some(serde_json::Value::String(value)) if !value.is_empty() => Some(value.clone()),
+        // Мусор в поле не должен молча отнимать хоткей — ведём себя как с портом.
+        Some(_) => default(),
+    }
 }
 
 /// Порт читается один раз за запуск: сервер тоже берёт его при старте и на лету не меняет.

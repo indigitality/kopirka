@@ -1,6 +1,10 @@
 /**
- * Адрес локального сервера «Копирки». Хранится в chrome.storage.sync,
- * меняется на странице настроек расширения.
+ * Адрес локального сервера «Копирки» и папка, в которую расширение кладёт файлы.
+ *
+ * Адрес живёт в chrome.storage.sync (меняется на странице настроек расширения),
+ * папка — в chrome.storage.local: идентификатор папки имеет смысл только рядом
+ * с конкретной библиотекой на этой машине, и синхронизировать его между
+ * профилями Chrome было бы прямо вредно.
  *
  * DEFAULT_PORT продублирован из app/shared/api.ts (контракт) — расширение
  * не может импортировать TS-модуль, поэтому значение держим синхронно вручную.
@@ -11,6 +15,8 @@ export const DEFAULT_PORT = 43117;
 export const DEFAULT_SERVER_URL = `http://127.0.0.1:${DEFAULT_PORT}`;
 
 const STORAGE_KEY = 'serverUrl';
+/** FDB-03 — «Сохранять в»: id папки или null («Не разобрано»). */
+const FOLDER_KEY = 'targetFolderId';
 
 /**
  * Приводит введённый пользователем адрес к виду `http://host:port`.
@@ -59,4 +65,43 @@ export async function getServerUrl() {
  */
 export async function setServerUrl(url) {
   await chrome.storage.sync.set({ [STORAGE_KEY]: url });
+}
+
+/** Порт из адреса сервера — для строки статуса в popup. */
+export function serverPort(url) {
+  try {
+    const parsed = new URL(url);
+    if (parsed.port) return Number(parsed.port);
+    return parsed.protocol === 'https:' ? 443 : 80;
+  } catch {
+    return DEFAULT_PORT;
+  }
+}
+
+/**
+ * FDB-03 — выбранная папка. `null` — «Не разобрано».
+ * @returns {Promise<number | null>}
+ */
+export async function getTargetFolderId() {
+  try {
+    const stored = await chrome.storage.local.get(FOLDER_KEY);
+    const value = stored?.[FOLDER_KEY];
+    if (typeof value === 'number' && Number.isInteger(value) && value > 0) return value;
+  } catch {
+    // storage недоступен — кладём в «Не разобрано», это безопасное умолчание
+  }
+  return null;
+}
+
+/**
+ * @param {number | null} folderId
+ * @returns {Promise<void>}
+ */
+export async function setTargetFolderId(folderId) {
+  const value = typeof folderId === 'number' && Number.isInteger(folderId) && folderId > 0 ? folderId : null;
+  try {
+    await chrome.storage.local.set({ [FOLDER_KEY]: value });
+  } catch {
+    // не сохранилось — выбор проживёт до закрытия popup, ронять из-за этого нечего
+  }
 }

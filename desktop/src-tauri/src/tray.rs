@@ -11,6 +11,8 @@ use tauri::{AppHandle, Manager, Wry};
 
 #[cfg(target_os = "macos")]
 use crate::capture;
+#[cfg(target_os = "macos")]
+use crate::shortcut;
 use crate::{backend, events, http, windows};
 
 /// Как часто ходим на сервер: за счётчиком «Не разобрано» и за лентой новых импортов.
@@ -30,8 +32,17 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
     let quit_accelerator = None::<&str>;
     let quit = MenuItem::with_id(app, "quit", "Выйти", true, quit_accelerator)?;
 
+    // FDB-10 — подпись берётся из конфига, а не из константы: сочетание настраивается.
+    // Хоткей к этому моменту уже зарегистрирован (main.rs::register_hotkey), поэтому
+    // `accelerator()` вернёт ровно то, что и правда висит в системе.
     #[cfg(target_os = "macos")]
-    let capture_item = MenuItem::with_id(app, "capture", "Снять область", true, Some("Alt+Cmd+C"))?;
+    let capture_item = MenuItem::with_id(
+        app,
+        "capture",
+        "Снять область",
+        true,
+        shortcut::accelerator().as_deref(),
+    )?;
 
     let first_separator = PredefinedMenuItem::separator(app)?;
     let second_separator = PredefinedMenuItem::separator(app)?;
@@ -90,13 +101,25 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
     })
     .build(app)?;
 
+    #[cfg(target_os = "macos")]
+    spawn_poller(app.clone(), untagged, capture_item);
+    #[cfg(not(target_os = "macos"))]
     spawn_poller(app.clone(), untagged);
     Ok(())
 }
 
-/// Единственный фоновый поток оболочки. Второй заводить незачем: обе задачи —
-/// короткий GET к локальному серверу с одинаковым периодом.
-fn spawn_poller(app: AppHandle, item: MenuItem<Wry>) {
+/// Единственный фоновый поток оболочки. Второй заводить незачем: все задачи —
+/// короткий GET к локальному серверу (и чтение маленького config.json) с одинаковым
+/// периодом.
+///
+/// FDB-10 добавила сюда третью задачу: сверить сочетание из конфига с тем, что
+/// зарегистрировано. Отдельный канал «настройки → оболочка» не нужен — окно и так
+/// пишет конфиг через сервер, а поллер уже ходит с нужной частотой.
+fn spawn_poller(
+    app: AppHandle,
+    item: MenuItem<Wry>,
+    #[cfg(target_os = "macos")] capture_item: MenuItem<Wry>,
+) {
     std::thread::spawn(move || {
         // Номер последнего увиденного события. None — ещё не опрашивали.
         let mut cursor: Option<i64> = None;
@@ -109,6 +132,12 @@ fn spawn_poller(app: AppHandle, item: MenuItem<Wry>) {
             };
             let _ = item.set_text(label);
             events::poll(&app, port, &mut cursor);
+            #[cfg(target_os = "macos")]
+            {
+                // `apply` сама выходит, если ничего не изменилось, — сравнение внутри.
+                shortcut::apply(&app, backend::configured_capture_shortcut());
+                let _ = capture_item.set_accelerator(shortcut::accelerator().as_deref());
+            }
             // Приложение закрылось — поток должен уйти вместе с ним.
             if app.webview_windows().is_empty() && app.tray_by_id("kopirka").is_none() {
                 return;

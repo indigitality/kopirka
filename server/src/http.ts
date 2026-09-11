@@ -137,7 +137,14 @@ export async function parseJsonBody<T extends z.ZodType>(c: Context, schema: T):
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
     const where = issue && issue.path.length > 0 ? `${issue.path.join('.')}: ` : '';
-    throw badRequest(`${where}${issue?.message ?? 'неверное тело запроса'}`, 'validation_failed');
+    /*
+      Схема может назвать свой машинный код через `params.code` — тогда интерфейс
+      подсветит конкретное поле (как с `port_busy`), а не покажет общую ошибку.
+      Без него остаётся прежний `validation_failed`.
+    */
+    const custom = (issue as { params?: { code?: unknown } } | undefined)?.params?.code;
+    const code = typeof custom === 'string' ? custom : 'validation_failed';
+    throw badRequest(`${where}${issue?.message ?? 'неверное тело запроса'}`, code);
   }
   return parsed.data;
 }

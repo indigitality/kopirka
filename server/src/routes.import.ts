@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { Context, Hono } from 'hono';
 import { MAX_FILE_BYTES, type ImportResponse, type SourceType } from '../../shared/api.js';
 import { badRequest } from './errors.js';
+import { folderExists } from './folders.js';
 import { confirmPending, importMany, summarize, type ImportInput } from './importer.js';
 import { parseJsonBody } from './http.js';
 import { log } from './logger.js';
@@ -43,6 +44,19 @@ async function collectUploads(c: Context): Promise<{ files: UploadedFile[]; fiel
     }
   }
   return { files, fields };
+}
+
+/**
+ * FDB-03 — папка, пришедшая от расширения. Она хранится в `chrome.storage` и
+ * легко переживает удаление самой папки: тогда кладём в «Не разобрано», а не
+ * роняем импорт — потерять снятый кадр хуже, чем положить его не туда, откуда
+ * его и так придётся разбирать.
+ */
+function resolveFolderId(state: AppState, raw: number | null | undefined): number | null {
+  if (raw === undefined || raw === null) return null;
+  if (folderExists(state.db, raw)) return raw;
+  log.info(`папка ${raw} из расширения не найдена — файл уходит в «Не разобрано»`);
+  return null;
 }
 
 function emptyResponse(): ImportResponse {
@@ -110,6 +124,8 @@ export function registerImportRoutes(app: Hono, state: AppState): void {
             filename,
             sourceType: 'context_menu',
             sourceUrl: body.pageUrl ?? body.imageUrl,
+            // FDB-03 — папка из popup расширения или из подменю контекстного меню.
+            folderId: resolveFolderId(state, body.folderId),
           },
         ]),
       );
@@ -132,7 +148,14 @@ export function registerImportRoutes(app: Hono, state: AppState): void {
       : `screenshot-${new Date().toISOString().replace(/[:.]/g, '-')}.png`;
     return c.json(
       await importMany(state, [
-        { buffer, filename, sourceType: body.sourceType, sourceUrl: body.pageUrl ?? null },
+        {
+          buffer,
+          filename,
+          sourceType: body.sourceType,
+          sourceUrl: body.pageUrl ?? null,
+          // FDB-03 — папка, выбранная в popup расширения.
+          folderId: resolveFolderId(state, body.folderId),
+        },
       ]),
     );
   });

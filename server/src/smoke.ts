@@ -28,11 +28,25 @@ import type {
   SettingsResponse,
   SearchResponse,
   SettingsUpdateResponse,
+  ShortcutStatus,
   StatsResponse,
   TagRecord,
 } from '../../shared/api.js';
+import { DEFAULT_CAPTURE_SHORTCUT } from '../../shared/api.js';
 import { resolveStaticCandidate } from './app.js';
-import { defaultLibraryPathFor, expandHomeWith, supportDirFor } from './config.js';
+import { defaultLibraryPathFor, expandHomeWith, normalizeShortcut, supportDirFor } from './config.js';
+/**
+ * FDB-10 — та же таблица разбора живёт в вебе (`web/src/lib/shortcut.ts`), и
+ * разойтись им нельзя: одна сторона пишет сочетание, другая его показывает и
+ * собирает из нажатия. Файл веба намеренно без зависимостей, поэтому его можно
+ * импортировать прямо сюда и проверить обе стороны одним прогоном.
+ */
+import {
+  normalizeShortcut as normalizeShortcutInWeb,
+  recordFromEvent,
+  shortcutLabel,
+  systemConflict,
+} from '../../web/src/lib/shortcut.js';
 
 const SERVER_DIR = fileURLToPath(new URL('..', import.meta.url));
 const APP_DIR = path.resolve(SERVER_DIR, '..');
@@ -50,6 +64,15 @@ let base = '';
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
+}
+
+/**
+ * Файл принят? На асинхронных путях (расширение, Folder Action) пометка похожести
+ * импорт не отменяет — `added_similar` такой же успех, как `added`.
+ */
+function saved(response: ImportResponse): boolean {
+  const outcome = response.items[0]?.outcome;
+  return outcome === 'added' || outcome === 'added_similar';
 }
 
 async function check(name: string, run: () => Promise<void> | void): Promise<void> {
@@ -1071,6 +1094,58 @@ async function main(): Promise<void> {
     }
   });
 
+  // FDB-03 — расширение кладёт картинку и кадр сразу в выбранную папку.
+  await check('FDB-03: import/url и import/capture с folderId кладут файл в папку', async () => {
+    const box = await api<FolderRecord>('POST', '/api/folders', { name: 'Из расширения' });
+    const payload = await plasma(31).png().toBuffer();
+    const origin = http.createServer((_request, response) => {
+      response.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': payload.length });
+      response.end(payload);
+    });
+    await new Promise<void>((resolve) => origin.listen(0, '127.0.0.1', () => resolve()));
+    const address = origin.address();
+    const originPort = typeof address === 'object' && address !== null ? address.port : 0;
+    try {
+      const byUrl = await api<ImportResponse>('POST', '/api/import/url', {
+        imageUrl: `http://127.0.0.1:${originPort}/from-menu.png`,
+        pageUrl: 'https://example.com/gallery',
+        sourceType: 'context_menu',
+        folderId: box.id,
+      });
+      assert(saved(byUrl), `outcome=${byUrl.items[0]?.outcome}`);
+      assert(byUrl.items[0]?.file?.folderId === box.id, `картинка легла в ${byUrl.items[0]?.file?.folderId}`);
+    } finally {
+      await new Promise<void>((resolve) => origin.close(() => resolve()));
+    }
+
+    const shot = await plasma(32).png().toBuffer();
+    const byCapture = await api<ImportResponse>('POST', '/api/import/capture', {
+      dataUrl: `data:image/png;base64,${shot.toString('base64')}`,
+      suggestedFilename: 'from-popup.png',
+      sourceType: 'tab_screenshot',
+      folderId: box.id,
+    });
+    assert(saved(byCapture), `outcome=${byCapture.items[0]?.outcome}`);
+    assert(byCapture.items[0]?.file?.folderId === box.id, `кадр лёг в ${byCapture.items[0]?.file?.folderId}`);
+
+    const inFolder = await api<FileListResponse>('GET', `/api/files?folderId=${box.id}&limit=100`);
+    assert(inFolder.files.length === 2, `в папке ${inFolder.files.length} файлов вместо 2`);
+
+    // Папку могли удалить уже после того, как расширение её запомнило: файл
+    // должен уехать в «Не разобрано», а не потеряться вместе с отказом импорта.
+    const ghost = await plasma(33).png().toBuffer();
+    const stale = await api<ImportResponse>('POST', '/api/import/capture', {
+      dataUrl: `data:image/png;base64,${ghost.toString('base64')}`,
+      suggestedFilename: 'stale-folder.png',
+      sourceType: 'area_screenshot',
+      folderId: 999_999,
+    });
+    // `added_similar` — тоже «файл сохранён»: пути расширения асинхронные, и
+    // пометка похожести не отменяет импорт (см. ImportOutcome в контракте).
+    assert(saved(stale), `outcome=${stale.items[0]?.outcome}`);
+    assert(stale.items[0]?.file?.folderId === null, 'файл с несуществующей папкой не ушёл в «Не разобрано»');
+  });
+
   // Дополнительно: CAP-02 — скриншот вкладки приходит data:URL-ом.
   await check('импорт скриншота из data:URL → added', async () => {
     const payload = await plasma(4).png().toBuffer();
@@ -1209,6 +1284,145 @@ async function main(): Promise<void> {
       body: JSON.stringify({ body: 'Введите пароль на evil.example' }),
     });
     assert(evil.status === 403, `сторонний origin получил ${evil.status}`);
+  });
+
+  // FDB-10 — настраиваемый хоткей снимка области.
+  await check('FDB-10: captureShortcut — умолчание, канон, выключение и отказ на мусоре', async () => {
+    const initial = await api<SettingsResponse>('GET', '/api/settings');
+    assert(
+      initial.captureShortcut === DEFAULT_CAPTURE_SHORTCUT,
+      `умолчание ${initial.captureShortcut}, ожидалось ${DEFAULT_CAPTURE_SHORTCUT}`,
+    );
+    assert(initial.captureShortcutStatus === null, 'статус есть до того, как оболочка отчиталась');
+
+    // Порядок модификаторов и их написание приводятся к канону — по этой строке
+    // оболочка потом сравнивает «изменилось ли сочетание».
+    const saved = await api<SettingsUpdateResponse>('PATCH', '/api/settings', {
+      captureShortcut: 'cmd+Ctrl+K',
+    });
+    assert(saved.captureShortcut === 'Control+Super+K', `канон: ${saved.captureShortcut}`);
+
+    const off = await api<SettingsUpdateResponse>('PATCH', '/api/settings', { captureShortcut: null });
+    assert(off.captureShortcut === null, 'null не выключил хоткей');
+
+    for (const bad of ['KeyC', 'Alt+', 'Alt+Super', 'Alt+Alt+KeyC', 'Alt+Super+Key C']) {
+      const response = await fetch(`${base}/api/settings`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ captureShortcut: bad }),
+      });
+      assert(response.status === 400, `«${bad}» приняли со статусом ${response.status}`);
+      const error = (await response.json()) as ApiError;
+      assert(error.code === 'invalid_shortcut', `«${bad}» → code=${error.code}`);
+    }
+
+    // Вернём умолчание — дальше по прогону конфиг должен быть обычным.
+    const back = await api<SettingsUpdateResponse>('PATCH', '/api/settings', {
+      captureShortcut: DEFAULT_CAPTURE_SHORTCUT,
+    });
+    assert(back.captureShortcut === DEFAULT_CAPTURE_SHORTCUT, 'сброс на умолчание не сработал');
+  });
+
+  await check('FDB-10: POST /api/system/shortcut-status доезжает до GET /api/settings', async () => {
+    const failed = await api<ShortcutStatus>('POST', '/api/system/shortcut-status', {
+      shortcut: DEFAULT_CAPTURE_SHORTCUT,
+      ok: false,
+      error: 'HotKey already registered',
+    });
+    assert(failed.ok === false && failed.shortcut === DEFAULT_CAPTURE_SHORTCUT, 'отчёт записан не тот');
+    assert(typeof failed.at === 'string' && failed.at !== '', 'сервер не поставил время отчёта');
+
+    const withStatus = await api<SettingsResponse>('GET', '/api/settings');
+    assert(withStatus.captureShortcutStatus?.ok === false, 'статус не доехал до настроек');
+    assert(
+      withStatus.captureShortcutStatus?.error === 'HotKey already registered',
+      `причина: ${withStatus.captureShortcutStatus?.error}`,
+    );
+
+    // Новое сочетание — новый вопрос: прошлый отчёт не должен остаться на экране.
+    await api<SettingsUpdateResponse>('PATCH', '/api/settings', { captureShortcut: 'Alt+Shift+KeyV' });
+    const reset = await api<SettingsResponse>('GET', '/api/settings');
+    assert(reset.captureShortcutStatus === null, 'старый отчёт пережил смену сочетания');
+
+    await api<ShortcutStatus>('POST', '/api/system/shortcut-status', {
+      shortcut: 'Alt+Shift+KeyV',
+      ok: true,
+    });
+    const okStatus = await api<SettingsResponse>('GET', '/api/settings');
+    assert(okStatus.captureShortcutStatus?.ok === true, 'успешный отчёт не доехал');
+
+    await api<SettingsUpdateResponse>('PATCH', '/api/settings', {
+      captureShortcut: DEFAULT_CAPTURE_SHORTCUT,
+    });
+  });
+
+  // FDB-10 — один и тот же разбор сочетания на сервере и в вебе. Файл веба
+  // импортируется напрямую: он без зависимостей ровно ради этой проверки.
+  await check('FDB-10: разбор сочетания в вебе и на сервере совпадает', async () => {
+    const cases: Array<[string, string | null]> = [
+      ['Alt+Super+C', 'Alt+Super+C'],
+      // Клавишу не переписываем: плагин разберёт и «K», и «KeyK».
+      ['cmd+Ctrl+K', 'Control+Super+K'],
+      ['Super+Alt+KeyC', 'Alt+Super+KeyC'],
+      ['option+shift+Digit4', 'Alt+Shift+Digit4'],
+      ['KeyC', null],
+      ['Alt+', null],
+      ['Alt+Super', null],
+      ['Alt+Alt+KeyC', null],
+      ['Alt+Super+Key C', null],
+    ];
+    for (const [input, expected] of cases) {
+      const server = normalizeShortcut(input);
+      const web = normalizeShortcutInWeb(input);
+      assert(server === expected, `сервер: «${input}» → ${server}, ожидалось ${expected}`);
+      assert(web === expected, `веб: «${input}» → ${web}, ожидалось ${expected}`);
+    }
+
+    // Показ: нотация плагина → кейкапы macOS и слова Windows.
+    assert(
+      shortcutLabel('Alt+Super+KeyC') === '⌥⌘C',
+      `подпись macOS: ${shortcutLabel('Alt+Super+KeyC')}`,
+    );
+    assert(
+      shortcutLabel('Control+Alt+KeyK', true) === 'Ctrl+Alt+K',
+      `подпись Windows: ${shortcutLabel('Control+Alt+KeyK', true)}`,
+    );
+
+    // Системные сочетания отбиваются до обращения к оболочке.
+    assert(systemConflict('Shift+Super+Digit4') !== null, '⇧⌘4 не опознано как системное');
+    assert(systemConflict('Alt+Super+KeyC') === null, '⌥⌘C сочли системным');
+
+    // Клавиатурное событие → нотация плагина.
+    const pressed = recordFromEvent({
+      ctrlKey: true,
+      altKey: true,
+      shiftKey: false,
+      metaKey: false,
+      code: 'KeyK',
+      key: 'k',
+    });
+    assert(
+      pressed.kind === 'shortcut' && pressed.spec === 'Control+Alt+KeyK',
+      `из события получилось ${JSON.stringify(pressed)}`,
+    );
+    const onlyModifiers = recordFromEvent({
+      ctrlKey: true,
+      altKey: false,
+      shiftKey: false,
+      metaKey: false,
+      code: 'ControlLeft',
+      key: 'Control',
+    });
+    assert(onlyModifiers.kind === 'pending', 'нажатие модификатора закрыло запись');
+    const bare = recordFromEvent({
+      ctrlKey: false,
+      altKey: false,
+      shiftKey: false,
+      metaKey: false,
+      code: 'KeyK',
+      key: 'k',
+    });
+    assert(bare.kind === 'no-modifier', 'клавиша без модификаторов принялась как хоткей');
   });
 
   // Дополнительно: SVC-06 — занятый порт нельзя записать в настройки, иначе после
