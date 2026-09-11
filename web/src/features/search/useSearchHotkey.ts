@@ -11,6 +11,7 @@
  */
 import { useEffect } from 'react';
 import { isEditableTarget, overlayOpen } from '@/features/grid/useGridHotkeys';
+import { marqueeActive } from '@/features/grid/useMarquee';
 import { getViewState } from '@/store/view';
 
 export function useSearchHotkey(onOpen: () => void): void {
@@ -23,6 +24,10 @@ export function useSearchHotkey(onOpen: () => void): void {
       if (!((meta && isK) || isSlash)) return;
       if (isEditableTarget(event.target)) return;
       if (overlayOpen()) return;
+      // Рамка выделения (FDB-08) слушает ту же клавиатуру — её Esc отменяет
+      // протяжку. Открывать модалку поверх незавершённой протяжки нельзя:
+      // мышь ещё зажата, а фокус уедет в поле поиска.
+      if (marqueeActive()) return;
       // Детальный просмотр — свой слой, но без `data-state` Radix: `overlayOpen` его
       // не видит, а открывать поиск поверх картинки незачем.
       if (getViewState().openFileId !== null) return;

@@ -22,6 +22,19 @@ import type { MasonryBox } from './useMasonry';
  */
 export const MARQUEE_THRESHOLD = 5;
 
+/**
+ * Идёт ли сейчас протяжка рамкой. Модульный флаг, а не состояние React: его
+ * спрашивают из `document`-обработчиков чужих фич (`useSearchHotkey`), которым
+ * до контекста сетки не дотянуться, и спрашивают синхронно внутри события —
+ * рендер React к этому моменту ещё не случился.
+ */
+let marqueeDragging = false;
+
+/** Для чужих глобальных хоткеев: пока тянут рамку, клавиатура принадлежит ей. */
+export function marqueeActive(): boolean {
+  return marqueeDragging;
+}
+
 export interface MarqueeRect {
   x: number;
   y: number;
@@ -92,6 +105,7 @@ export function useMarquee({ boxes, getSelection, onSelect, disabled }: MarqueeO
 
       stopRef.current?.();
       draggedRef.current = false;
+      marqueeDragging = true;
 
       const container = event.currentTarget;
       const scroller = findScroller(container);
@@ -150,6 +164,7 @@ export function useMarquee({ boxes, getSelection, onSelect, disabled }: MarqueeO
 
       const stop = () => {
         stopRef.current = null;
+        marqueeDragging = false;
         if (frame !== 0) cancelAnimationFrame(frame);
         frame = 0;
         window.removeEventListener('pointermove', onMove, true);
