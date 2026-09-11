@@ -32,7 +32,9 @@ import trash from './scenarios/11-trash.mjs';
 import marqueeSelection from './scenarios/12-marquee-selection.mjs';
 import selectAll from './scenarios/13-select-all.mjs';
 import contextDeleteGroup from './scenarios/14-context-delete-group.mjs';
-import consoleErrorsScenario from './scenarios/15-console-errors.mjs';
+import sidebarFoldersScroll from './scenarios/15-sidebar-folders-scroll.mjs';
+import folderMove from './scenarios/16-folder-move.mjs';
+import consoleErrorsScenario from './scenarios/17-console-errors.mjs';
 
 const TESTS_DIR = fileURLToPath(new URL('.', import.meta.url));
 const APP_DIR = path.resolve(TESTS_DIR, '..', '..');
@@ -58,6 +60,8 @@ const SCENARIOS = [
   { name: 'Рамка выделения: протяжка по пустому месту выделяет карточки, Esc снимает', run: marqueeSelection },
   { name: 'Чекбокс панели выделения: «Выбраны все N» и снятие', run: selectAll },
   { name: 'Контекстное «Удалить» при группе отправляет в корзину всё выделение', run: contextDeleteGroup },
+  { name: 'Сайдбар с 40 папками: строки 32, область прокручивается, шапка на месте', run: sidebarFoldersScroll },
+  { name: 'Перенос папки перетаскиванием: вложить, вставка между строками, Esc', run: folderMove },
   { name: 'Консоль браузера без ошибок за весь прогон', run: consoleErrorsScenario },
 ];
 

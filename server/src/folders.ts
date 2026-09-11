@@ -1,7 +1,7 @@
 /** Папки (ORG-02). Файл принадлежит не более чем одной папке; удаление папки файлы не удаляет (5.4). */
 import type { FolderRecord } from '../../shared/api.js';
 import type { Db } from './db.js';
-import { badRequest, notFound } from './errors.js';
+import { badRequest, conflict, notFound } from './errors.js';
 
 interface FolderRow {
   id: number;
@@ -151,7 +151,7 @@ export function updateFolder(
       assertFolderExists(db, patch.parentFolderId);
       // Папку нельзя вложить в саму себя или в собственного потомка — иначе дерево развалится.
       if (subtreeIds(db, id).includes(patch.parentFolderId)) {
-        throw badRequest('Папку нельзя переместить внутрь самой себя', 'folder_cycle');
+        throw conflict('Нельзя вложить папку в саму себя', 'folder_cycle');
       }
     }
     db.prepare(`UPDATE folders SET parent_folder_id = ? WHERE id = ?`).run(patch.parentFolderId, id);
@@ -176,4 +176,53 @@ export function deleteFolder(db: Db, id: number): { deletedFolders: number; deta
     db.prepare(`DELETE FROM folders WHERE id IN (${placeholders})`).run(...ids);
     return { deletedFolders: ids.length, detachedFiles: detached.changes };
   })();
+}
+
+/**
+ * NEW-03 — перенос папки перетаскиванием (макеты D09–D12 от 11.09.2026).
+ *
+ * Порядок хранится в `sort_order` — колонка есть с первой миграции, отдельная
+ * миграция не нужна. Переносом порядок среди новых братьев перенумеровывается
+ * подряд 0…n−1: так индекс из интерфейса («вставить выше третьей») переживает
+ * любые прежние дыры в нумерации, а выдача `listFolders` (ORDER BY sort_order)
+ * совпадает с тем, что видел пользователь.
+ *
+ * Глубина не ограничена: `MAX_DEPTH` снят решением D2/D8 от 02.09.2026 и в коде
+ * его нет — проверять нечего.
+ */
+export function moveFolder(db: Db, id: number, parentId: number | null, index: number): FolderRecord {
+  assertFolderExists(db, id);
+  if (parentId !== null) {
+    assertFolderExists(db, parentId);
+    // Себя и собственного потомка новым родителем быть не может — дерево развалилось бы.
+    if (subtreeIds(db, id).includes(parentId)) {
+      throw conflict('Нельзя вложить папку в саму себя', 'folder_cycle');
+    }
+  }
+
+  db.transaction(() => {
+    const siblings = (
+      db
+        .prepare(
+          parentId === null
+            ? `SELECT id FROM folders WHERE parent_folder_id IS NULL AND id <> ?
+                ORDER BY sort_order ASC, name COLLATE NOCASE ASC, id ASC`
+            : `SELECT id FROM folders WHERE parent_folder_id = ? AND id <> ?
+                ORDER BY sort_order ASC, name COLLATE NOCASE ASC, id ASC`,
+        )
+        .all(...(parentId === null ? [id] : [parentId, id])) as Array<{ id: number }>
+    ).map((row) => row.id);
+
+    // Индекс из интерфейса приходит по видимому списку — прижимаем его к границам.
+    const at = Math.min(Math.max(index, 0), siblings.length);
+    siblings.splice(at, 0, id);
+
+    db.prepare(`UPDATE folders SET parent_folder_id = ? WHERE id = ?`).run(parentId, id);
+    const setOrder = db.prepare(`UPDATE folders SET sort_order = ? WHERE id = ?`);
+    siblings.forEach((siblingId, position) => setOrder.run(position, siblingId));
+  })();
+
+  const moved = getFolderFlat(db, id);
+  if (!moved) throw notFound(`Папка ${id} не найдена`, 'folder_not_found');
+  return moved;
 }

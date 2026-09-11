@@ -24,7 +24,7 @@ import type {
   TagRecord,
 } from '@shared/api';
 import * as api from '@/lib/api';
-import { flattenFolders, folderSubtreeIds } from '@/lib/folders';
+import { flattenFolders, folderSubtreeIds, moveFolderInTree } from '@/lib/folders';
 import { useViewSelector, useViewState } from '@/store/view';
 
 /** Сколько карточек тянем за раз. Хватает на 2–3 экрана сетки. */
@@ -95,6 +95,8 @@ export interface LibraryValue {
   createFolder: (name: string, parentFolderId: number | null) => Promise<FolderRecord>;
   renameFolder: (id: number, name: string) => Promise<void>;
   deleteFolder: (id: number) => Promise<void>;
+  /** NEW-03 — перенос папки перетаскиванием. Дерево меняется сразу, откат при ошибке. */
+  moveFolder: (id: number, parentId: number | null, index: number) => Promise<void>;
 }
 
 /**
@@ -417,6 +419,22 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       async deleteFolder(id) {
         await api.deleteFolder(id);
         await reload();
+      },
+      /*
+        Оптимистично: дерево перестраиваем той же логикой, что у сервера, и только
+        потом шлём запрос. Упал — возвращаем прежнее дерево (в том числе на 409
+        `folder_cycle`), а тост печатает вызывающий.
+      */
+      async moveFolder(id, parentId, index) {
+        const previous = folders;
+        setFolders((current) => moveFolderInTree(current, id, parentId, index));
+        try {
+          await api.moveFolder(id, { parentId, index });
+        } catch (cause) {
+          setFolders(previous);
+          throw cause;
+        }
+        await refreshMeta();
       },
     };
   }, [

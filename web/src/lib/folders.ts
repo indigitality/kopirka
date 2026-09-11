@@ -82,3 +82,35 @@ export function removeFolder(folders: readonly FolderRecord[], id: number): Fold
     .filter((folder) => folder.id !== id)
     .map((folder) => ({ ...folder, children: removeFolder(folder.children, id) }));
 }
+
+/**
+ * NEW-03 — тот же перенос, что делает сервер, но по дереву в памяти: интерфейс
+ * рисует результат сразу, не дожидаясь ответа (откат — прежним деревом).
+ *
+ * `index` считается по списку детей нового родителя **без самой переносимой
+ * папки**, ровно как в `PATCH /api/folders/:id/move`. Перенос внутрь самой себя
+ * или своего потомка дерево не меняет — такой запрос сервер отобьёт 409.
+ */
+export function moveFolderInTree(
+  folders: readonly FolderRecord[],
+  id: number,
+  parentId: number | null,
+  index: number,
+): FolderRecord[] {
+  const moving = findFolder(folders, id);
+  if (!moving) return [...folders];
+  if (parentId !== null && folderSubtreeIds(folders, id).has(parentId)) return [...folders];
+
+  const withoutMoved = removeFolder(folders, id);
+  const insert = (list: readonly FolderRecord[]): FolderRecord[] => {
+    const next = [...list];
+    next.splice(Math.min(Math.max(index, 0), next.length), 0, { ...moving, parentFolderId: parentId });
+    return next;
+  };
+
+  if (parentId === null) return insert(withoutMoved);
+  return mapFolderTree(withoutMoved, parentId, (parent) => ({
+    ...parent,
+    children: insert(parent.children),
+  }));
+}

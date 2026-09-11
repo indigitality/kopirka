@@ -733,6 +733,72 @@
   .sidebar-action:hover {
     color: var(--color-ink);
   }
+
+  /*
+    NEW-01 — область папок фиксированной высоты (D06–D08 от 11.09.2026).
+
+    Скроллбар рисуем сами (`.sidebar-thumb` в `Sidebar.tsx`), а системный прячем:
+    по макету полоса 4 px лежит ПОВЕРХ строк, у правого поля области, и места в
+    потоке не занимает. Нативная полоска в WebKit место занимает — строки стали
+    бы на 4 px уже ровно в тот момент, когда папок стало много.
+
+    Оба способа прятать нужны вместе: `scrollbar-width` понимает Firefox и
+    свежий WebKit, `::-webkit-scrollbar` — Chrome и WKWebView окна приложения.
+  */
+  .sidebar-scroll {
+    scrollbar-width: none;
+  }
+
+  .sidebar-scroll::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
+
+  /* Ползунок: 4 × радиус 999, `line-strong`. Виден при наведении и пока крутят. */
+  .sidebar-thumb {
+    position: absolute;
+    right: 0;
+    width: 4px;
+    border-radius: var(--radius-pill);
+    background-color: var(--color-line-strong);
+    opacity: 0;
+    transition: opacity var(--dur-fast) var(--ease-out);
+  }
+
+  .sidebar-tree:hover .sidebar-thumb,
+  .sidebar-thumb[data-active] {
+    opacity: 1;
+  }
+
+  /*
+    Затухание у края области: 40 (`--sidebar-fade-width`), цвет панели в
+    прозрачность. Снизу — пока есть что прокручивать вниз, сверху — когда список
+    уже прокручен (D06 и D07). Оба сразу не ставим: это состояние прокрутки,
+    а не украшение края.
+  */
+  .sidebar-fade {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: var(--sidebar-fade-width);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity var(--dur-fast) var(--ease-out);
+  }
+
+  .sidebar-fade[data-show] {
+    opacity: 1;
+  }
+
+  .sidebar-fade[data-edge='top'] {
+    top: 0;
+    background-image: linear-gradient(to bottom, var(--color-panel), transparent);
+  }
+
+  .sidebar-fade[data-edge='bottom'] {
+    bottom: 0;
+    background-image: linear-gradient(to top, var(--color-panel), transparent);
+  }
 }
 
 /*

@@ -140,6 +140,17 @@ function Shell({ settings, onSettingsChange }: ShellProps) {
   };
 
   /**
+   * NEW-03 — папку перенесли перетаскиванием. Дерево в сторе уже перестроено
+   * оптимистично; сюда доезжает только отказ сервера (например, 409
+   * `folder_cycle`) — тогда стор откатывается сам, а мы объясняем тостом.
+   */
+  const handleMoveFolder = (id: number, parentId: number | null, index: number) => {
+    void library
+      .moveFolder(id, parentId, index)
+      .catch((cause: unknown) => fail(cause, 'Не удалось перенести папку'));
+  };
+
+  /**
    * ORG-03 — карточки бросили на цель сайдбара. Куда именно, решил `dnd.ts`;
    * здесь только действие и тост с отменой.
    */
@@ -213,6 +224,7 @@ function Shell({ settings, onSettingsChange }: ShellProps) {
         onRenameCommit={handleRenameCommit}
         onRenameCancel={() => setRenamingFolderId(null)}
         onDeleteFolder={setFolderToDelete}
+        onMoveFolder={handleMoveFolder}
         onImportFiles={(folderId, files) => void startImport(files, 'drag_drop', folderId)}
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenFilter={() => setFilterOpen((open) => !open)}

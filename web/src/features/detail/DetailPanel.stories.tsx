@@ -107,6 +107,7 @@ const library = {
   createFolder: () => Promise.resolve(folders[0] as FolderRecord),
   renameFolder: resolved,
   deleteFolder: resolved,
+  moveFolder: resolved,
 } satisfies LibraryValue;
 
 /* ── Витрина ──────────────────────────────────────────────────────────────── */

@@ -77,6 +77,139 @@ export const HELPERS_SRC = `
       item.dispatchEvent(ev);
       return { defaultPrevented: ev.defaultPrevented, scrollTopBefore: before, scrollTopAfter: list.scrollTop };
     },
+    /* ── NEW-01 · NEW-03: область папок и перенос папки ───────────────────── */
+
+    /* Строка папки по её имени: имя лежит в .sidebar-name, счётчик — отдельным узлом. */
+    folderRow: function (name) {
+      return Array.prototype.slice.call(document.querySelectorAll('[data-folder-row]')).filter(function (el) {
+        var n = el.querySelector('.sidebar-name');
+        return n && n.textContent.trim() === name;
+      })[0] || null;
+    },
+
+    /** Снимок области папок: строки, прокрутка, ползунок, затухания. */
+    folderArea: function () {
+      var rect = function (el) {
+        if (!el) return null;
+        var r = el.getBoundingClientRect();
+        return { left: r.left, top: r.top, width: r.width, height: r.height, bottom: r.bottom, right: r.right };
+      };
+      var box = document.querySelector('[data-drop-scroll]');
+      var rows = Array.prototype.slice.call(document.querySelectorAll('[data-folder-row]'));
+      var heights = {};
+      rows.forEach(function (el) { heights[Math.round(el.getBoundingClientRect().height)] = 1; });
+      return {
+        rows: rows.length,
+        rowHeights: Object.keys(heights).map(Number),
+        area: rect(box),
+        scrollTop: box ? box.scrollTop : null,
+        scrollHeight: box ? box.scrollHeight : null,
+        clientHeight: box ? box.clientHeight : null,
+        thumb: rect(document.querySelector('.sidebar-thumb')),
+        fadeTop: !!document.querySelector('.sidebar-fade[data-edge="top"][data-show]'),
+        fadeBottom: !!document.querySelector('.sidebar-fade[data-edge="bottom"][data-show]')
+      };
+    },
+
+    /** Прокрутить область папок и дать интерфейсу пересчитать затухания. */
+    folderScroll: function (top) {
+      var box = document.querySelector('[data-drop-scroll]');
+      if (!box) return { error: 'нет области папок' };
+      box.scrollTop = top < 0 ? box.scrollHeight : top;
+      box.dispatchEvent(new Event('scroll', { bubbles: true }));
+      return { scrollTop: box.scrollTop, max: box.scrollHeight - box.clientHeight };
+    },
+
+    /**
+     * Синтетический перенос папки до точки внутри целевой строки: fraction
+     * 0.5 — середина (вложить), 0.12 — верхняя четверть (вставка между
+     * строками). Кнопку не отпускаем — снимок берётся прямо под грузом.
+     * pointerdown шлём в саму строку (React-обработчик), pointermove — в
+     * body: слушатели висят на window с capture.
+     */
+    folderDrag: function (fromName, toName, fraction) {
+      var from = window.__p.folderRow(fromName);
+      var to = window.__p.folderRow(toName);
+      if (!from || !to) return { error: 'нет строки ' + (from ? toName : fromName) };
+      var a = from.getBoundingClientRect();
+      var b = to.getBoundingClientRect();
+      var sx = a.left + a.width / 2, sy = a.top + a.height / 2;
+      var tx = b.left + b.width / 2, ty = b.top + b.height * fraction;
+      var opts = function (x, y, buttons) {
+        return { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y,
+                 button: 0, buttons: buttons, pointerId: 1, pointerType: 'mouse', isPrimary: true, view: window };
+      };
+      from.dispatchEvent(new PointerEvent('pointerdown', opts(sx, sy, 1)));
+      for (var i = 1; i <= 6; i += 1) {
+        document.body.dispatchEvent(
+          new PointerEvent('pointermove', opts(sx + ((tx - sx) * i) / 6, sy + ((ty - sy) * i) / 6, 1)),
+        );
+      }
+      /*
+        Снимок берём отдельным шагом (folderProbe): React коммитит призрак и
+        индикатор уже после текущего оборота событий, и чтение DOM прямо здесь
+        всегда заставало пустоту — на первом же прогоне стенда.
+      */
+      window.__p._row = { left: b.left, top: b.top, width: b.width, height: b.height, bottom: b.bottom };
+      return { started: true, row: window.__p._row };
+    },
+
+    /** Что видно под грузом: призрак, тултип, индикатор вставки, зоны «В корень». */
+    folderProbe: function () {
+      var rect = function (el) {
+        if (!el) return null;
+        var r = el.getBoundingClientRect();
+        return { left: r.left, top: r.top, width: r.width, height: r.height, bottom: r.bottom, right: r.right };
+      };
+      var ghost = document.querySelector('[data-folder-ghost]');
+      /*
+        Стекло призрака и тултипа: сам backdrop-filter и — главное — отсутствие
+        предка, который его гасит. will-change/filter/opacity<1 над элементом
+        образуют backdrop root, и размытию становится нечего размывать: тот же
+        класс ошибки, что и containing block у поповеров.
+      */
+      var glassOf = function (el) {
+        if (!el) return null;
+        var cs = getComputedStyle(el);
+        var killer = null;
+        for (var node = el.parentElement; node && node !== document.documentElement; node = node.parentElement) {
+          var p = getComputedStyle(node);
+          var reasons = [];
+          if (/transform|filter|opacity|backdrop/.test(p.willChange || '')) reasons.push('will-change: ' + p.willChange);
+          if (p.filter !== 'none') reasons.push('filter: ' + p.filter);
+          if (parseFloat(p.opacity) < 1) reasons.push('opacity: ' + p.opacity);
+          if (reasons.length > 0) { killer = { tag: node.tagName.toLowerCase(), reasons: reasons }; break; }
+        }
+        return {
+          backdrop: cs.backdropFilter || cs.webkitBackdropFilter || 'none',
+          background: cs.backgroundColor,
+          killer: killer
+        };
+      };
+      var glassRow = ghost ? ghost.firstElementChild : null;
+      var glassTip = ghost && ghost.children.length > 1 ? ghost.children[1] : null;
+      return {
+        row: window.__p._row || null,
+        ghost: rect(ghost),
+        tooltip: ghost ? ghost.textContent.trim() : null,
+        glassRow: glassOf(glassRow),
+        glassTip: glassOf(glassTip),
+        tipColor: glassTip ? getComputedStyle(glassTip.firstElementChild).color : null,
+        insert: rect(document.querySelector('[data-folder-insert]')),
+        rootZones: document.querySelectorAll('[data-folder-root-zone]').length,
+        area: rect(document.querySelector('[data-drop-scroll]'))
+      };
+    },
+
+    /** Отпустить кнопку — перенос состоится по последней цели. */
+    folderDrop: function () {
+      document.body.dispatchEvent(
+        new PointerEvent('pointerup', { bubbles: true, cancelable: true, composed: true, clientX: 0, clientY: 0,
+                                        button: 0, buttons: 0, pointerId: 1, pointerType: 'mouse', isPrimary: true, view: window }),
+      );
+      return { ghost: !!document.querySelector('[data-folder-ghost]') };
+    },
+
     /** Структурная проверка containing block — см. комментарий над HELPERS_SRC. */
     measure: function (triggerSel, layerSel) {
       var rect = function (el) {

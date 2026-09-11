@@ -112,6 +112,33 @@ function buildSpec({ webBaseUrl, outDir }) {
   js('closeSort', `return window.__p.key('Escape');`);
   wait(300);
 
+  /*
+    ── NEW-01 · NEW-03: область папок и перенос папки ────────────────────────
+    Ради этого блока WebKit-стенд и нужен во второй раз: индикатор вставки —
+    абсолютный слой внутри прокручиваемой колонки, и его координаты в WKWebView
+    считаются иначе, чем в Blink. Сначала прокручиваем область до низа (то же
+    состояние, что на D07), потом меряем индикатор прямо под грузом.
+  */
+  js('folderAreaTop', `return window.__p.folderArea();`);
+  js('folderScrollBottom', `return window.__p.folderScroll(-1);`);
+  wait(300);
+  js('folderAreaBottom', `return window.__p.folderArea();`);
+  shot('sidebar-folders-scrolled');
+
+  js('folderStartBetween', `return window.__p.folderDrag('Портфолио', 'Раскадровки', 0.12);`);
+  wait(300);
+  js('folderDragBetween', `return window.__p.folderProbe();`);
+  shot('sidebar-folder-insert');
+  js('folderCancel', `return window.__p.key('Escape');`);
+  wait(300);
+  js('folderStartInto', `return window.__p.folderDrag('Портфолио', 'Раскадровки', 0.5);`);
+  wait(300);
+  js('folderDragInto', `return window.__p.folderProbe();`);
+  shot('sidebar-folder-into');
+  js('folderDrop', `return window.__p.folderDrop();`);
+  wait(600);
+  js('folderAfterDrop', `return { ghost: !!document.querySelector('[data-folder-ghost]') };`);
+
   return steps;
 }
 
@@ -212,6 +239,103 @@ function runChecks(results) {
   check('поповер сортировки: containing block чист', () => {
     assertContainingBlockClean(results.sortPopover, 'поповер сортировки');
   });
+
+  check('NEW-01: строки папок 32, область прокручивается, своя полоса 4 px', () => {
+    const top = results.folderAreaTop;
+    assertOk(top && top.area, `область папок не измерилась: ${JSON.stringify(top)}`);
+    assertOk(
+      top.rowHeights.length === 1 && top.rowHeights[0] === 32,
+      `высоты строк сайдбара: ${JSON.stringify(top.rowHeights)} — ожидалось только 32`,
+    );
+    assertOk(
+      top.scrollHeight > top.clientHeight + 1,
+      `область не прокручивается: scrollHeight ${top.scrollHeight}, clientHeight ${top.clientHeight}`,
+    );
+    assertOk(top.thumb && Math.abs(top.thumb.width - 4) <= 0.5, `ширина ползунка ${top.thumb?.width}`);
+    assertOk(top.fadeBottom === true && top.fadeTop === false, `затухания вверху списка: ${JSON.stringify(top)}`);
+  });
+
+  check('NEW-01: прокручено до низа — затухание сверху, снизу его нет', () => {
+    const bottom = results.folderAreaBottom;
+    assertOk(bottom && bottom.scrollTop > 0, `область не прокрутилась: ${JSON.stringify(results.folderScrollBottom)}`);
+    assertOk(
+      bottom.fadeTop === true && bottom.fadeBottom === false,
+      `затухания внизу списка: ${JSON.stringify({ top: bottom.fadeTop, bottom: bottom.fadeBottom })}`,
+    );
+  });
+
+  check('NEW-03: индикатор вставки стоит по строке в прокрученной колонке', () => {
+    const drag = results.folderDragBetween;
+    assertOk(drag && !drag.error, `перенос не начался: ${drag?.error ?? 'нет данных'}`);
+    assertOk(drag.ghost, 'призрак переносимой папки не появился');
+    assertOk(
+      (drag.tooltip ?? '').includes('Переместить выше «Раскадровки»'),
+      `тултип вставки: «${drag.tooltip}»`,
+    );
+    assertOk(drag.insert, 'индикатора вставки нет');
+    const dTop = drag.insert.top - drag.row.top;
+    assertOk(Math.abs(dTop) <= 2, `индикатор смещён от верха строки на ${dTop.toFixed(1)}px`);
+    const dLeft = drag.insert.left - (drag.row.left + 12);
+    assertOk(Math.abs(dLeft) <= 1, `левый край индикатора отличается от отступа строки на ${dLeft.toFixed(1)}px`);
+    assertOk(Math.abs(drag.insert.height - 2) <= 0.5, `толщина индикатора ${drag.insert.height}`);
+    // Индикатор рисуется внутри области прокрутки, а не улетает за её границы.
+    assertOk(
+      drag.insert.top >= drag.area.top - 1 && drag.insert.top <= drag.area.bottom + 1,
+      `индикатор (top ${drag.insert.top}) вне области папок (${drag.area.top}…${drag.area.bottom})`,
+    );
+    assertOk(drag.rootZones >= 2, 'зона «В корень» не появилась на время переноса');
+  });
+
+  check('NEW-03: призрак и тултип — стекло с размытием, без гасящего предка', () => {
+    const drag = results.folderDragBetween;
+    assertOk(drag && drag.glassRow && drag.glassTip, `стекло не измерилось: ${JSON.stringify(drag)}`);
+    for (const [label, glass] of [
+      ['призрак строки', drag.glassRow],
+      ['тултип цели', drag.glassTip],
+    ]) {
+      assertOk(
+        /blur\(/.test(glass.backdrop),
+        `${label}: backdrop-filter = "${glass.backdrop}" — размытия нет`,
+      );
+      assertOk(
+        /rgba|\/ 0?\.|, 0\./.test(glass.background),
+        `${label}: подложка "${glass.background}" непрозрачная, а должна быть --color-raised-glass`,
+      );
+      assertOk(
+        glass.killer === null,
+        `${label}: предок <${glass.killer?.tag}> с ${(glass.killer?.reasons ?? []).join(', ')} образует backdrop root — размытие не сработает`,
+      );
+    }
+  });
+
+  check('NEW-03: середина строки — вложить, тултип «В папку»', () => {
+    const drag = results.folderDragInto;
+    assertOk(drag && !drag.error, `перенос не начался: ${drag?.error ?? 'нет данных'}`);
+    assertOk((drag.tooltip ?? '').includes('В папку «Раскадровки»'), `тултип цели: «${drag.tooltip}»`);
+    assertOk(drag.insert === null, 'на середине строки нарисовался индикатор вставки');
+    assertOk(results.folderAfterDrop && results.folderAfterDrop.ghost === false, 'призрак не исчез после броска');
+  });
+}
+
+/** «Портфолио» после броска лежит внутри «Раскадровок» (шаг folderDrop). */
+async function checkFolderMoved(api) {
+  try {
+    const tree = await api('GET', '/api/folders');
+    const target = tree.find((item) => item.name === 'Раскадровки');
+    assertOk(target, 'папка «Раскадровки» пропала из дерева');
+    assertOk(
+      target.children.some((child) => child.name === 'Портфолио'),
+      `«Портфолио» не переехала внутрь «Раскадровок»: дети — ${target.children.map((c) => c.name).join(', ') || '—'}`,
+    );
+    assertOk(
+      !tree.some((item) => item.name === 'Портфолио'),
+      '«Портфолио» осталась ещё и в корне',
+    );
+    process.stdout.write('✓ NEW-03: перенос доехал до сервера — «Портфолио» внутри «Раскадровок»\n');
+  } catch (error) {
+    failures += 1;
+    process.stdout.write(`✗ NEW-03: перенос доехал до сервера\n    ${error instanceof Error ? error.message : String(error)}\n`);
+  }
 }
 
 // ── main ──────────────────────────────────────────────────────────────────
@@ -328,6 +452,14 @@ async function main() {
     }
 
     runChecks(raw.results ?? {});
+
+    /*
+      Сам перенос подтверждаем через API, а не по экрану: WKWebView в стенде
+      закрылся, а сервер песочницы ещё жив. Проверка та же, что в Chrome-прогоне
+      (сценарий 13), но здесь она заодно доказывает, что синтетический
+      pointer-протокол в настоящем движке окна доходит до `PATCH .../move`.
+    */
+    await checkFolderMoved(api);
 
     const elapsedMs = Date.now() - startedAt;
     process.stdout.write(

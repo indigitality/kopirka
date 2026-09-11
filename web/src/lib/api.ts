@@ -19,6 +19,7 @@ import type {
   FileRecord,
   FileUpdateRequest,
   FolderCreateRequest,
+  FolderMoveRequest,
   FolderRecord,
   FolderUpdateRequest,
   ImportCaptureRequest,
@@ -292,6 +293,9 @@ export const updateFolder = (id: number, body: FolderUpdateRequest) =>
   request<FolderRecord>(`/folders/${id}`, patch(body));
 /** 5.4 — файлы не удаляются, у них обнуляется folderId. */
 export const deleteFolder = (id: number) => request<OkResponse>(`/folders/${id}`, { method: 'DELETE' });
+/** NEW-03 — перенос папки перетаскиванием: новый родитель и место среди его детей. */
+export const moveFolder = (id: number, body: FolderMoveRequest) =>
+  request<FolderRecord>(`/folders/${id}/move`, patch(body));
 
 export const listTags = () => request<TagRecord[]>('/tags');
 

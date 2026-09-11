@@ -10,12 +10,13 @@ import {
 } from '../../shared/api.js';
 import { expandHome } from './config.js';
 import { badRequest } from './errors.js';
-import { createFolder, deleteFolder, listFolders, updateFolder } from './folders.js';
+import { createFolder, deleteFolder, listFolders, moveFolder, updateFolder } from './folders.js';
 import { parseId, parseJsonBody } from './http.js';
 import { log } from './logger.js';
 import { directorySize } from './paths.js';
 import {
   folderCreateSchema,
+  folderMoveSchema,
   folderUpdateSchema,
   notifySchema,
   settingsPatchSchema,
@@ -106,6 +107,18 @@ export function registerLibraryRoutes(app: Hono, state: AppState): void {
   app.post('/api/folders', async (c) => {
     const body = await parseJsonBody(c, folderCreateSchema);
     return c.json(createFolder(state.db, body.name, body.parentFolderId ?? null), 201);
+  });
+
+  /*
+    NEW-03 — перенос папки перетаскиванием. Отдельным маршрутом, а не полем в общем
+    PATCH: здесь меняются сразу родитель и место среди братьев, и перенумерация
+    порядка должна пройти одной транзакцией. Стоит выше `/:id`, чтобы сегмент
+    `move` не был прочитан как чужой идентификатор.
+  */
+  app.patch('/api/folders/:id/move', async (c) => {
+    const id = parseId(c.req.param('id'));
+    const body = await parseJsonBody(c, folderMoveSchema);
+    return c.json(moveFolder(state.db, id, body.parentId, body.index));
   });
 
   app.patch('/api/folders/:id', async (c) => {

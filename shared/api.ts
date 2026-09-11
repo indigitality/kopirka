@@ -258,6 +258,17 @@ export interface FolderUpdateRequest {
   sortOrder?: number;
 }
 
+/**
+ * NEW-03 — перенос папки перетаскиванием (макеты D09–D12 от 11.09.2026).
+ * `parentId` — новый родитель (`null` — корень), `index` — место среди его детей,
+ * считая без самой переносимой папки. Индекс за границами прижимается к краю.
+ * Попытка вложить папку в саму себя или в своего потомка — 409 `folder_cycle`.
+ */
+export interface FolderMoveRequest {
+  parentId: number | null;
+  index: number;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Настройки и конфиг — SET-01…SET-03, SET-05
 // ─────────────────────────────────────────────────────────────────────────────
@@ -438,6 +449,7 @@ export const API = {
   createFolder: 'POST /api/folders',
   updateFolder: 'PATCH /api/folders/:id',
   deleteFolder: 'DELETE /api/folders/:id', // 5.4 — файлы не удаляются, folderId = NULL
+  moveFolder: 'PATCH /api/folders/:id/move', // NEW-03 — перенос папки перетаскиванием
 
   listTags: 'GET /api/tags',
 
