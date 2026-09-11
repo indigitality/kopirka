@@ -29,7 +29,9 @@ import contextMenu from './scenarios/08-context-menu.mjs';
 import detailView from './scenarios/09-detail-view.mjs';
 import settings from './scenarios/10-settings.mjs';
 import trash from './scenarios/11-trash.mjs';
-import consoleErrorsScenario from './scenarios/12-console-errors.mjs';
+import sidebarFoldersScroll from './scenarios/12-sidebar-folders-scroll.mjs';
+import folderMove from './scenarios/13-folder-move.mjs';
+import consoleErrorsScenario from './scenarios/14-console-errors.mjs';
 
 const TESTS_DIR = fileURLToPath(new URL('.', import.meta.url));
 const APP_DIR = path.resolve(TESTS_DIR, '..', '..');
@@ -52,6 +54,8 @@ const SCENARIOS = [
   { name: 'Детальный просмотр: открытие, список папок под полем, Esc/Esc', run: detailView },
   { name: 'Настройки: панель на всё окно, закрытие по Esc и по крестику', run: settings },
   { name: 'Корзина: удаление файла и восстановление обратно', run: trash },
+  { name: 'Сайдбар с 40 папками: строки 32, область прокручивается, шапка на месте', run: sidebarFoldersScroll },
+  { name: 'Перенос папки перетаскиванием: вложить, вставка между строками, Esc', run: folderMove },
   { name: 'Консоль браузера без ошибок за весь прогон', run: consoleErrorsScenario },
 ];
 

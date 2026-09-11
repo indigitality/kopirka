@@ -5,7 +5,17 @@
  * Сворачивания в редизайне нет: кнопка, хоткей ⌘\ и анимация ширины убраны
  * решением 02.09.2026.
  */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
+import { createPortal } from 'react-dom';
 import {
   ChevronDown,
   ChevronUp,
@@ -25,9 +35,10 @@ import { cn } from '@/lib/cn';
 import { Icon } from '@/lib/icons';
 import { BUG_REPORT_URL, EXTERNAL_LINK_PROPS } from '@/lib/links';
 import { MARQUEE_SPEED_PX_S } from '@/lib/motion';
-import { flattenVisibleFolders } from '@/lib/folders';
+import { findFolder, flattenVisibleFolders, folderSubtreeIds } from '@/lib/folders';
 import { useViewSelector, viewActions } from '@/store/view';
 import {
+  DRAG_THRESHOLD,
   DROP_SCROLL_ATTR,
   DROP_TARGET_ATTR,
   acceptsDrag,
@@ -53,6 +64,12 @@ import {
   PopoverTrigger,
 } from '@/components/ui/Popover';
 import { Tooltip } from '@/components/ui/Tooltip';
+import {
+  folderDrag,
+  useFolderDragSnapshot,
+  type FolderDropPlan,
+  type FolderDropTarget,
+} from './folderDrag';
 
 /* Метрики строки сняты с узлов R01 и полки R13; дублируют одноимённые токены. */
 const ICON = 16; // слот иконки папки
@@ -72,12 +89,24 @@ const MARQUEE_MAX_MS = 8000;
 /** Свёрнутая папка раскрывается сама, если груз завис над ней. */
 const HOVER_EXPAND_MS = 600;
 
+/* NEW-01 · NEW-03 — метрики области папок и переноса, сняты с D08–D11. */
+
+/** Ползунок собственного скроллбара: короче не бывает, иначе его не поймать глазом. */
+const THUMB_MIN = 24;
+/** Сколько ползунок остаётся виден после последней прокрутки. */
+const THUMB_LINGER_MS = 700;
+/** Призрак и тултип стоят от курсора вправо-вниз на эти 14 (D09: курсор 190,350 → призрак 204,364). */
+const GHOST_OFFSET = 14;
+/** Толщина индикатора вставки и его точка (D10). */
+const INSERT_HEIGHT = 2;
+const INSERT_DOT = 8;
+
 /**
  * Общая геометрия строки сайдбара: раздел, папка, подвал (все 32 × radius 8,
  * поля 12, зазор 8). Цвета состояний добавляет вызывающий.
  */
 const ROW_BASE =
-  'sidebar-row group relative flex h-[var(--size-row)] items-center gap-[var(--sidebar-row-gap)] ' +
+  'sidebar-row group relative flex h-[var(--size-row)] shrink-0 items-center gap-[var(--sidebar-row-gap)] ' +
   'rounded-[var(--radius-md)] transition-colors duration-[var(--dur-fast)] ease-out';
 
 /** Имя строки: 14 / 21 / 500 — единственный «жирный» текст сайдбара. */
@@ -160,6 +189,11 @@ export interface SidebarProps {
   onImportFiles?: (folderId: number, files: readonly File[]) => void;
   /** Открыть настройки — вторая строка подвала (R13 · подвал). */
   onOpenSettings?: () => void;
+  /**
+   * NEW-03 — папку перенесли перетаскиванием. `index` считается по детям нового
+   * родителя без самой папки, ровно как в `PATCH /api/folders/:id/move`.
+   */
+  onMoveFolder?: (id: number, parentId: number | null, index: number) => void;
 }
 
 /*
@@ -267,6 +301,7 @@ export function FolderRow({
   onRenameCancel,
   onDelete,
   onImportFiles,
+  onDragPointerDown,
   dropPreview,
 }: {
   folder: FolderRecord;
@@ -282,6 +317,8 @@ export function FolderRow({
   onRenameCancel?: () => void;
   onDelete?: (folder: FolderRecord) => void;
   onImportFiles?: (folderId: number, files: readonly File[]) => void;
+  /** NEW-03 — начало переноса самой папки: тот же pointer-протокол, что у карточек. */
+  onDragPointerDown?: (folder: FolderRecord, event: ReactPointerEvent<HTMLDivElement>) => void;
   /**
    * Только для витрины: подменить состояние цели перетаскивания. В приложении
    * не задаётся — тогда состояние берётся из живого снимка `dnd.ts`. Иначе
@@ -305,6 +342,17 @@ export function FolderRow({
     подложку и показывает кнопки.
   */
   const anyMenu = menuOpen || contextOpen;
+
+  /*
+    NEW-03 — та же строка участвует во втором переносе: её саму тащат по дереву.
+    Снимок читаем здесь, а не пропсами: цель под курсором меняется на каждом
+    движении, и гонять её через сорок пропсов незачем.
+  */
+  const folderDragState = useFolderDragSnapshot();
+  const carried = folderDragState.dragging && folderDragState.folderId === folder.id;
+  const folderTarget = folderDragState.target;
+  const folderOver = folderTarget?.kind === 'into' && folderTarget.folderId === folder.id;
+  const folderDenied = folderTarget?.kind === 'denied' && folderTarget.folderId === folder.id;
 
   /** Пункты меню — один список на поповер и на правый клик. */
   const menuActions = [
@@ -345,6 +393,13 @@ export function FolderRow({
     return () => window.clearTimeout(timer);
   }, [aimed, hasChildren, collapsed, folder.id]);
 
+  // Та же подсказка, что у карточек: свёрнутая папка раскрывается под зависшей папкой.
+  useEffect(() => {
+    if (!folderOver || !hasChildren || !collapsed) return;
+    const timer = window.setTimeout(() => viewActions.expandFolder(folder.id), HOVER_EXPAND_MS);
+    return () => window.clearTimeout(timer);
+  }, [folderOver, hasChildren, collapsed, folder.id]);
+
   const FolderIcon = hasChildren && !collapsed ? FolderOpen : Folder;
   const Chevron = collapsed ? ChevronDown : ChevronUp;
 
@@ -366,6 +421,9 @@ export function FolderRow({
             } as CSSProperties
           }
           {...{ [DROP_TARGET_ATTR]: `folder:${folder.id}` }}
+          data-folder-row={folder.id}
+          data-folder-depth={depth}
+          onPointerDown={(event) => onDragPointerDown?.(folder, event)}
           className={cn(
             ROW_BASE,
             // Ховер и выбор — разные роли: 10 % под курсором, 15 % и яркий текст у выбранной.
@@ -374,6 +432,10 @@ export function FolderRow({
             // ORG-03 — папка под курсором. Файл уже в ней: лайма нет, курсор запрещает.
             over && DROP_OVER,
             denied && DROP_DENIED,
+            // NEW-03 — та же папка под грузом-папкой; источник переноса приглушён до 0.4 (D09).
+            folderOver && DROP_OVER,
+            folderDenied && DROP_DENIED,
+            carried && 'opacity-40',
           )}
           /* Файлы из Finder идут прежним путём: HTML5-drop в браузере до сайдбара доходит. */
           onDragOver={(event) => {
@@ -405,6 +467,7 @@ export function FolderRow({
               aria-label={collapsed ? `Развернуть «${folder.name}»` : `Свернуть «${folder.name}»`}
               aria-expanded={!collapsed}
               onClick={onToggle}
+              data-folder-drag="skip"
               className="sidebar-icon group/toggle"
             >
               <Icon
@@ -468,7 +531,13 @@ export function FolderRow({
                 'label-count pointer-events-none absolute inset-y-0 flex items-center',
                 'transition-opacity duration-[var(--dur-fast)] ease-out',
                 'group-hover:opacity-0',
-                (anyMenu || active || denied) && 'opacity-0',
+                (anyMenu || active || denied || folderDenied) && 'opacity-0',
+                /*
+                  Строка-источник переноса держит `:hover` до самого броска —
+                  указатель захвачен ею. Счётчик при этом должен остаться на
+                  месте, а кнопки уйти: под грузом по ним всё равно не попасть (D09).
+                */
+                carried && '!opacity-100',
               )}
               style={{ right: ROW_PAD_X }}
             >
@@ -477,7 +546,7 @@ export function FolderRow({
           )}
 
           {/* Груз над строкой, но бросок ничего не изменит — говорим словом. */}
-          {denied ? (
+          {denied || folderDenied ? (
             <span
               className="pointer-events-none absolute inset-y-0 flex items-center"
               style={{ right: ROW_PAD_X }}
@@ -492,7 +561,7 @@ export function FolderRow({
         Зазор между «+» и «⋮» — тот же 8, что и во всей строке (R13).
       */}
           <span
-            className={cn('absolute inset-y-0 flex items-center', renaming && 'hidden')}
+            className={cn('absolute inset-y-0 flex items-center', (renaming || carried) && 'hidden')}
             style={{ right: ROW_PAD_X, gap: ROW_GAP }}
           >
             <Tooltip content="Новая папка внутри" side="bottom">
@@ -500,6 +569,7 @@ export function FolderRow({
                 type="button"
                 aria-label={`Новая папка внутри «${folder.name}»`}
                 onClick={onCreateChild}
+                data-folder-drag="skip"
                 className={cn(
                   'sidebar-action opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
                   anyMenu && 'opacity-100',
@@ -512,6 +582,7 @@ export function FolderRow({
               <Tooltip content="Действия с папкой" side="bottom">
                 <PopoverTrigger
                   aria-label={`Действия с папкой «${folder.name}»`}
+                  data-folder-drag="skip"
                   className={cn(
                     'sidebar-action opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
                     (anyMenu || active) && 'opacity-100',
@@ -618,6 +689,7 @@ export function Sidebar({
   onDeleteFolder,
   onImportFiles,
   onOpenSettings,
+  onMoveFolder,
 }: SidebarProps) {
   const scope = useViewSelector((s) => s.scope);
   const activeFolderId = useViewSelector((s) => s.folderId);
@@ -628,6 +700,254 @@ export function Sidebar({
     () => flattenVisibleFolders(folders, collapsedSet),
     [folders, collapsedSet],
   );
+
+  /* ── NEW-01. Область папок: фиксированная высота, своя полоса и затухания ── */
+
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState({ up: false, down: false, thumbTop: 0, thumbHeight: 0 });
+  const [thumbActive, setThumbActive] = useState(false);
+  const lingerRef = useRef(0);
+
+  /*
+    Затухания и ползунок считаются от scrollTop/scrollHeight, а не ставятся
+    «всегда»: сверху затухание появляется, только когда список уже прокручен
+    (D07), снизу — пока ниже что-то осталось (D06).
+  */
+  const measure = useCallback(() => {
+    const box = scrollRef.current;
+    if (!box) return;
+    const { scrollTop, scrollHeight, clientHeight } = box;
+    const overflow = scrollHeight - clientHeight;
+    const scrollable = overflow > 1;
+    const thumbHeight = scrollable
+      ? Math.max(THUMB_MIN, Math.round((clientHeight / scrollHeight) * clientHeight))
+      : 0;
+    const thumbTop = scrollable
+      ? Math.round((scrollTop / overflow) * (clientHeight - thumbHeight))
+      : 0;
+    const next = {
+      up: scrollable && scrollTop > 1,
+      down: scrollable && scrollTop < overflow - 1,
+      thumbTop,
+      thumbHeight,
+    };
+    setEdges((prev) =>
+      prev.up === next.up &&
+      prev.down === next.down &&
+      prev.thumbTop === next.thumbTop &&
+      prev.thumbHeight === next.thumbHeight
+        ? prev
+        : next,
+    );
+  }, []);
+
+  useLayoutEffect(() => {
+    measure();
+    const box = scrollRef.current;
+    const content = contentRef.current;
+    if (!box || !content) return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(box);
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [measure, visible.length]);
+
+  useEffect(() => () => window.clearTimeout(lingerRef.current), []);
+
+  /* Полоса видна при наведении (CSS) и пока крутят (здесь): D08 · «скроллбар». */
+  const handleScroll = () => {
+    measure();
+    setThumbActive(true);
+    window.clearTimeout(lingerRef.current);
+    lingerRef.current = window.setTimeout(() => setThumbActive(false), THUMB_LINGER_MS);
+  };
+
+  /* ── NEW-03. Перенос папки: цель под курсором и сам pointer-протокол ────── */
+
+  const drag = useFolderDragSnapshot();
+  /** Поддерево переносимой папки: в него вкладывать нельзя (D12). */
+  const subtreeRef = useRef<ReadonlySet<number>>(new Set<number>());
+  /** Этот pointerdown уже стал переносом — значит, клика по строке не было. */
+  const draggedRef = useRef(false);
+  const releaseRef = useRef<(() => void) | null>(null);
+
+  useEffect(
+    () => () => {
+      releaseRef.current?.();
+      if (folderDrag.isActive()) folderDrag.cancel();
+    },
+    [],
+  );
+
+  const siblingsOf = useCallback(
+    (parentId: number | null): readonly FolderRecord[] =>
+      parentId === null ? folders : (findFolder(folders, parentId)?.children ?? []),
+    [folders],
+  );
+
+  /** Место вставки рядом со строкой: тот же родитель, индекс по видимому списку. */
+  const planBeside = useCallback(
+    (row: FolderRecord, after: boolean, draggedId: number): FolderDropPlan => {
+      const list = siblingsOf(row.parentFolderId).filter((item) => item.id !== draggedId);
+      const found = list.findIndex((item) => item.id === row.id);
+      const index = found < 0 ? list.length : found + (after ? 1 : 0);
+      return { parentId: row.parentFolderId, index };
+    },
+    [siblingsOf],
+  );
+
+  const rootPlan = useCallback(
+    (draggedId: number): FolderDropPlan => ({
+      parentId: null,
+      index: folders.filter((item) => item.id !== draggedId).length,
+    }),
+    [folders],
+  );
+
+  const DENIED_TOOLTIP = 'Нельзя вложить папку в саму себя';
+
+  /*
+    Куда сейчас смотрит курсор. Верхняя и нижняя четверти строки — вставка между
+    строками, середина — вложить (правило D09/D10). Цель ищем через
+    `elementFromPoint`, как в `dnd.ts`: одинаково работает и в браузере, и в окне.
+  */
+  const computeTarget = useCallback(
+    (x: number, y: number, draggedId: number): FolderDropTarget | null => {
+      const box = scrollRef.current;
+      const content = contentRef.current;
+      if (!box || !content) return null;
+      const subtree = subtreeRef.current;
+      const element = document.elementFromPoint(x, y) as HTMLElement | null;
+
+      const rowEl = element?.closest<HTMLElement>('[data-folder-row]') ?? null;
+      if (rowEl) {
+        const row = findFolder(folders, Number(rowEl.dataset.folderRow));
+        if (!row) return null;
+        const rect = rowEl.getBoundingClientRect();
+        const quarter = rect.height / 4;
+        const above = y < rect.top + quarter;
+        const below = y > rect.bottom - quarter;
+
+        if (above || below) {
+          const plan = planBeside(row, below, draggedId);
+          if (plan.parentId !== null && subtree.has(plan.parentId)) {
+            return { kind: 'denied', folderId: null, tooltip: DENIED_TOOLTIP };
+          }
+          return {
+            kind: 'between',
+            plan,
+            depth: Number(rowEl.dataset.folderDepth ?? 0),
+            y: (below ? rect.bottom : rect.top) - content.getBoundingClientRect().top,
+            tooltip: `Переместить ${below ? 'ниже' : 'выше'} «${row.name}»`,
+          };
+        }
+
+        if (subtree.has(row.id)) {
+          return { kind: 'denied', folderId: row.id, tooltip: DENIED_TOOLTIP };
+        }
+        return {
+          kind: 'into',
+          folderId: row.id,
+          plan: {
+            parentId: row.id,
+            index: row.children.filter((child) => child.id !== draggedId).length,
+          },
+          tooltip: `В папку «${row.name}»`,
+        };
+      }
+
+      // Пунктирная зона под списком, заголовок «ПАПКИ» и пустое место области — корень.
+      if (element?.closest('[data-folder-root-zone]')) {
+        return { kind: 'root', plan: rootPlan(draggedId), tooltip: 'В корень' };
+      }
+      const area = box.getBoundingClientRect();
+      if (x >= area.left && x <= area.right && y >= area.top && y <= area.bottom) {
+        return { kind: 'root', plan: rootPlan(draggedId), tooltip: 'В корень' };
+      }
+      return null;
+    },
+    [folders, planBeside, rootPlan],
+  );
+
+  /*
+    Протокол тот же, что у карточек (`GridCard.tsx`): движение слушаем на окне,
+    порог 6 px отделяет перенос от клика, захват указателя гасит чужие ховеры.
+  */
+  const handleRowPointerDown = (folder: FolderRecord, event: ReactPointerEvent<HTMLDivElement>) => {
+    releaseRef.current?.();
+    draggedRef.current = false;
+    if (event.button !== 0 || event.pointerType === 'touch') return;
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    if (renamingFolderId === folder.id) return;
+    // Переключатель, «+», «⋮» и поле переименования живут своей жизнью.
+    if ((event.target as HTMLElement).closest('[data-folder-drag="skip"], input, a, [role="menuitem"]')) {
+      return;
+    }
+
+    const node = event.currentTarget;
+    const pointerId = event.pointerId;
+    const startX = event.clientX;
+    const startY = event.clientY;
+
+    const detach = () => {
+      releaseRef.current = null;
+      window.removeEventListener('pointermove', onMove, true);
+      window.removeEventListener('pointerup', onUp, true);
+      window.removeEventListener('pointercancel', onCancel, true);
+      try {
+        if (node.hasPointerCapture(pointerId)) node.releasePointerCapture(pointerId);
+      } catch {
+        /* захвата не было — освобождать нечего */
+      }
+    };
+
+    function onMove(move: PointerEvent): void {
+      if (move.pointerId !== pointerId) return;
+      if (!draggedRef.current) {
+        if (Math.hypot(move.clientX - startX, move.clientY - startY) < DRAG_THRESHOLD) return;
+        draggedRef.current = true;
+        subtreeRef.current = folderSubtreeIds(folders, folder.id);
+        folderDrag.begin({
+          folderId: folder.id,
+          name: folder.name,
+          x: move.clientX,
+          y: move.clientY,
+        });
+        try {
+          node.setPointerCapture(pointerId);
+        } catch {
+          /* указатель уже отпущен — перенос доживёт на обычных событиях */
+        }
+      }
+      folderDrag.move(move.clientX, move.clientY);
+      folderDrag.setTarget(computeTarget(move.clientX, move.clientY, folder.id));
+    }
+
+    function onUp(up: PointerEvent): void {
+      if (up.pointerId !== pointerId) return;
+      detach();
+      if (!draggedRef.current) return;
+      const plan = folderDrag.drop();
+      if (!plan) return;
+      // Результат должен быть виден: свёрнутого нового родителя раскрываем.
+      if (plan.parentId !== null) viewActions.expandFolder(plan.parentId);
+      onMoveFolder?.(folder.id, plan.parentId, plan.index);
+    }
+
+    function onCancel(cancel: PointerEvent): void {
+      if (cancel.pointerId !== pointerId) return;
+      detach();
+      if (draggedRef.current) folderDrag.cancel();
+    }
+
+    releaseRef.current = detach;
+    window.addEventListener('pointermove', onMove, true);
+    window.addEventListener('pointerup', onUp, true);
+    window.addEventListener('pointercancel', onCancel, true);
+  };
+
+  const insert = drag.target?.kind === 'between' ? drag.target : null;
 
   /* Строка подвала: та же геометрия, что у разделов, цвет — вместо opacity (R13). */
   const footerRow = cn(
@@ -678,9 +998,21 @@ export function Sidebar({
         ))}
       </nav>
 
+      {/*
+        NEW-01 — папок может быть сколько угодно, а высота группы от этого не
+        меняется: шапка, заголовок «ПАПКИ» и подвал стоят на своих местах, едет
+        только дерево. Строки при этом не сжимаются (`shrink-0` в `ROW_BASE`) —
+        раньше сорок папок ужимали строку до 14 px (D08).
+      */}
       <div className="flex min-h-0 flex-1 flex-col gap-2">
-        {/* Заголовок секции «ПАПКИ» + создание в корне: ряд 14, поля 12. */}
-        <div className="flex h-[14px] shrink-0 items-center px-[var(--sidebar-row-pad-x)]">
+        {/*
+          Заголовок секции «ПАПКИ» + создание в корне: ряд 14, поля 12.
+          Он же цель «в корень», когда папку тащат наверх (D11).
+        */}
+        <div
+          data-folder-root-zone
+          className="flex h-[14px] shrink-0 items-center px-[var(--sidebar-row-pad-x)]"
+        >
           <span className="label-section min-w-0 flex-1">Папки</span>
           <Tooltip content="Новая папка" side="bottom">
             <button
@@ -694,31 +1026,109 @@ export function Sidebar({
           </Tooltip>
         </div>
 
-        {/* Автопрокрутка при переносе идёт по этому контейнеру — см. dnd.ts. */}
-        <div
-          {...{ [DROP_SCROLL_ATTR]: '' }}
-          className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto"
-        >
-          {visible.map(({ folder, depth }) => (
-            <FolderRow
-              key={folder.id}
-              folder={folder}
-              depth={depth}
-              active={activeFolderId === folder.id}
-              collapsed={collapsedSet.has(folder.id)}
-              renaming={renamingFolderId === folder.id}
-              onSelect={() => viewActions.openFolder(folder.id)}
-              onToggle={() => viewActions.toggleFolderCollapsed(folder.id)}
-              onCreateChild={() => onCreateFolder?.(folder.id)}
-              onRenameStart={onRenameStart}
-              onRenameCommit={onRenameCommit}
-              onRenameCancel={onRenameCancel}
-              onDelete={onDeleteFolder}
-              onImportFiles={onImportFiles}
+        {/*
+          Обёртка нужна затуханиям и полосе: они висят над областью и вместе с
+          содержимым не едут. Сама прокрутка — на внутреннем блоке.
+        */}
+        <div className="sidebar-tree relative min-h-0 flex-1">
+          {/* Автопрокрутка при переносе идёт по этому контейнеру — см. dnd.ts. */}
+          <div
+            ref={scrollRef}
+            onScroll={handleScroll}
+            {...{ [DROP_SCROLL_ATTR]: '' }}
+            className="sidebar-scroll h-full overflow-y-auto"
+          >
+            <div ref={contentRef} className="relative flex flex-col gap-0.5">
+              {visible.map(({ folder, depth }) => (
+                <FolderRow
+                  key={folder.id}
+                  folder={folder}
+                  depth={depth}
+                  active={activeFolderId === folder.id}
+                  collapsed={collapsedSet.has(folder.id)}
+                  renaming={renamingFolderId === folder.id}
+                  /* Клик, которым закончился перенос, папку не открывает. */
+                  onSelect={() => {
+                    if (draggedRef.current) return;
+                    viewActions.openFolder(folder.id);
+                  }}
+                  onToggle={() => viewActions.toggleFolderCollapsed(folder.id)}
+                  onCreateChild={() => onCreateFolder?.(folder.id)}
+                  onRenameStart={onRenameStart}
+                  onRenameCommit={onRenameCommit}
+                  onRenameCancel={onRenameCancel}
+                  onDelete={onDeleteFolder}
+                  onImportFiles={onImportFiles}
+                  onDragPointerDown={handleRowPointerDown}
+                />
+              ))}
+
+              {/* Пунктирная зона «В корень» под списком — только пока тащат папку (D11). */}
+              {drag.dragging ? (
+                <div
+                  data-folder-root-zone
+                  className={cn(
+                    'flex h-[var(--size-row)] shrink-0 items-center rounded-[var(--radius-md)]',
+                    'border border-dashed border-line-strong px-[var(--sidebar-row-pad-x)]',
+                    ROW_LABEL,
+                    'text-ink-muted',
+                  )}
+                >
+                  В корень
+                </div>
+              ) : null}
+
+              {/*
+                Индикатор вставки (D10): полоса 2 px с точкой на уровне отступа
+                той папки, рядом с которой встанет переносимая.
+              */}
+              {insert ? (
+                <div
+                  aria-hidden
+                  data-folder-insert
+                  className="pointer-events-none absolute rounded-pill bg-brand"
+                  style={{
+                    top: insert.y - INSERT_HEIGHT / 2,
+                    left: ROW_PAD_X + insert.depth * INDENT,
+                    right: 0,
+                    height: INSERT_HEIGHT,
+                  }}
+                >
+                  <span
+                    className="absolute rounded-pill bg-brand"
+                    style={{
+                      left: -(INSERT_DOT - INSERT_HEIGHT) / 2,
+                      top: -(INSERT_DOT - INSERT_HEIGHT) / 2,
+                      width: INSERT_DOT,
+                      height: INSERT_DOT,
+                    }}
+                  />
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          {/* Своя полоса прокрутки: 4 × радиус 999, у правого поля области (D08). */}
+          {edges.thumbHeight > 0 ? (
+            <span
+              aria-hidden
+              data-active={thumbActive || undefined}
+              className="sidebar-thumb"
+              style={{ top: edges.thumbTop, height: edges.thumbHeight }}
             />
-          ))}
+          ) : null}
+
+          <span aria-hidden data-edge="top" data-show={edges.up || undefined} className="sidebar-fade" />
+          <span
+            aria-hidden
+            data-edge="bottom"
+            data-show={edges.down || undefined}
+            className="sidebar-fade"
+          />
         </div>
       </div>
+
+      <FolderDragGhost />
 
       {/* Подвал: «Сообщить об ошибке» и «Настройки», зазор 2 (узел «Подвал» R01). */}
       <div className="flex shrink-0 flex-col gap-0.5">
@@ -744,5 +1154,94 @@ export function Sidebar({
         </button>
       </div>
     </aside>
+  );
+}
+
+/**
+ * NEW-03 — призрак переносимой папки и тултип цели (D09–D12).
+ *
+ * Порталом в `body`: строка лежит в прокручиваемой области, а призрак обязан
+ * висеть над всем интерфейсом. Позицию пишем в стиль мимо React — за курсором
+ * надо успевать каждый кадр (тот же приём, что в `DragGhost.tsx`).
+ */
+function FolderDragGhost() {
+  const { dragging, name, target } = useFolderDragSnapshot();
+  const boxRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    if (!dragging) return;
+    const node = boxRef.current;
+    if (!node) return;
+    const place = (x: number, y: number) => {
+      node.style.transform = `translate3d(${x + GHOST_OFFSET}px, ${y + GHOST_OFFSET}px, 0)`;
+    };
+    const start = folderDrag.position();
+    place(start.x, start.y);
+    return folderDrag.subscribePosition(place);
+  }, [dragging]);
+
+  // Курсор ушёл за окно и кнопку отпустили снаружи — переноса больше нет.
+  useEffect(() => {
+    if (!dragging) return;
+    const onBlur = () => folderDrag.cancel();
+    window.addEventListener('blur', onBlur);
+    return () => window.removeEventListener('blur', onBlur);
+  }, [dragging]);
+
+  if (!dragging) return null;
+
+  return createPortal(
+    <div
+      ref={boxRef}
+      aria-hidden
+      data-folder-ghost
+      /*
+        `will-change: transform` здесь стоять не должно, хотя позиция и правится
+        каждый кадр: подсказка отключает `backdrop-filter` у потомков (и в Blink,
+        и в WebKit), а призрак и тултип — стекло с размытием. Скорости это не
+        стоит ничего: `translate3d` и так уходит на композитор.
+      */
+      className="pointer-events-none fixed top-0 left-0 z-[120]"
+    >
+      {/*
+        Сама строка: та же геометрия 32 / поля 12 / зазор 8, но на стекле и с тенью.
+        Стекло — общий класс `.glass` (`--color-raised-glass` + размытие
+        `--blur-glass` + край `--color-line-strong`), тот же, что у модалок и
+        поповеров: Paper `backdrop-filter` не рендерит, и в макете D09 его нет,
+        но в коде он обязателен — общее правило переноса из DESIGN-SPEC.
+      */}
+      <div
+        className={cn(
+          'glass flex h-[var(--size-row)] w-max items-center gap-[var(--sidebar-row-gap)]',
+          'max-w-[calc(var(--size-sidebar)-2*var(--sidebar-pad-x))] rounded-[var(--radius-md)]',
+          'px-[var(--sidebar-row-pad-x)] opacity-90 shadow-[var(--shadow-glass)]',
+        )}
+      >
+        <span className="sidebar-icon text-ink">
+          <Icon icon={Folder} aria-hidden />
+        </span>
+        <span className={cn('truncate text-ink', ROW_LABEL)}>{name}</span>
+      </div>
+
+      {/*
+        Тултип цели — 24 / поля 8 / радиус 6, то же стекло `.glass` с размытием.
+        Запрет не меняет подложку, а кладёт поверх неё тон danger (D12): своего
+        фона у тултипа «нельзя» нет, иначе стекло пришлось бы перебивать
+        непрозрачной заливкой.
+      */}
+      {target ? (
+        <div className="glass mt-2.5 flex h-6 w-max items-center rounded-[var(--radius-sm)] px-2">
+          <span
+            className={cn(
+              'text-xs leading-[14px] font-medium',
+              target.kind === 'denied' ? 'text-danger' : 'text-ink',
+            )}
+          >
+            {target.tooltip}
+          </span>
+        </div>
+      ) : null}
+    </div>,
+    document.body,
   );
 }
