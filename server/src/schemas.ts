@@ -35,6 +35,12 @@ export const folderUpdateSchema = z.object({
   sortOrder: z.number().int().optional(),
 });
 
+/** NEW-03 — перенос папки: новый родитель и место среди его детей. */
+export const folderMoveSchema = z.object({
+  parentId: positiveId.nullable(),
+  index: z.number().int().min(0),
+});
+
 export const importUrlSchema = z.object({
   imageUrl: z.string().min(1),
   pageUrl: z.string().optional(),

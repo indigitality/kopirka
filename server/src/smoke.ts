@@ -505,6 +505,72 @@ async function main(): Promise<void> {
     assert(untagged.files.some((file) => file.id === idAlpha), 'файл без папки не попал в «Не разобрано»');
   });
 
+  // 13a ──────────────────────────────────────────────────────────────────────
+  await check('NEW-03: перенос папки — вложить, в корень, порядок, цикл → 409', async () => {
+    const mk = (name: string, parentFolderId: number | null = null) =>
+      api<FolderRecord>('POST', '/api/folders', { name, parentFolderId });
+    const roots = async () => {
+      const tree = await api<FolderRecord[]>('GET', '/api/folders');
+      return tree.map((item) => item.name);
+    };
+
+    const alpha = await mk('Альфа');
+    const beta = await mk('Бета');
+    const gamma = await mk('Гамма');
+    const inner = await mk('Альфа-1', alpha.id);
+    assert(
+      (await roots()).join(',') === 'Альфа,Бета,Гамма',
+      `исходный порядок корня: ${(await roots()).join(',')}`,
+    );
+
+    // (а) вложить: «Гамма» уезжает внутрь «Альфы» первой, выше уже лежащей «Альфа-1».
+    const moved = await api<FolderRecord>('PATCH', `/api/folders/${gamma.id}/move`, {
+      parentId: alpha.id,
+      index: 0,
+    });
+    assert(moved.parentFolderId === alpha.id, `после переноса родитель ${moved.parentFolderId}`);
+    const afterInto = await api<FolderRecord[]>('GET', '/api/folders');
+    const alphaNode = afterInto.find((item) => item.id === alpha.id);
+    assert(
+      alphaNode?.children.map((child) => child.name).join(',') === 'Гамма,Альфа-1',
+      `порядок внутри «Альфы»: ${alphaNode?.children.map((child) => child.name).join(',')}`,
+    );
+    assert((await roots()).join(',') === 'Альфа,Бета', 'папка осталась и в корне');
+
+    // (б) в корень, между строками: «Гамма» возвращается наверх, выше «Альфы».
+    await api<FolderRecord>('PATCH', `/api/folders/${gamma.id}/move`, { parentId: null, index: 0 });
+    assert((await roots()).join(',') === 'Гамма,Альфа,Бета', `порядок корня: ${(await roots()).join(',')}`);
+
+    // Индекс за границей списка прижимается к краю, а не ломает перенос.
+    await api<FolderRecord>('PATCH', `/api/folders/${gamma.id}/move`, { parentId: null, index: 99 });
+    assert((await roots()).join(',') === 'Альфа,Бета,Гамма', `порядок после клампа: ${(await roots()).join(',')}`);
+
+    // (в) цикл: в собственного потомка и в саму себя — 409 folder_cycle, дерево не тронуто.
+    for (const [label, target] of [
+      ['в потомка', inner.id],
+      ['в саму себя', alpha.id],
+    ] as Array<[string, number]>) {
+      const response = await fetch(`${base}/api/folders/${alpha.id}/move`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ parentId: target, index: 0 }),
+      });
+      assert(response.status === 409, `перенос ${label} вернул ${response.status}`);
+      const body = (await response.json()) as ApiError;
+      assert(body.code === 'folder_cycle', `код ошибки ${label}: ${body.code}`);
+    }
+    const intact = await api<FolderRecord[]>('GET', '/api/folders');
+    assert(
+      intact.find((item) => item.id === alpha.id)?.parentFolderId === null,
+      'после отказа «Альфа» всё же переехала',
+    );
+
+    for (const item of [alpha, beta, gamma]) {
+      await api<{ ok: boolean }>('DELETE', `/api/folders/${item.id}`);
+    }
+    assert((await api<FolderRecord[]>('GET', '/api/folders')).length === 0, 'папки прогона не убрались');
+  });
+
   // 14 ───────────────────────────────────────────────────────────────────────
   await check('поиск по имени, фильтр по тегу, по расширению, по диапазону дат', async () => {
     const byName = await api<FileListResponse>('GET', '/api/files?query=BETA&limit=100');
