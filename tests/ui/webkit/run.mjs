@@ -139,6 +139,59 @@ function buildSpec({ webBaseUrl, outDir }) {
   wait(600);
   js('folderAfterDrop', `return { ghost: !!document.querySelector('[data-folder-ghost]') };`);
 
+  /*
+    ── FDB-10: рекордер горячей клавиши ──────────────────────────────────────
+    Третья причина держать WebKit-стенд. В Safari (и, значит, в окне Tauri) клик
+    по <button> НЕ переводит на него фокус — особенность движка, а не страницы.
+    Пока рекордер слушал keydown только на себе, это означало ровно то, что
+    Сергей увидел в сборке 11.09: поле переходит в запись, а нажатия уходят в
+    document.body и не записываются. Chrome такого не показывает — он кнопку по
+    клику фокусирует, и сценарий 17 проходил зелёным на сломанном коде.
+
+    Поэтому кликаем СПЕЦИАЛЬНО без программного фокуса (clickAt focus: false, в
+    отличие от остальных сценариев стенда) и жмём клавиши в <body>, а не в поле.
+  */
+  const RECORDER = 'button[aria-label^="Сочетание"], button[aria-label="Нажмите сочетание"]';
+  const clickRecorder = (name) =>
+    js(
+      name,
+      `var r = window.__p.rectOf(${JSON.stringify(RECORDER)});
+       if (!r) return { error: 'нет поля-рекордера' };
+       return window.__p.clickAt(r.cx, r.cy, { focus: false });`,
+    );
+
+  js('openSettings', `return window.__p.clickText('button', 'Настройки');`);
+  waitFor(RECORDER);
+  wait(500);
+  clickRecorder('clickRecorder');
+  wait(300);
+  js('recorderAfterClick', `return window.__p.recorderState();`);
+  // Модификаторы приходят в <body> — их должно быть видно в поле живьём.
+  js('recorderCtrl', `return window.__p.key('ControlLeft', { ctrl: true, key: 'Control' }, 'body');`);
+  js('recorderAlt', `return window.__p.key('AltLeft', { ctrl: true, alt: true, key: 'Alt' }, 'body');`);
+  wait(200);
+  js('recorderPending', `return window.__p.recorderState();`);
+  js('recorderKeyK', `return window.__p.key('KeyK', { ctrl: true, alt: true, key: 'k' }, 'body');`);
+  wait(300);
+  js('recorderRecorded', `return window.__p.recorderState();`);
+  shot('hotkey-recorded');
+  js('saveShortcut', `return window.__p.clickText('button', 'Сохранить');`);
+  wait(900);
+
+  // ⌘C забирает родное меню окна (menu.rs) — рекордер отбивает его сам.
+  clickRecorder('clickRecorderAgain');
+  wait(300);
+  js('recorderMetaC', `return window.__p.key('KeyC', { meta: true, key: 'c' }, 'body');`);
+  wait(300);
+  js('recorderMenuConflict', `return window.__p.recorderState();`);
+  // Esc во время записи отменяет запись, но панель настроек не закрывает.
+  js('escRecording', `return window.__p.key('Escape', {}, 'body');`);
+  wait(300);
+  js('layersAfterRecorderEsc', `return window.__p.layers();`);
+  js('escSettings', `return window.__p.key('Escape');`);
+  wait(400);
+  js('layersAfterSettingsEsc', `return window.__p.layers();`);
+
   return steps;
 }
 
@@ -308,6 +361,58 @@ function runChecks(results) {
     }
   });
 
+  check('FDB-10: клик по рекордеру фокусирует поле (WebKit сам этого не делает)', () => {
+    const after = results.recorderAfterClick;
+    assertOk(after && after.found, `поле-рекордер не найдено: ${JSON.stringify(after)}`);
+    assertOk(
+      after.label === 'Нажмите сочетание',
+      `после клика поле не перешло в запись (aria-label «${after.label}»)`,
+    );
+    assertOk(
+      after.focusIsRecorder === true,
+      `фокус после клика ушёл в <${after.activeTag}> (${after.activeLabel ?? 'без метки'}), а не в поле-рекордер`,
+    );
+  });
+
+  check('FDB-10: нажатие мимо поля (в body) всё равно записывается', () => {
+    const pending = results.recorderPending;
+    assertOk(pending && pending.found, `поле-рекордер пропало: ${JSON.stringify(pending)}`);
+    assertOk(
+      (pending.text ?? '').includes('⌃') && (pending.text ?? '').includes('⌥'),
+      `живых модификаторов нет, в поле «${pending.text}»`,
+    );
+    const recorded = results.recorderRecorded;
+    const text = recorded?.text ?? '';
+    assertOk(
+      text.includes('⌃') && text.includes('⌥') && text.includes('K'),
+      `⌃⌥K не записалось, в поле «${text}»`,
+    );
+    assertOk(
+      recorded.label === 'Сочетание ⌃⌥K',
+      `подпись поля после записи: «${recorded?.label}»`,
+    );
+    assertOk(
+      results.recorderKeyK && results.recorderKeyK.defaultPrevented === true,
+      'нажатие в режиме записи не было перехвачено (defaultPrevented = false)',
+    );
+  });
+
+  check('FDB-10: ⌘C отбивается как занятое меню приложения', () => {
+    const conflict = results.recorderMenuConflict;
+    assertOk(conflict, 'состояние рекордера не собралось');
+    assertOk(
+      (conflict.error ?? '').includes('занято меню приложения'),
+      `ошибка у поля: «${conflict.error}», ожидалось «⌘C занято меню приложения (…)»`,
+    );
+  });
+
+  check('FDB-10: Esc отменяет запись, но не закрывает панель настроек', () => {
+    const during = results.layersAfterRecorderEsc;
+    const after = results.layersAfterSettingsEsc;
+    assertOk(during && during.dialog === true, `Esc во время записи закрыл панель: ${JSON.stringify(during)}`);
+    assertOk(after && after.dialog === false, `второй Esc панель не закрыл: ${JSON.stringify(after)}`);
+  });
+
   check('NEW-03: середина строки — вложить, тултип «В папку»', () => {
     const drag = results.folderDragInto;
     assertOk(drag && !drag.error, `перенос не начался: ${drag?.error ?? 'нет данных'}`);
@@ -335,6 +440,21 @@ async function checkFolderMoved(api) {
   } catch (error) {
     failures += 1;
     process.stdout.write(`✗ NEW-03: перенос доехал до сервера\n    ${error instanceof Error ? error.message : String(error)}\n`);
+  }
+}
+
+/** FDB-10: записанное в поле ⌃⌥K доехало до конфига сервера (шаг saveShortcut). */
+async function checkShortcutSaved(api) {
+  try {
+    const settings = await api('GET', '/api/settings');
+    assertOk(
+      settings.captureShortcut === 'Control+Alt+KeyK',
+      `в конфиге ${settings.captureShortcut}, ожидалось Control+Alt+KeyK`,
+    );
+    process.stdout.write('✓ FDB-10: сочетание доехало до конфига — Control+Alt+KeyK\n');
+  } catch (error) {
+    failures += 1;
+    process.stdout.write(`✗ FDB-10: сочетание доехало до конфига\n    ${error instanceof Error ? error.message : String(error)}\n`);
   }
 }
 
@@ -460,6 +580,7 @@ async function main() {
       pointer-протокол в настоящем движке окна доходит до `PATCH .../move`.
     */
     await checkFolderMoved(api);
+    await checkShortcutSaved(api);
 
     const elapsedMs = Date.now() - startedAt;
     process.stdout.write(

@@ -17,9 +17,18 @@
  */
 export const HELPERS_SRC = `
   window.__p = {
-    clickAt: function (x, y) {
+    /*
+      focus: false — клик БЕЗ программного фокуса. Так ведёт себя настоящий
+      WebKit: по клику он не фокусирует <button> (давняя особенность движка), и
+      обработчик keydown на самой кнопке после клика уже ничего не слышит.
+      Обычный clickAt фокус ставит — иначе синтетическая клавиатура стенда
+      (key) била бы в <body> во всех сценариях разом; но для рекордера хоткея
+      это ровно тот случай, который надо воспроизвести (правка 11.09.2026).
+    */
+    clickAt: function (x, y, opts) {
       var el = document.elementFromPoint(x, y);
       if (!el) return null;
+      var focus = !opts || opts.focus !== false;
       var base = { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y,
                    button: 0, pointerId: 1, pointerType: 'mouse', isPrimary: true, view: window };
       var down = Object.assign({}, base, { buttons: 1 });
@@ -29,19 +38,47 @@ export const HELPERS_SRC = `
       el.dispatchEvent(new MouseEvent('mousemove', down));
       el.dispatchEvent(new PointerEvent('pointerdown', down));
       el.dispatchEvent(new MouseEvent('mousedown', down));
-      if (el.focus) { try { el.focus(); } catch (e) {} }
+      if (focus && el.focus) { try { el.focus(); } catch (e) {} }
       el.dispatchEvent(new PointerEvent('pointerup', up));
       el.dispatchEvent(new MouseEvent('mouseup', up));
       el.dispatchEvent(new MouseEvent('click', Object.assign({}, up, { detail: 1 })));
       return el.tagName + ' :: ' + (el.textContent || '').trim().slice(0, 30);
     },
-    key: function (k) {
-      var t = document.activeElement || document.body;
-      var o = { key: k, code: k, bubbles: true, cancelable: true, composed: true, view: window };
+    /*
+      key('Escape') — как было: нажатие в активный элемент. Второй и третий
+      аргументы добавлены под рекордер хоткея: mods — модификаторы
+      ({ctrl, alt, shift, meta}), sel — куда именно диспатчить (по умолчанию
+      активный элемент). sel: 'body' воспроизводит настоящее поведение WebKit:
+      кнопка не сфокусирована, и нажатие уходит в <body>.
+    */
+    key: function (k, mods, sel) {
+      var m = mods || {};
+      var t = sel ? document.querySelector(sel) : null;
+      if (!t) t = document.activeElement || document.body;
+      var o = { key: m.key || k, code: k, bubbles: true, cancelable: true, composed: true, view: window,
+                ctrlKey: !!m.ctrl, altKey: !!m.alt, shiftKey: !!m.shift, metaKey: !!m.meta };
       var down = new KeyboardEvent('keydown', o);
       t.dispatchEvent(down);
       t.dispatchEvent(new KeyboardEvent('keyup', o));
       return { target: t.tagName, defaultPrevented: down.defaultPrevented };
+    },
+
+    /** Куда попал фокус и что сейчас написано в поле-рекордере хоткея. */
+    recorderState: function () {
+      var field = document.querySelector('button[aria-label^="Сочетание"], button[aria-label="Нажмите сочетание"]');
+      var active = document.activeElement;
+      return {
+        found: !!field,
+        label: field ? field.getAttribute('aria-label') : null,
+        text: field ? (field.textContent || '').trim() : null,
+        focusIsRecorder: !!field && active === field,
+        activeTag: active ? active.tagName.toLowerCase() : null,
+        activeLabel: active ? active.getAttribute('aria-label') : null,
+        error: (function () {
+          var alert = document.querySelector('[data-shortcut-row] p[role="alert"]');
+          return alert ? alert.textContent.trim() : null;
+        })()
+      };
     },
     clickText: function (sel, text) {
       var b = Array.prototype.slice.call(document.querySelectorAll(sel))

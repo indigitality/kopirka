@@ -44,8 +44,8 @@ import { defaultLibraryPathFor, expandHomeWith, normalizeShortcut, supportDirFor
 import {
   normalizeShortcut as normalizeShortcutInWeb,
   recordFromEvent,
+  shortcutConflict,
   shortcutLabel,
-  systemConflict,
 } from '../../web/src/lib/shortcut.js';
 
 const SERVER_DIR = fileURLToPath(new URL('..', import.meta.url));
@@ -1389,8 +1389,12 @@ async function main(): Promise<void> {
     );
 
     // Системные сочетания отбиваются до обращения к оболочке.
-    assert(systemConflict('Shift+Super+Digit4') !== null, '⇧⌘4 не опознано как системное');
-    assert(systemConflict('Alt+Super+KeyC') === null, '⌥⌘C сочли системным');
+    assert(shortcutConflict('Shift+Super+Digit4')?.owner === 'system', '⇧⌘4 не опознано как системное');
+    assert(shortcutConflict('Alt+Super+KeyC') === null, '⌥⌘C сочли занятым');
+    // ⌘C/⌘V/⌘X забирает родное меню окна (menu.rs) — до страницы они не доходят.
+    for (const spec of ['Super+KeyC', 'Super+KeyV', 'Super+KeyX']) {
+      assert(shortcutConflict(spec)?.owner === 'app', `${spec} не опознано как занятое меню приложения`);
+    }
 
     // Клавиатурное событие → нотация плагина.
     const pressed = recordFromEvent({

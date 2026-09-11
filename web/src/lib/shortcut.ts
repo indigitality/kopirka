@@ -70,6 +70,26 @@ const SYSTEM: Record<string, string> = {
   'Super+Space': 'Spotlight',
 };
 
+/**
+ * Сочетания, которые забирает себе родное меню окна (`desktop/src-tauri/src/menu.rs`,
+ * раздел «Правка»: Вырезать / Копировать / Вставить). На macOS эквиваленты пунктов
+ * меню разбираются раньше, чем нажатие доходит до страницы, — поэтому повесить их
+ * на снимок области нельзя: в собственном окне «Копирки» они просто не сработают.
+ * Отличаем от `SYSTEM`: там занято самой macOS, здесь — этим приложением.
+ */
+const APP_MENU: Record<string, string> = {
+  'Super+KeyC': 'Копировать',
+  'Super+KeyV': 'Вставить',
+  'Super+KeyX': 'Вырезать',
+};
+
+/** Кто занял сочетание: сама macOS или меню «Копирки». */
+export interface ShortcutConflict {
+  owner: 'system' | 'app';
+  /** Чем именно занято — уходит в скобки после «занято…». */
+  what: string;
+}
+
 /** Разобрать нотацию плагина. `null` — строка не сочетание. */
 export function parseShortcut(spec: string): ShortcutParts | null {
   const parts = spec
@@ -161,12 +181,23 @@ export function shortcutLabel(spec: string, windows = false): string {
 }
 
 /**
- * Сочетание занято системой? Возвращает, чем именно, — текст уходит в ошибку.
+ * Сочетание уже занято? Возвращает, кем и чем именно, — текст уходит в ошибку.
  * `null` — свободно (насколько об этом можно судить, не спросив систему).
  */
-export function systemConflict(spec: string): string | null {
+export function shortcutConflict(spec: string): ShortcutConflict | null {
   const normalized = normalizeShortcut(spec);
-  return normalized === null ? null : (SYSTEM[normalized] ?? null);
+  if (normalized === null) return null;
+  const system = SYSTEM[normalized];
+  if (system !== undefined) return { owner: 'system', what: system };
+  const app = APP_MENU[normalized];
+  if (app !== undefined) return { owner: 'app', what: app };
+  return null;
+}
+
+/** Готовая фраза отказа: «⇧⌘4 занято системой (снимок экрана macOS)». */
+export function conflictMessage(spec: string, conflict: ShortcutConflict, windows = false): string {
+  const owner = conflict.owner === 'system' ? 'занято системой' : 'занято меню приложения';
+  return `${shortcutLabel(spec, windows)} ${owner} (${conflict.what})`;
 }
 
 /** Только модификаторы, без клавиши, — «живой» показ во время записи. */

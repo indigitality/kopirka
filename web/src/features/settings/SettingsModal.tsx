@@ -30,11 +30,12 @@ import { cn } from '@/lib/cn';
 import { Icon } from '@/lib/icons';
 import { isWindowsShell, platformStrings } from '@/lib/platform';
 import {
+  conflictMessage,
   modifierLabel,
   recordFromEvent,
+  shortcutConflict,
   shortcutKeycaps,
   shortcutLabel,
-  systemConflict,
   type Modifier,
 } from '@/lib/shortcut';
 import { isTauri, pickDirectory } from '@/lib/tauri';
@@ -223,6 +224,23 @@ function Caret() {
   return <span className="h-4 w-0.5 shrink-0 rounded-pill bg-brand" aria-hidden />;
 }
 
+/**
+ * Минимум от `KeyboardEvent`, которым пользуется рекордер. Так один обработчик
+ * принимает и синтетическое событие React (с поля), и родное (со слушателя на
+ * `window`) — дублировать разбор нажатия для двух путей входа было бы верным
+ * способом их однажды развести.
+ */
+interface RecorderKeyEvent {
+  key: string;
+  code: string;
+  ctrlKey: boolean;
+  altKey: boolean;
+  shiftKey: boolean;
+  metaKey: boolean;
+  preventDefault: () => void;
+  stopPropagation: () => void;
+}
+
 interface RecorderProps {
   /** Сочетание в нотации плагина. */
   value: string;
@@ -233,13 +251,19 @@ interface RecorderProps {
   windows: boolean;
   onStart: () => void;
   onKeyDown: (event: KeyboardEvent<HTMLButtonElement>) => void;
-  onCancel: () => void;
 }
 
 /**
  * Поле-рекордер. Это кнопка, а не `<input>`: вводить сюда нечего, а фокус нужен —
- * `keydown` слушается на самом элементе, иначе запись перехватывала бы клавиши
+ * `keydown` слушается и на самом элементе, иначе запись перехватывала бы клавиши
  * у всей панели (в ней есть ещё два поля).
+ *
+ * Фокус ставим руками в `onClick`, до включения записи: WebKit (Safari и, значит,
+ * окно Tauri) по клику `<button>` не фокусирует — это его давняя особенность, не
+ * баг страницы. Без явного `focus()` запись включалась, а `keydown` уходил в
+ * `document.body`, мимо обработчика: ровно то, что Сергей видел в сборке 11.09 —
+ * «смена сочетания вообще не работает». Страховка от того же на случай, если фокус
+ * всё-таки уедет (клик по «Попробовать другое»), — слушатель на `window` в панели.
  */
 function ShortcutRecorder({
   value,
@@ -249,7 +273,6 @@ function ShortcutRecorder({
   windows,
   onStart,
   onKeyDown,
-  onCancel,
 }: RecorderProps) {
   const caps = recording
     ? pending.map((modifier) => modifierLabel(modifier, windows))
@@ -258,11 +281,11 @@ function ShortcutRecorder({
   return (
     <button
       type="button"
-      onClick={onStart}
-      onKeyDown={onKeyDown}
-      onBlur={() => {
-        if (recording) onCancel();
+      onClick={(event) => {
+        event.currentTarget.focus();
+        onStart();
       }}
+      onKeyDown={onKeyDown}
       aria-label={recording ? 'Нажмите сочетание' : `Сочетание ${shortcutLabel(value, windows)}`}
       className={cn(
         'flex h-[34px] w-[220px] shrink-0 items-center justify-center gap-1 rounded-md bg-control px-2.5',
@@ -416,6 +439,120 @@ export function SettingsModal({ open, onOpenChange, settings, onSave, className 
     };
   }, [awaitingStatus, inTauri, windowsShell]);
 
+  // ── FDB-10: запись сочетания ───────────────────────────────────────────────
+
+  const startRecording = () => {
+    setRecording(true);
+    setPendingModifiers([]);
+    setShortcutError(null);
+    setShortcutNote(null);
+  };
+
+  const stopRecording = () => {
+    setRecording(false);
+    setPendingModifiers([]);
+  };
+
+  /**
+   * Одно нажатие — два пути входа: React-обработчик на самом поле и слушатель на
+   * `window` (см. эффект ниже), поэтому событие описано структурно — подходит и
+   * синтетическое, и родное. Всплытие гасим — иначе Esc закрыл бы всю панель
+   * настроек вместо того, чтобы отменить запись (Radix слушает `keydown` на
+   * документе), а ⌘-сочетания ушли бы в меню окна.
+   */
+  const handleRecorderKey = (event: RecorderKeyEvent) => {
+    if (!recording) {
+      // Пробел и Enter на кнопке — это «начать запись», штатное поведение.
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (event.key === 'Escape') {
+      stopRecording();
+      return;
+    }
+    if (event.key === 'Backspace' || event.key === 'Delete') {
+      setPendingModifiers([]);
+      setShortcutError(null);
+      return;
+    }
+
+    const result = recordFromEvent({
+      ctrlKey: event.ctrlKey,
+      altKey: event.altKey,
+      shiftKey: event.shiftKey,
+      metaKey: event.metaKey,
+      code: event.code,
+      key: event.key,
+    });
+
+    if (result.kind === 'pending') {
+      setPendingModifiers(result.modifiers);
+      setShortcutError(null);
+      return;
+    }
+    if (result.kind === 'no-modifier') {
+      setShortcutError('Нужен хотя бы один модификатор: ⌃, ⌥, ⇧ или ⌘');
+      return;
+    }
+
+    /*
+      Занятые сочетания отбиваем сразу, не дожидаясь оболочки: системные macOS не
+      отдаст ни одной программе, а ⌘C/⌘V/⌘X забирает родное меню окна
+      (`desktop/src-tauri/src/menu.rs`) — до страницы они попросту не доходят.
+    */
+    const taken = shortcutConflict(result.spec);
+    if (taken !== null) {
+      setPendingModifiers([]);
+      setShortcutError(conflictMessage(result.spec, taken, windowsShell));
+      return;
+    }
+
+    setCaptureShortcut(result.spec);
+    lastShortcut.current = result.spec;
+    setShortcutError(null);
+    stopRecording();
+  };
+
+  /*
+    Свежая версия обработчика для слушателя на `window`: сам слушатель вешаем один
+    раз на время записи, а замыкание в нём должно быть всегда последним.
+  */
+  const recorderKeyRef = useRef(handleRecorderKey);
+  useEffect(() => {
+    recorderKeyRef.current = handleRecorderKey;
+  });
+
+  /*
+    Пока идёт запись, ловим `keydown` ещё и на `window` в фазе перехвата — тогда
+    сочетание запишется, откуда бы ни пришло нажатие. Это лечение бага из сборки
+    11.09 («смена сочетания вообще не работает»): WebKit по клику не фокусирует
+    `<button>`, запись включалась, а нажатия уходили в `document.body` мимо
+    обработчика поля. Перехват нужен и сам по себе — иначе Esc закрыл бы всю
+    панель, а ⌘-сочетания ушли бы в меню окна.
+
+    Клик мимо строки хоткея запись отменяет: иначе панель осталась бы глухой к
+    вводу в соседние поля (путь и порт). Отмены по blur больше нет — в WebKit
+    фокус ведёт себя слишком своевольно, чтобы вешать на него отмену.
+  */
+  useEffect(() => {
+    if (!recording) return;
+    const onKeyDown = (event: globalThis.KeyboardEvent) => recorderKeyRef.current(event);
+    const onPointerDown = (event: Event) => {
+      const target = event.target as Element | null;
+      if (target !== null && typeof target.closest === 'function' && target.closest('[data-shortcut-row]')) return;
+      setRecording(false);
+      setPendingModifiers([]);
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    window.addEventListener('pointerdown', onPointerDown, true);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown, true);
+      window.removeEventListener('pointerdown', onPointerDown, true);
+    };
+  }, [recording]);
+
   const pathError = useMemo(() => {
     if (libraryPath.trim()) return null;
     return 'Укажите путь к папке библиотеки';
@@ -461,77 +598,6 @@ export function SettingsModal({ open, onOpenChange, settings, onSave, className 
     setFieldError(null);
     setFormError(null);
     setPickError(null);
-  };
-
-  // ── FDB-10: запись сочетания ───────────────────────────────────────────────
-
-  const startRecording = () => {
-    setRecording(true);
-    setPendingModifiers([]);
-    setShortcutError(null);
-    setShortcutNote(null);
-  };
-
-  const stopRecording = () => {
-    setRecording(false);
-    setPendingModifiers([]);
-  };
-
-  /**
-   * Клавиши ловим на самом поле, а не на документе: в панели есть ещё два поля,
-   * и запись не должна отбирать ввод у них. Всплытие гасим — иначе Esc закрыл бы
-   * всю панель настроек вместо того, чтобы отменить запись (Radix слушает
-   * `keydown` на документе).
-   */
-  const handleRecorderKey = (event: KeyboardEvent<HTMLButtonElement>) => {
-    if (!recording) {
-      // Пробел и Enter на кнопке — это «начать запись», штатное поведение.
-      return;
-    }
-    event.preventDefault();
-    event.stopPropagation();
-
-    if (event.key === 'Escape') {
-      stopRecording();
-      return;
-    }
-    if (event.key === 'Backspace' || event.key === 'Delete') {
-      setPendingModifiers([]);
-      setShortcutError(null);
-      return;
-    }
-
-    const result = recordFromEvent({
-      ctrlKey: event.ctrlKey,
-      altKey: event.altKey,
-      shiftKey: event.shiftKey,
-      metaKey: event.metaKey,
-      code: event.code,
-      key: event.key,
-    });
-
-    if (result.kind === 'pending') {
-      setPendingModifiers(result.modifiers);
-      setShortcutError(null);
-      return;
-    }
-    if (result.kind === 'no-modifier') {
-      setShortcutError('Нужен хотя бы один модификатор: ⌃, ⌥, ⇧ или ⌘');
-      return;
-    }
-
-    // Системные сочетания отбиваем сразу: их не отдаст ни одной программе macOS.
-    const taken = systemConflict(result.spec);
-    if (taken !== null) {
-      setPendingModifiers([]);
-      setShortcutError(`${shortcutLabel(result.spec, windowsShell)} занято системой (${taken})`);
-      return;
-    }
-
-    setCaptureShortcut(result.spec);
-    lastShortcut.current = result.spec;
-    setShortcutError(null);
-    stopRecording();
   };
 
   /** Тогл. Выключаем — запоминаем сочетание, включаем — возвращаем его же. */
@@ -704,6 +770,8 @@ export function SettingsModal({ open, onOpenChange, settings, onSave, className 
                 {captureShortcut !== null ? (
                   <motion.div
                     key="recorder"
+                    /* Клик внутри этой группы запись не отменяет — см. эффект со слушателями. */
+                    data-shortcut-row
                     className="flex shrink-0 flex-col items-start gap-2"
                     {...layerMotion({ y: -4, enter: 0.16, reduced })}
                   >
@@ -717,7 +785,6 @@ export function SettingsModal({ open, onOpenChange, settings, onSave, className 
                         windows={windowsShell}
                         onStart={startRecording}
                         onKeyDown={handleRecorderKey}
-                        onCancel={stopRecording}
                       />
                       <IconButton
                         variant="secondary"

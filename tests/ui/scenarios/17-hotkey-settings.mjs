@@ -7,6 +7,9 @@
  *   клик по полю → запись, нажатие ⌃⌥K фиксирует сочетание, «Сохранить» пишет
  *   его в конфиг — это и проверяется через `GET /api/settings`, а не по DOM.
  *
+ * Плюс правка 11.09.2026: после клика фокус стоит на поле, а нажатие, посланное
+ * мимо него (в `document.body`), всё равно записывается — слушателем на `window`.
+ *
  * Настоящую регистрацию хоткея здесь проверить нельзя: её делает оболочка Tauri,
  * а прогон идёт в браузере. Она проверяется руками в собранном приложении.
  */
@@ -132,6 +135,65 @@ export default async function hotkeySettings(ctx) {
     },
     { timeout: 5000, message: 'сброс на ⌥⌘C не доехал до конфига' },
   );
+
+  /*
+    Фокус и слушатель на `window` (правка 11.09.2026). В Chrome клик по <button>
+    фокус ставит сам, поэтому баг «нажатия уходят в document.body» тут не
+    воспроизводится — он ловится WebKit-стендом. Здесь проверяем две половины
+    лечения структурно: после клика фокус на поле, и нажатие, посланное МИМО
+    поля (в `document.body`), всё равно записывается.
+  */
+  await page.click(RECORDER);
+  const focusLabel = await page.evaluate(() => {
+    const el = document.activeElement;
+    return el === null ? null : (el.getAttribute('aria-label') ?? el.tagName);
+  });
+  assert.equal(focusLabel, 'Нажмите сочетание', `после клика фокус на «${focusLabel}», а не на поле-рекордере`);
+
+  const prevented = await page.evaluate(() => {
+    const event = new KeyboardEvent('keydown', {
+      key: 'k', code: 'KeyK', ctrlKey: true, altKey: true,
+      bubbles: true, cancelable: true, composed: true,
+    });
+    document.body.dispatchEvent(event);
+    return event.defaultPrevented;
+  });
+  assert.ok(prevented, 'нажатие мимо поля не было перехвачено слушателем на window');
+  await waitFor(
+    async () => {
+      const text = await page.$eval(RECORDER, (node) => node.textContent ?? '');
+      return text.includes('⌃') && text.includes('⌥') && text.includes('K');
+    },
+    { timeout: 3000, message: 'нажатие в document.body не записалось в поле' },
+  );
+
+  // ⌘C забирает родное меню окна (desktop/src-tauri/src/menu.rs) — отбиваем сразу.
+  await page.click(RECORDER);
+  await page.evaluate(() => {
+    document.body.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'c', code: 'KeyC', metaKey: true, bubbles: true, cancelable: true, composed: true,
+      }),
+    );
+  });
+  await waitFor(
+    async () => {
+      const found = await page.$('[data-shortcut-row] p[role="alert"]');
+      if (!found) return false;
+      const text = await page.$eval('[data-shortcut-row] p[role="alert"]', (node) => node.textContent ?? '');
+      await found.dispose();
+      return text.includes('занято меню приложения');
+    },
+    { timeout: 3000, message: 'на ⌘C не показана ошибка «занято меню приложения»' },
+  );
+
+  // Esc во время записи отменяет запись, а панель настроек оставляет открытой.
+  await page.keyboard.press('Escape');
+  await waitFor(async () => (await countMatching(page, 'button[aria-label="Нажмите сочетание"]')) === 0, {
+    timeout: 3000,
+    message: 'Esc не отменил запись',
+  });
+  assert.equal(await countMatching(page, DIALOG), 1, 'Esc во время записи закрыл всю панель настроек');
 
   await closeSettings(page);
 }
